@@ -227,3 +227,62 @@ describe('function-text-reach: scoring', () => {
     assert.ok(renderTable('t', [line], ks, false).startsWith('t\nmethod'));
   });
 });
+
+describe('function-text-reach: fusing a unit\'s own text with its best function\'s', async () => {
+  const { fuseMax, fuseSum, fuseRanks, fusedMethods, catalogEntries, FUSE_WEIGHTS, FUSE_ARM } = await import('../scripts/function-text-reach.mjs');
+  const NI = -Infinity;
+
+  it('the weights and the arm are fixed, not searched', () => {
+    assert.deepEqual(FUSE_WEIGHTS, [0.3, 0.5, 0.7]);
+    assert.equal(FUSE_ARM, 'comments');
+  });
+  it('takes the higher cosine, and a unit with one text keeps that one', () => {
+    assert.deepEqual(fuseMax([0.2, 0.9, NI], [0.5, 0.1, 0.4]), [0.5, 0.9, 0.4]);
+    assert.deepEqual(fuseMax([NI], [NI]), [NI]);
+  });
+  it('weights the two, and scores a unit missing one text on the other alone', () => {
+    const s = fuseSum([0.2, NI, 0.6], [0.6, 0.4, NI], 0.5);
+    assert.ok(Math.abs(s[0] - 0.4) < 1e-12);
+    assert.equal(s[1], 0.4);
+    assert.equal(s[2], 0.6);
+    const w = fuseSum([1, 0], [0, 1], 0.7);
+    assert.ok(Math.abs(w[0] - 0.7) < 1e-12 && Math.abs(w[1] - 0.3) < 1e-12);
+  });
+  it('by rank: a unit second on both lists beats one first on one and last on the other', () => {
+    //            unit:   A     B     C     D
+    const label =      [0.9,  0.8,  0.1,  0.0];
+    const fn =         [0.0,  0.8,  0.1,  0.9];
+    const fused = fuseRanks(label, fn);
+    assert.ok(fused[1] > fused[0] && fused[1] > fused[3], 'B, second on both, is first');
+    assert.ok(fused[2] < fused[1]);
+  });
+  it('builds five methods for a kind, each reading the two lists from the per-query scratch', () => {
+    const K = { n: 2, holders: new Map(), groups: [[0], [1]] };
+    const ms = fusedMethods('mechanism', K, 'own:mechanism', 'comments');
+    assert.equal(ms.length, 2 + FUSE_WEIGHTS.length);
+    assert.ok(ms.every((m) => m.name.startsWith('mechanism: fused, ') && m.unit === 'mechanism' && m.units === 2));
+    // unit 0: label 0.1, its function 0.9; unit 1: label 0.6, its function 0.2
+    const shared = { 'own:mechanism': [0.1, 0.6], comments: [0.9, 0.2] };
+    const max = ms.find((m) => /higher cosine/.test(m.name)).scoreOf(null, shared);
+    assert.deepEqual(max, [0.9, 0.6]);
+    const half = ms.find((m) => /weighted sum, 0.5/.test(m.name)).scoreOf(null, shared);
+    assert.ok(Math.abs(half[0] - 0.5) < 1e-12 && Math.abs(half[1] - 0.4) < 1e-12);
+  });
+  it('turns catalog rows into texts credited to the one function a handler resolves to', () => {
+    const fns = [{ id: 'a.js@doSearch', name: 'doSearch' }, { id: 'b.js@Cls::render', name: 'Cls::render' }, { id: 'c.js@dup', name: 'dup' }, { id: 'd.js@dup', name: 'dup' }];
+    const cat = {
+      cliOptions: [
+        { name: 'search', flags: ['--search'], help: 'Search the index', handler: { handlerFunc: 'doSearch' } },
+        { name: 'x', flags: ['--x'], handler: { handlerFunc: 'dup' } },          // two functions of that name: not credited
+        { name: 'y', flags: ['--y'], handler: { handlerFunc: null } },          // a modifier: no handler
+      ],
+      guiActions: [
+        { name: 'vocab', label: 'Vocabulary', handler: { handlerFunc: 'render' } },
+        { name: 'nolabel', handler: { handlerFunc: 'doSearch' } },               // no label: no text to score
+      ],
+    };
+    const e = catalogEntries(cat, fns);
+    assert.deepEqual(e.map((x) => `${x.kind}|${x.fnId}|${x.text}`), ['cli|a.js@doSearch|--search  Search the index', 'gui|b.js@Cls::render|Vocabulary']);
+    assert.deepEqual(catalogEntries(null, fns), []);
+  });
+});

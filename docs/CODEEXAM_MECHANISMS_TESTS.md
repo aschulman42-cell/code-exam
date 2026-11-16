@@ -497,6 +497,84 @@ every call fills its output allowance.
 - **Nothing here links a limitation to its code among the limitations of one claim.** That
   remains the open problem, and it is the one that matters for a chart.
 
+## The label and the function text as one score (2026-11-15)
+
+The section above scored a mechanism two ways, by its label and by the text of its best
+function, and found each ahead on a different measure: the label at rank 1 on original
+wording, the function text within 5. This scores the two together, on the vectors already
+computed (nomic, the same queries, the same two controls). Three ways of combining, all
+fixed before any run and all reported: reciprocal-rank fusion (k = 60, as
+[`describe-reach.md`](describe-reach.md) uses), the higher of the two cosines, and a
+weighted sum at three weights. The function text is the `comments` form throughout.
+
+**The self-test claims** (212 per run, CodeExam's own index; share of a claim's functions
+at rank 1, and within 5):
+
+| mechanism scored by | Claude draft | reworded | ChatGPT draft | reworded |
+|---|--:|--:|--:|--:|
+| label alone | 73 / 90 | 52 / 78 | 81 / 92 | 41 / 59 |
+| best function alone | 65 / 99 | 56 / 95 | 70 / 99 | 46 / 85 |
+| fused: reciprocal rank | 90 / 97 | 69 / 88 | 89 / 98 | 53 / 78 |
+| fused: higher cosine | 66 / 99 | 58 / 95 | 75 / 99 | 47 / 85 |
+| fused: sum, 0.3 on the label | **93** / 98 | **78** / 93 | **95** / 99 | **61** / 84 |
+| fused: sum, 0.5 | 89 / 97 | 72 / 90 | 94 / 99 | 55 / 78 |
+| fused: sum, 0.7 | 83 / 96 | 65 / 87 | 91 / 97 | 49 / 73 |
+
+- **At rank 1 the weighted sum is far ahead of either text alone** on all four runs: 78%
+  and 61% on the reworded claims, where the better single text gives 56% and 46%. The
+  other-query control stays where the label's was (8% and 8% at rank 1).
+- **Within 5 it does not beat the function text**: 93 against 95, 84 against 85. The
+  function text alone was already near its ceiling there.
+- **The weight matters and in one direction**: more weight on the function text is better
+  at every measure, 0.3 ahead of 0.5 ahead of 0.7. The higher cosine is no better than the
+  function text alone, because the function's cosine is nearly always the higher.
+- **For a file, fusion adds nothing**: the file's best function already gives 88% and 72%
+  at rank 1 reworded, and every fused form is level or a point below.
+
+**The litigant rows** (12 filings, 39 chart rows; share within 5 and within 25, with
+another limitation of the same chart in parentheses):
+
+| mechanism scored by | within 5 | within 25 |
+|---|--:|--:|
+| label alone | 13 (16) | 46 (42) |
+| best function, comments | 4 (7) | 40 (36) |
+| best function, context | 5 (7) | 51 (49) |
+| fused: reciprocal rank | 9 (9) | 51 (48) |
+| fused: higher cosine | 4 (7) | 38 (36) |
+| fused: sum, 0.3 on the label | 9 (12) | 48 (46) |
+| fused: sum, 0.5 | 6 (9) | 49 (47) |
+| fused: sum, 0.7 | 6 (9) | 48 (46) |
+
+**On what parties cited, fusion gains nothing.** No fused form is ahead of the label within
+5, the best is 5 points ahead within 25 with the other-limitation control 6 points up
+beside it, and rank 1 is 2% or less for all. For files the same: file vocabulary 59 (50)
+and the best function's vocabulary 77 (69) within 25; the fused forms 73 to 75 (62 to 66).
+
+**The rule set before the run** was that a fused form would be proposed for
+`--embed-distance` if it beat both single texts at rank 1 **and** within 5 on both
+reworded runs and was no worse on the chart rows. It beats both at rank 1 by 15 to 22
+points, falls 1 to 2 points short of the function text within 5, and is no better on the
+chart rows. The rule is not met as written; `--embed-distance` is unchanged. What the
+self-test shows is real and narrow: when a claim is about one mechanism and worded away
+from it, reading the label together with the function text finds that mechanism first far
+more often. The self-test is circular in that direction, and the chart rows, which are
+not, show no such gain.
+
+**The catalog's labels as text.** A CLI option's flags and help line, or a GUI control's
+label, credited to the function its handler resolves to. Stated before the run: this can
+only be scored where an index has catalog rows with resolved handlers. **None of the
+twelve filing indexes has one**, so the litigant rows could not test it. On CodeExam's own
+index 114 CLI options have one (the index holds no HTML, so no GUI label), and 36 of the
+212 claims have an answer among their handlers (51 functions). Scored alone on those: at
+rank 1, 61% and 67% on the original wording, 41% and 27% reworded, against 2% to 10% for
+the controls; that is below the label on the same runs. As a third text for the mechanism
+holding the handler it changed no figure. A small set, one codebase, one model.
+
+```
+node scripts/function-text-reach.mjs --hof <index>/hof/<run> --claims-file <reworded claims> --k 1,5,25
+node scripts/function-text-reach.mjs --filings <work folder> --k 1,5,25,100
+```
+
 ## Found on the way: command mechanisms depend on file order (2026-11-14)
 
 Building CodeExam's own index three times from the same source gave three sets of command
@@ -925,7 +1003,7 @@ read each other's vectors.
 
 ## Sections to come
 
-The label and the function text fused as one score for a mechanism. The grouper's cover and split measurements, the two describers compared as a
+The grouper's cover and split measurements, the two describers compared as a
 table of contents, the no-match calibration of `--embed-distance`, and local describe
 timings. The measurements of descriptions as search text are on
 [`describe-reach.md`](describe-reach.md).

@@ -73,7 +73,8 @@ import { resolveEmbedModel, entryChunks, entryText, embedAll, openEmbedder, medi
 import { foldRecords } from '../src/core/mechanisms-index.js';
 import { parseSidecar, baseName } from '../src/core/hof.js';
 import { functionsByFile, recordsByMember, scoreFiling, filingsOf, oneFunctionIds } from './mechanism-containment.mjs';
-import { claimElements, ranksOf } from './describe-reach.mjs';
+import { claimElements, ranksOf, rrfFuse, RRF_K } from './describe-reach.mjs';
+import { extractCommandCatalog } from '../src/core/breadcrumbs-commands.js';
 
 const slash = (s) => String(s || '').replace(/\\/g, '/');
 const nf = (x) => Number(x || 0).toLocaleString('en-US');
@@ -220,6 +221,56 @@ export function scoreIndex(methods, queries, ks) {
   return out;
 }
 
+// ---- fusing two texts of one unit (mechanism-fused-text-reach, 2026-11-15) --------
+// A mechanism has a label and its functions' texts; a file has its vocabulary and its
+// functions' texts. Each alone was scored above. These read both for one unit. The arm of
+// the function text and the weights were fixed before any run, and every one is reported:
+// nothing here is searched for the best figure.
+export const FUSE_ARM = 'comments';
+export const FUSE_WEIGHTS = [0.3, 0.5, 0.7];   // the weight on the unit's own text
+const fin = (x, other) => (Number.isFinite(x) ? x : other);
+/** The higher of the two cosines per unit; a unit with only one text keeps that one. */
+export function fuseMax(a, b) { return a.map((x, i) => Math.max(fin(x, -Infinity), fin(b[i], -Infinity))); }
+/** w on the first list, 1 - w on the second; a unit missing one text is scored on the other alone. */
+export function fuseSum(a, b, w) {
+  return a.map((x, i) => { const y = b[i]; if (!Number.isFinite(x)) return fin(y, -Infinity); if (!Number.isFinite(y)) return x; return w * x + (1 - w) * y; });
+}
+/** Reciprocal-rank fusion of the two lists (the form scripts/describe-reach.mjs uses, k = RRF_K). */
+export function fuseRanks(a, b) { return rrfFuse([a, b]); }
+/** The fused methods for one kind of unit, given how to get its two score lists from the per-query scratch. */
+export function fusedMethods(kind, K, ownKey, arm) {
+  const two = (shared) => [shared[ownKey], rollUp(shared[arm], K.groups)];
+  const mk = (name, f) => ({ name: `${kind}: fused, ${name}`, unit: kind, units: K.n, holders: K.holders, scoreOf: (q, shared) => { const [a, b] = two(shared); return f(a, b); } });
+  return [
+    mk(`reciprocal rank (k=${RRF_K})`, fuseRanks),
+    mk('higher cosine', fuseMax),
+    ...FUSE_WEIGHTS.map((w) => mk(`weighted sum, ${w} own text`, (a, b) => fuseSum(a, b, w))),
+  ];
+}
+
+/**
+ * The command catalog's labels as texts: a CLI option's flags and help line, a GUI
+ * control's label, each credited to the one function its handler resolves to in the pool.
+ * Returns [{ text, fnId, kind }], empty when the index has no catalog row with a handler.
+ */
+export function catalogEntries(catalog, fns) {
+  const byName = new Map();
+  for (const f of fns) for (const n of new Set([f.name, leafOf(f.name)])) { if (!byName.has(n)) byName.set(n, []); byName.get(n).push(f); }
+  const one = (name) => { const m = byName.get(name) || []; return m.length === 1 ? m[0] : null; };
+  const out = [];
+  for (const o of (catalog && catalog.cliOptions) || []) {
+    const h = o.handler && o.handler.handlerFunc ? one(o.handler.handlerFunc) : null;
+    if (!h) continue;
+    out.push({ text: `${(o.flags || []).join(', ') || o.name}${o.help ? '  ' + o.help : ''}`.slice(0, 400), fnId: h.id, kind: 'cli' });
+  }
+  for (const a of (catalog && catalog.guiActions) || []) {
+    const h = a.handler && a.handler.handlerFunc && a.label ? one(a.handler.handlerFunc) : null;
+    if (!h) continue;
+    out.push({ text: String(a.label).slice(0, 400), fnId: h.id, kind: 'gui' });
+  }
+  return out;
+}
+
 // ---- one index ----------------------------------------------------------------
 
 async function loadIndex(dir) {
@@ -288,6 +339,11 @@ async function prepare(dir, name, answerIds, o, embedder) {
   for (const arm of o.arms) fnVecs[arm] = await emb(fnTexts[arm], `fn-${arm}.json`);
   const ownVecs = {};
   for (const k of Object.keys(own)) ownVecs[k] = own[k].texts.length ? await emb(own[k].texts, `unit-${k}.json`) : [];
+  // The command catalog's labels, where the index has any with a resolved handler.
+  let cat = [];
+  try { const log = console.log; console.log = () => {}; try { cat = catalogEntries(extractCommandCatalog(idx, false), fns); } finally { console.log = log; } } catch { /* an index with no source lines has no catalog */ }
+  info.catalog = { entries: cat.length, cli: cat.filter((e) => e.kind === 'cli').length, gui: cat.filter((e) => e.kind === 'gui').length };
+  const catVecs = cat.length ? await emb(cat.map((e, i) => ({ key: String(i), text: e.text })), 'unit-catalog.json') : [];
   info.embedSeconds = Math.round((Date.now() - t0) / 1000);
 
   const methods = [];
@@ -296,8 +352,26 @@ async function prepare(dir, name, answerIds, o, embedder) {
   for (const kind of ['mechanism', 'class', 'file']) {
     const K = kinds[kind];
     if (!K.n) continue;
-    for (const k of (kind === 'mechanism' ? ['mechanism', 'purpose'] : [kind])) methods.push({ name: `${kind}: ${ownName[k]}`, unit: kind, units: K.n, holders: K.holders, scoreOf: bestChunkScorer(ownVecs[k], own[k].unit, K.n) });
+    for (const k of (kind === 'mechanism' ? ['mechanism', 'purpose'] : [kind])) { const score = bestChunkScorer(ownVecs[k], own[k].unit, K.n); methods.push({ name: `${kind}: ${ownName[k]}`, unit: kind, units: K.n, holders: K.holders, scoreOf: (q, shared) => (shared[`own:${k}`] = score(q)) }); }
     for (const arm of o.arms) methods.push({ name: `${kind}: best function, ${arm}`, unit: kind, units: K.n, holders: K.holders, scoreOf: (q, shared) => rollUp(shared[arm], K.groups) });
+    // The unit's own text fused with its best function's text (mechanisms and files; a class has too few rows to read).
+    if (kind !== 'class' && o.arms.includes(FUSE_ARM)) methods.push(...fusedMethods(kind, K, `own:${kind}`, FUSE_ARM));
+  }
+  // The catalog's labels: scored alone, each entry credited to its handler function; and as a
+  // third text for the mechanism that holds that handler (the higher of the three cosines).
+  if (cat.length) {
+    const holders = new Map();
+    cat.forEach((e, i) => { if (!holders.has(e.fnId)) holders.set(e.fnId, []); holders.get(e.fnId).push(i); });
+    methods.push({ name: 'catalog: flag and help, or control label', unit: 'catalog', units: cat.length, holders, scoreOf: (q, shared) => (shared.catalog = catVecs.map((v) => dot(q, v))) });
+    const M = kinds.mechanism;
+    if (M.n && o.arms.includes(FUSE_ARM)) {
+      const entryMechs = cat.map((e) => M.holders.get(e.fnId) || []);
+      methods.push({ name: 'mechanism: fused, higher cosine, with catalog label', unit: 'mechanism', units: M.n, holders: M.holders, scoreOf: (q, shared) => {
+        const s = fuseMax(shared['own:mechanism'], rollUp(shared[FUSE_ARM], M.groups));
+        shared.catalog.forEach((c, i) => { for (const u of entryMechs[i]) if (c > s[u]) s[u] = c; });
+        return s;
+      } });
+    }
   }
   return { methods, info, fns };
 }

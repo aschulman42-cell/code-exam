@@ -295,7 +295,11 @@ Dated one-line results; the tables are on the linked pages.
   its member functions. On self-test claims reworded by a second model the right record is
   within 5 for 95% and 85% of anchored functions by its functions' text, against 78% and 59%
   by its label. On litigants' chart rows no such text tells one limitation of a chart from
-  another, and ranking single functions is the weakest form (2026-11-14, same page).
+  another, and ranking single functions is the weakest form (2026-11-14, same page). Scoring
+  the label and the function text together puts the right record first far more often on
+  those self-test claims (78% and 61% reworded, against 56% and 46% for the better single
+  text) and gains nothing on the chart rows; `--embed-distance` still scores the label
+  (2026-11-15, same page).
 
 Results about mechanisms themselves that have no section yet (the grouper's cover and split
 measurements, the two describers compared as a table of contents, the no-match calibration
