@@ -742,6 +742,168 @@ node --test test/test_command_catalog.js
 node src/index.js --index-path <index> --command-catalog
 ```
 
+## A second embedding model: EmbeddingGemma beside nomic (2026-11-15)
+
+Every figure above this section was computed under one embedding model, nomic. Andrew asked
+for Google's EmbeddingGemma to be tried. The first version (308M parameters) loads under the
+runtime CodeExam ships with and is in the registry as `gemma`; the second, which Google says
+is better on code, does not load under that runtime ("unknown model architecture:
+'gemma-embedding2'"); it was then run under a newer runtime kept outside the repository, on
+the self-test claims and seven of the twelve filings (the last part of this section). Prompts, files and the load results are in
+[`model-support.md`](model-support.md#embedding-models---embed-distance).
+
+EmbeddingGemma's card gives two query prompts that could fit: `task: code retrieval`, which
+it names for code search, and `task: search result`, the general one. Both were run, as
+`gemma` and `gemma-search`; documents take the same prompt either way. The runs repeat the
+"text built from the code" section above exactly: same script, same options, same queries,
+same two controls, on the same indexes.
+
+**The self-test claims, reworded** (212 claims drafted from mechanisms of CodeExam's own
+index, reworded by the other model; share of a claim's functions at rank 1 and within 5):
+
+| text scored | run | nomic @1 / @5 | gemma @1 / @5 | gemma-search @1 / @5 |
+|---|---|--:|--:|--:|
+| mechanism label | Claude draft, reworded | 52 / 78 | 60 / 84 | 73 / 91 |
+| mechanism label | ChatGPT draft, reworded | 41 / 59 | 47 / 79 | 59 / 86 |
+| mechanism, best function's comments | Claude draft, reworded | 56 / 95 | 66 / 96 | 66 / 98 |
+| mechanism, best function's comments | ChatGPT draft, reworded | 46 / 85 | 56 / 94 | 61 / 96 |
+| function comments | Claude draft, reworded | 28 / 51 | 27 / 52 | 36 / 64 |
+| function comments | ChatGPT draft, reworded | 17 / 37 | 18 / 37 | 29 / 53 |
+| file vocabulary | Claude draft, reworded | 74 / 92 | 65 / 87 | 73 / 93 |
+| file vocabulary | ChatGPT draft, reworded | 62 / 87 | 49 / 84 | 67 / 91 |
+
+On these, EmbeddingGemma is ahead of nomic and its general prompt is ahead of its code
+prompt, most on the reworded claims and at rank 1; the other-query control did not rise
+with it (mechanism label at rank 1, Claude draft reworded: 9%, 5%, 4%). On the original
+wording the order is the same and the gaps smaller (mechanism label at rank 1: 73, 76, 84
+and 81, 81, 89). The one loss is file vocabulary under the code prompt.
+
+**The litigant rows** (12 filings, 39 chart rows, 139 cited functions; share within 25, with
+the query of another limitation of the same chart and the chance draw in parentheses):
+
+| text scored | nomic | gemma | gemma-search |
+|---|--:|--:|--:|
+| function name | 13 (14 / 1) | 9 (10 / 0) | 12 (12 / 1) |
+| function comments | 6 (7 / 1) | 4 (6 / 3) | 11 (11 / 1) |
+| mechanism label | 46 (42 / 19) | 54 (50 / 17) | 58 (53 / 17) |
+| mechanism, best function's vocabulary | 50 (45 / 16) | 43 (40 / 16) | 47 (43 / 15) |
+| mechanism, best function's context | 51 (49 / 16) | 52 (48 / 16) | 56 (50 / 16) |
+| file vocabulary | 59 (50 / 23) | 63 (58 / 27) | 74 (63 / 29) |
+| file, best function's vocabulary | 77 (69 / 29) | 59 (58 / 39) | 69 (61 / 35) |
+| file, best function's context | 71 (65 / 31) | 73 (66 / 37) | 79 (72 / 32) |
+| class vocabulary (9 rows, 26 functions) | 65 (36 / 0) | 15 (8 / 4) | 42 (8 / 0) |
+
+**What the litigant rows say, and it is not what the self-test says.**
+
+- **More of a chart's functions are reached, and so are more of the wrong limitation's.**
+  The mechanism label goes from 46% to 58% within 25, and the other-limitation control
+  from 42% to 53%: the gap between the right limitation and another one of the same chart
+  is 4 points under nomic, 4 under `gemma`, 5 under `gemma-search`. Within 5 it is
+  13 (16), 18 (21), 26 (25): no gap under any. File vocabulary is the same shape: 59 (50),
+  63 (58), 74 (63).
+- **Against chance the margin does widen**: mechanism label 46 against 19, then 58 against
+  17. EmbeddingGemma is better at landing a limitation in the part of the codebase its
+  patent is about. It is no better at telling that limitation from its neighbours.
+- **Nomic is ahead on two rows**: the file scored by its best function's vocabulary
+  (77 against 59 and 69), and the class rows, which are 9 chart rows and too few to weigh.
+- **Rank 1 stays near empty under every model**: the mechanism label puts a cited function
+  first on 6, 1 and 6 of 35 chart rows (5%, 1%, 5% of the functions), and the other
+  limitation's query scores the same.
+
+So the finding of the section above stands under a second model: on what parties cited,
+text built from the code beats chance and does not beat another limitation. The self-test's
+large gain is a gain at matching a claim to the mechanism it was written from, reworded;
+that is the circular direction, and the litigant rows do not confirm it as a gain in
+telling limitations apart.
+
+**The two prompts.** The general prompt scored higher than the code prompt on both sets,
+on nearly every row. The texts searched here are labels and word lists built from code,
+not code, and the queries are claim language; that is a reason it could, and it was not
+tested. The registry's `gemma` keeps the prompt the card names for code, and
+`gemma-search` is there to be chosen.
+
+**The second version, under a newer runtime: the self-test, and seven of twelve filings.** Andrew asked for a runtime
+upgrade to be tried. node-llama-cpp 3.22.3 (llama.cpp release 0.9.0, against 0.5.0 in the
+shipped 3.22.1) loads EmbeddingGemma 2. It was installed in a scratch folder and the same
+script pointed at it for these runs; `package.json` and the repository's runtime are
+unchanged, and `gemma2` / `gemma2-search` remain marked as not loading under what CodeExam
+ships. About 16 short texts a second, against 25 for the first version and 29 for nomic.
+
+Mechanism label, share of a claim's functions at rank 1 (within 5):
+
+| run | nomic | gemma | gemma-search | gemma2 | gemma2-search |
+|---|--:|--:|--:|--:|--:|
+| Claude draft | 73 (90) | 76 (92) | 84 (94) | 84 (95) | 86 (95) |
+| Claude draft, reworded | 52 (78) | 60 (84) | 73 (91) | 64 (91) | 70 (91) |
+| ChatGPT draft | 81 (92) | 81 (95) | 89 (98) | 90 (97) | 91 (97) |
+| ChatGPT draft, reworded | 41 (59) | 47 (79) | 59 (86) | 58 (83) | 65 (86) |
+
+Function comments, reworded, rank 1: Claude draft 28, 27, 36, 30, 34; ChatGPT draft 17, 18,
+29, 18, 22. File scored by its best function's comments, ChatGPT draft reworded, rank 1:
+72, 80, 90, 78, 81.
+
+- **The second version is ahead of the first under the same prompt**, clearly so under the
+  code prompt (reworded mechanism label 60 to 64 and 47 to 58), and it repairs the first
+  version's loss on file vocabulary (65 and 49 back to 74 and 62, nomic's figures).
+- **It is not ahead of the first version with the general prompt.** On the mechanism label
+  it is 2 to 6 points up on three runs and 3 down on one; on function comments and on the
+  file's best function, reworded, the first version with the general prompt is higher.
+- **It depends much less on which prompt is used**: its two prompts differ by 1 to 7 points
+  where the first version's differ by 8 to 13.
+- **Not measured for it**: its 8,192-token context, since every text here is cut at
+  1,500 characters and the context opened at 2,048 tokens. No vector was compared with
+  Google's own implementation of the model: its scores for unrelated text are high (a
+  sorting query scored 0.79 against a sorting function and 0.55 against a sentence about
+  the weather, where the first version gave 0.50 and 0.07); the retrieval figures above are
+  far from chance, which is the evidence that the runtime computes it soundly, and it is
+  indirect.
+
+**The litigant rows, seven filings of twelve.** The four secp256k1 filings and three
+one- or two-row filings (text-generation-inference, dstoken, the coinbase SDK): 19 of the
+39 chart rows and about half of the cited functions. Counts of cited functions within 25,
+the right limitation and, after the slash, another limitation of the same chart:
+
+| text scored | nomic | gemma | gemma-search | gemma2 | gemma2-search (five filings) |
+|---|--:|--:|--:|--:|--:|
+| mechanism label, of 68 | 42 / 39 | 48 / 44 | 51 / 48 | 38 / 38 | 42 / 42 of 67 |
+| mechanism, best function's context, of 68 | 47 / 45 | 45 / 45 | 46 / 45 | 37 / 36 | 36 / 32 of 67 |
+| file vocabulary, of 72 | 41 / 38 | 60 / 54 | 65 / 58 | 52 / 49 | 50 / 49 of 69 |
+| file, best function's vocabulary, of 72 | 65 / 62 | 49 / 51 | 57 / 56 | 44 / 46 | 54 / 52 of 69 |
+| file, best function's context, of 72 | 58 / 57 | 62 / 56 | 65 / 60 | 61 / 54 | 61 / 58 of 69 |
+
+On these seven the second version is **behind the first** on the mechanism label and on
+file vocabulary under either prompt, and level with nomic on the label; and, as for every
+model, the other limitation of the same chart scores almost the same as the right one.
+The other five filings (Spark, Solana, the Ethereum consensus specs, two bitcoin
+snapshots: 20 chart rows, the larger codebases) were **not scored under the second
+version**: the run was stopped for memory partway through the first of them and Andrew
+chose to stop there. Half the rows show no advantage; the other half are unmeasured, and
+they are different codebases.
+
+On this evidence a runtime upgrade is not earned by EmbeddingGemma 2: on the self-test at
+this text length it matches the first version, more slowly, and on the filings scored it
+is behind it. An upgrade would also change the runtime every
+local generating model was qualified on ([`model-support.md`](model-support.md)).
+
+**Limits.** One quantization (Q8_0) and one machine (Intel Iris Xe through Vulkan; no check
+that its vectors equal a CUDA or CPU run's). The second version of the model was run on the self-test claims only. 39 chart rows, mostly two repositories; the
+charts are parties' advocacy and a match is agreement with a party. Large indexes are
+sampled to 3,500 functions, the same sample as the nomic run. The no-match band of
+`--embed-distance` was not recalibrated for EmbeddingGemma and is not applied to it. The
+litigant run was interrupted twice by the machine running low on memory and for a time two
+copies ran at once on the same vector cache; every file was checked to parse, and the
+scoring passes afterwards found every vector present and computed none.
+
+```
+node src/index.js --embed-model list
+node scripts/function-text-reach.mjs --filings <work folder> --k 1,5,25,100 --embed-model gemma --cache <its own folder>
+node scripts/function-text-reach.mjs --hof <index>/hof/<run> --claims-file <reworded claims> --k 1,5,25 --embed-model gemma-search --cache <the same folder>
+```
+
+Give each model its own `--cache` folder: the script's vector cache is kept per index and
+keyed by prompt and text, not by model, so two models that share a document prompt would
+read each other's vectors.
+
 ## Sections to come
 
 The label and the function text fused as one score for a mechanism. The grouper's cover and split measurements, the two describers compared as a

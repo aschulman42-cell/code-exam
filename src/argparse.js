@@ -147,7 +147,7 @@ export function parseArgs() {
     skip_semantic: true,
     embed_distance: null,    // embed-distance-cli: the text to measure from
     against: null,           // one text, or @file with one candidate per line; none = the index's mechanism entries
-    embed_model: null,       // nomic (default) | jina | coderank | qwen06 | qwen4 | <path.gguf>
+    embed_model: null,       // nomic (default) | jina | coderank | qwen06 | qwen4 | gemma | gemma-search | gemma2 | <path.gguf> | list
     no_prefix: false,        // embed the texts without the model's retrieval prefixes
     use_tree_sitter: true,     // tree-sitter wherever a grammar ships; --regex-parser opts out
     regex_parser: false,
@@ -1286,8 +1286,10 @@ SEARCH:
   --embed-model <name|path|list>
                              With --embed-distance: the local embedding model.
                              nomic (default) | jina | coderank | qwen06 | qwen4 |
-                             <path.gguf>, a comma list, or installed (every model under
-                             models/): the models run in turn, one loaded at a time, and
+                             gemma | gemma-search (EmbeddingGemma with its code-retrieval
+                             or its general search prompt) | <path.gguf>, a comma list,
+                             or installed (every model under models/ that the bundled
+                             runtime can load): the models run in turn, one at a time, and
                              the table gets a margin column per model (a rank column
                              under --filter) and one line per model. The no-match band is
                              calibrated on nomic only.

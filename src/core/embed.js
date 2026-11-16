@@ -37,6 +37,18 @@ export const EMBED_MODELS = {
   coderank: { file: 'coderankembed-q8_0.gguf', query: 'Represent this query for searching relevant code: ', doc: '', source: 'https://huggingface.co/ineersa/CodeRankEmbed-Q8_0-GGUF' },
   qwen06: { file: 'Qwen3-Embedding-0.6B-Q8_0.gguf', query: 'Instruct: Given a patent claim limitation, retrieve the source code mechanism that implements it\nQuery:', doc: '', source: 'https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF' },
   qwen4: { file: 'Qwen3-Embedding-4B-Q8_0.gguf', query: 'Instruct: Given a patent claim limitation, retrieve the source code mechanism that implements it\nQuery:', doc: '', source: 'https://huggingface.co/Qwen/Qwen3-Embedding-4B-GGUF' },
+  // EmbeddingGemma (Google). Prompts from its model card, read 2026-11-15: a document is
+  // "title: none | text: …"; a query names its task. `gemma` uses the task the card gives for
+  // searching code, `gemma-search` the general one, same file, so the two can be compared.
+  gemma: { file: 'embeddinggemma-300M-Q8_0.gguf', query: 'task: code retrieval | query: ', doc: 'title: none | text: ', source: 'https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF' },
+  'gemma-search': { file: 'embeddinggemma-300M-Q8_0.gguf', query: 'task: search result | query: ', doc: 'title: none | text: ', source: 'https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF' },
+  // EmbeddingGemma 2: same prompts, 8,192-token context. Its GGUF does not load under the
+  // llama.cpp of node-llama-cpp 3.22.1 ("unknown model architecture: 'gemma-embedding2'",
+  // 2026-11-15), so it is named here, skipped by `installed`, and tried only when asked for.
+  gemma2: { file: 'embeddinggemma-2-Q8_0.gguf', query: 'task: code retrieval | query: ', doc: 'title: none | text: ', source: 'https://huggingface.co/ggml-org/embeddinggemma-2-GGUF',
+    unsupported: 'does not load under the llama runtime shipped with CodeExam (node-llama-cpp 3.22.1: unknown model architecture gemma-embedding2)' },
+  'gemma2-search': { file: 'embeddinggemma-2-Q8_0.gguf', query: 'task: search result | query: ', doc: 'title: none | text: ', source: 'https://huggingface.co/ggml-org/embeddinggemma-2-GGUF',
+    unsupported: 'does not load under the llama runtime shipped with CodeExam (node-llama-cpp 3.22.1: unknown model architecture gemma-embedding2)' },
 };
 export const DEFAULT_EMBED_MODEL = 'nomic';
 
@@ -67,7 +79,7 @@ export function resolveEmbedModel(nameOrPath = DEFAULT_EMBED_MODEL, { modelsDir 
 export function embedModelRows({ modelsDir = MODELS_DIR } = {}) {
   return Object.entries(EMBED_MODELS).map(([name, spec]) => {
     const p = path.join(modelsDir, spec.file);
-    return { name, file: spec.file, path: p, installed: fs.existsSync(p), isDefault: name === DEFAULT_EMBED_MODEL, query: spec.query, doc: spec.doc, source: spec.source };
+    return { name, file: spec.file, path: p, installed: fs.existsSync(p), isDefault: name === DEFAULT_EMBED_MODEL, query: spec.query, doc: spec.doc, source: spec.source, unsupported: spec.unsupported || null };
   });
 }
 
@@ -76,12 +88,14 @@ export function formatEmbedModelList(opts = {}) {
   const rows = embedModelRows(opts);
   const dir = opts.modelsDir || MODELS_DIR;
   const show = (s) => (s ? JSON.stringify(s.length > 44 ? s.slice(0, 41) + '...' : s) : 'none');
-  const out = [`Embedding models CodeExam knows by name (${rows.filter((r) => r.installed).length} of ${rows.length} installed under ${dir}):`, ''];
+  const out = [`Embedding models CodeExam knows by name (${rows.filter((r) => r.installed && !r.unsupported).length} of ${rows.length} installed and able to run, under ${dir}):`, ''];
   for (const r of rows) {
-    out.push(`  ${r.name.padEnd(9)} ${r.installed ? 'installed    ' : 'not installed'}${r.isDefault ? '  (default)' : ''}`);
+    const state = !r.installed ? 'not installed' : r.unsupported ? 'file present, does not load' : 'installed';
+    out.push(`  ${r.name.padEnd(13)} ${state}${r.isDefault ? '  (default)' : ''}`);
     out.push(`            file    ${r.file}`);
     out.push(`            prefix  query ${show(r.query)}, document ${show(r.doc)}`);
     out.push(`            source  ${r.source}`);
+    if (r.unsupported) out.push(`            note    ${r.unsupported}; \`installed\` skips it`);
   }
   out.push('', 'Use: --embed-distance "<text>" --embed-model <name> | <path.gguf> | a,b (a comma list) | installed (every installed one).',
     'A model not installed: download its file from the source above into the models folder. Any other .gguf embedding',
@@ -190,7 +204,15 @@ export async function embedAll(ctx, texts, file, { prefix = '', label = '', quie
 export async function openEmbedder(modelPath, { cpu = false } = {}) {
   const { getLlamaShared } = await import('./llm-runner.js');
   const llama = await getLlamaShared({ cpu });
-  const model = await llama.loadModel({ modelPath });
+  let model;
+  try { model = await llama.loadModel({ modelPath }); } catch (e) {
+    // The runtime's own message is "Failed to load model"; say which file, and the usual cause
+    // for a file that is present and whole: an architecture newer than the bundled llama.cpp.
+    const known = Object.values(EMBED_MODELS).find((m) => m.unsupported && modelPath.replace(/\\/g, '/').endsWith('/' + m.file));
+    throw new Error(`embedding model failed to load: ${modelPath} (${String((e && e.message) || e)}). `
+      + (known ? `This model ${known.unsupported}.` : 'If the file is complete, its architecture may be newer than the llama runtime CodeExam ships with.')
+      + ' --embed-model list shows the models known to run.');
+  }
   // 2048 tokens holds any text TEXT_MAX_CHARS allows, identifiers included.
   const ctx = await model.createEmbeddingContext({ contextSize: 2048 });
   return { ctx, dispose: async () => { await ctx.dispose(); await model.dispose(); } };

@@ -50,7 +50,7 @@ describe('embed-distance', () => {
     assert.deepEqual([EMBED_MODELS.jina.query, EMBED_MODELS.jina.doc], ['', '']);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'embed-models-'));
     assert.throws(() => resolveEmbedModel('qwen4', { modelsDir: dir }), /not installed: expected .*Qwen3-Embedding-4B-Q8_0\.gguf; download it from https:/);
-    assert.throws(() => resolveEmbedModel('bogus', { modelsDir: dir }), /takes one of nomic, jina, coderank, qwen06, qwen4 or a path/);
+    assert.throws(() => resolveEmbedModel('bogus', { modelsDir: dir }), /takes one of nomic, jina, coderank, qwen06, qwen4, gemma, gemma-search, gemma2, gemma2-search or a path/);
     fs.writeFileSync(path.join(dir, 'nomic-embed-text-v1.5.Q8_0.gguf'), '');
     const m = resolveEmbedModel('nomic', { modelsDir: dir });
     assert.deepEqual([m.name, m.base, m.query], ['nomic', 'nomic-embed-text-v1.5.Q8_0', 'search_query: ']);
@@ -310,5 +310,24 @@ describe('embedModelRows: the registry as a listing', () => {
     assert.equal(rows.find((r) => r.name === DEFAULT_EMBED_MODEL).isDefault, true);
     assert.equal(rows.find((r) => r.name === 'nomic').query, 'search_query: ');
     assert.ok(rows.every((r) => r.file && r.source));
+  });
+});
+
+describe('EmbeddingGemma in the registry', () => {
+  it('gemma and gemma-search are one file with the two query tasks of the model card, and the document prompt', async () => {
+    const { EMBED_MODELS } = await import('../src/core/embed.js');
+    assert.equal(EMBED_MODELS.gemma.file, EMBED_MODELS['gemma-search'].file);
+    assert.equal(EMBED_MODELS.gemma.query, 'task: code retrieval | query: ');
+    assert.equal(EMBED_MODELS['gemma-search'].query, 'task: search result | query: ');
+    assert.equal(EMBED_MODELS.gemma.doc, 'title: none | text: ');
+  });
+  it('installed skips a model the bundled runtime cannot load, and runs a shared file once', async () => {
+    const { EMBED_MODELS } = await import('../src/core/embed.js');
+    const { resolveEmbedModels } = await import('../src/commands/embed-distance.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-embed-gemma-'));
+    for (const n of ['nomic', 'gemma', 'gemma2']) fs.writeFileSync(path.join(dir, EMBED_MODELS[n].file), '');
+    assert.ok(EMBED_MODELS.gemma2.unsupported, 'gemma2 is marked as not loading');
+    assert.deepEqual(resolveEmbedModels('installed', { modelsDir: dir }).map((m) => m.name), ['nomic', 'gemma']);
+    assert.deepEqual(resolveEmbedModels('gemma2', { modelsDir: dir }).map((m) => m.name), ['gemma2'], 'named outright, it is still tried');
   });
 });

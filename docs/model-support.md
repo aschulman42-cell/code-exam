@@ -417,6 +417,53 @@ scoring.
   model's navigation reached it alone. A stronger defensibility claim
   than an internal comparison could make.
 
+## Embedding models (`--embed-distance`)
+
+The matrix above is about generating models. Embedding models are a separate, smaller
+list: `src/core/embed.js` names each one with the prompts its makers specify, and
+`--embed-model list` prints the list, what is installed and what each is run with. Only
+nomic ships with CodeExam; the rest are downloads into `models/`. All run at a 2,048-token
+context, Q8_0 quantization. The no-match band of `--embed-distance` is calibrated on nomic
+only.
+
+| name | model | query prompt | document prompt | status |
+|---|---|---|---|---|
+| `nomic` (default) | nomic-embed-text v1.5 | `search_query: ` | `search_document: ` | ships |
+| `jina` | jina-embeddings-v2-base-code | none | none | download |
+| `coderank` | CodeRankEmbed | `Represent this query for searching relevant code: ` | none | download |
+| `qwen06`, `qwen4` | Qwen3-Embedding 0.6B, 4B | an instruction line naming the task | none | download |
+| `gemma` | EmbeddingGemma (308M), text | `task: code retrieval \| query: ` | `title: none \| text: ` | download; loads and runs |
+| `gemma-search` | the same file | `task: search result \| query: ` | `title: none \| text: ` | as `gemma` |
+| `gemma2`, `gemma2-search` | EmbeddingGemma 2, text tower (270M) | as `gemma`, `gemma-search` | as `gemma` | **does not load** under the shipped runtime; loads under node-llama-cpp 3.22.3 |
+
+**EmbeddingGemma, as read on 2026-11-15.** Prompts are from Google's model cards
+(`ai.google.dev/gemma/docs/embeddinggemma/model_card` for the first version,
+`huggingface.co/google/embeddinggemma-2` for the second), which give the same templates
+for both: a document is `title: {title | "none"} | text: {content}`; a query is
+`task: {task} | query: {content}`, with `code retrieval` the task named for code search
+and `search result` the general one. Both forms are in the registry so that they can be
+compared, and `gemma` takes the one the card prescribes for code, not the one that scores
+better here. Pooling is mean; output is 768 dimensions (Matryoshka truncation to 512, 256,
+128 is not used). The first version takes 2K tokens and is under the Gemma Terms of Use;
+the second takes 8,192 and is Apache 2.0, with image, video and audio encoders in a
+separate file that CodeExam does not use. The files are `ggml-org/embeddinggemma-300M-GGUF`
+(334 MB) and `ggml-org/embeddinggemma-2-GGUF` (310 MB); neither repository asked for a
+login.
+
+- **The first version loads and runs** under the bundled runtime (node-llama-cpp 3.22.1):
+  about 26 short texts a second on the Surface's integrated GPU, against 30 for nomic.
+- **The second does not**: `llama_model_load: error loading model: unknown model
+  architecture: 'gemma-embedding2'`. It needs a llama.cpp newer than the one in
+  node-llama-cpp 3.22.1 (llama.cpp release 0.5.0). **Under node-llama-cpp 3.22.3**
+  (release 0.9.0), installed in a scratch folder and not in this repository, **it loads and
+  runs**, at about 16 short texts a second; nomic and the first version load there too with
+  the same sanity scores as under 3.22.1. The runtime CodeExam ships was not upgraded:
+  every generating model in the matrix above was qualified on 3.22.1, and the measurement
+  ([`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md)) did not show the second
+  version ahead of the first at the text lengths CodeExam embeds. The registry keeps the
+  names so the run can be repeated with one word after an upgrade; until then `installed`
+  skips them and naming one gives that explanation.
+
 ## How a cell gets filled
 
 1. Run the feature with `-v` so tool calls are visible (they now print

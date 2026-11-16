@@ -56,7 +56,12 @@ export function resolveEmbedModels(spec = DEFAULT_EMBED_MODEL, opts = {}) {
   for (const p of parts) {
     if (p === 'installed') {
       const before = out.length;
-      for (const name of Object.keys(EMBED_MODELS)) { try { out.push(resolveEmbedModel(name, opts)); } catch { /* not installed */ } }
+      for (const name of Object.keys(EMBED_MODELS)) {
+        // A model the bundled runtime cannot load is skipped here, or its file being present
+        // would fail the whole run at load; naming it outright still tries it.
+        if (EMBED_MODELS[name].unsupported) continue;
+        try { out.push(resolveEmbedModel(name, opts)); } catch { /* not installed */ }
+      }
       if (out.length === before) throw new Error(`--embed-model installed: no embedding model is under ${opts.modelsDir || 'models/'}; the files looked for are ${Object.values(EMBED_MODELS).map((m) => m.file).join(', ')}`);
       continue;
     }
@@ -311,7 +316,13 @@ export async function doEmbedDistance(args) {
     const qp = noPrefix ? '' : model.query, dp = noPrefix ? '' : model.doc;
     const calibrated = bandCalibrated(model);
     process.stderr.write(`# loading ${model.base}${args.cpu ? ' (cpu)' : ''}…\n`);
-    const embedder = await openEmbedder(model.path, { cpu: !!args.cpu });
+    let embedder;
+    // A model that will not load is a message, not a stack trace (EmbeddingGemma 2 under the bundled runtime).
+    try { embedder = await openEmbedder(model.path, { cpu: !!args.cpu }); } catch (e) {
+      console.error(`\n--embed-distance: ${e.message}`);
+      process.exitCode = 1;
+      return;
+    }
     try {
       if (models.length > 1) console.log('');
       console.log(`model ${path.basename(model.path)}${noPrefix ? ', no prefixes' : (qp || dp) ? `, prefixes: query ${JSON.stringify(qp)}, document ${JSON.stringify(dp)}` : ''}`);
