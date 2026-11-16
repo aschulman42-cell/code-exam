@@ -737,6 +737,16 @@ Deprecated alias. Use `--llm claude` instead. The old form continues to work but
 - **Naming**: bare noun. Replaces the artificial split into per-pipeline model flags.
 - **Verified against**: `src/argparse.js:284`
 
+#### `--gpu [backend]` and `--cpu`
+
+- **Does**: Chooses the GPU backend local models run on (a GGUF given with `--model`, and the embedding models of `--embed-distance`): `auto` (default: the first of CUDA, Vulkan, CPU that loads), `cuda`, `vulkan`, `metal`, or `off`. `--cpu` is `--gpu off`. With no value, `--gpu` prints what the machine has (backend in use, device, memory and whether it is shared with system RAM, installed prebuilt backends) and exits; it needs no index and loads no model.
+- **Good for**: Seeing before a run which backend a machine will use; forcing one backend to compare it with another on the same machine; keeping a run off a backend that loads and then misbehaves.
+- **Refused early**: a backend that does not exist on the platform (`metal` on Windows, `cuda` on Apple Silicon); `--cpu` together with a named backend; a value that is none of the five.
+- **Stops, does not substitute**: a named backend with no working prebuilt binary stops with the reason, and a model that fails to load on a named backend is not retried on the CPU. Under `auto` the CPU retry after a failed GPU load is unchanged.
+- **Couples with**: `--model`, `--embed-distance`, `--ask-ai`, `--overview-by-ai`, `--gui`. Nothing is downloaded or built; only a backend whose prebuilt binary is installed can be chosen.
+- **Naming**: the noun the user thinks in; `--cpu` kept as the short spelling of the commonest case.
+- **Verified against**: `src/core/llm-runner.js` (`parseGpuChoice`, `setGpuPreference`, `llamaInitOptions`, `getLlamaShared`, `gpuReport`, `gpuFallbackAllowed`), `src/index.js`; what has been run on which GPU is [`CODEEXAM_GPU.md`](CODEEXAM_GPU.md).
+
 #### `--claim-model <path.gguf>` *(deprecated; alias: `--term-extract-model` also deprecated)*
 
 Deprecated alias for `--model`. Continues to work; sets `args.claim_model` and (if `args.model` not already set) populates `args.model` for cross-pipeline consumers. Use `--model` instead. The two-flag pattern survives for users who genuinely need different models for term extraction vs. analysis.

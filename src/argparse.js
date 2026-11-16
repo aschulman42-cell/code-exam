@@ -178,6 +178,7 @@ export function parseArgs() {
     overview_by_ai: false,
     ask_ai: null,            // --ask-ai "<question>": one question through the Chat loops (cli-ask-ai)
     cpu: false,           // --overview-by-ai: force local GGUF onto CPU (skip GPU)
+    gpu: null,            // auto (default) | cuda | vulkan | metal | off; no value = report what this machine has
     grounding: null,      // --overview-by-ai: grounded (default) | augmented | attributed
     cost: false,          // --overview-by-ai: explicit "show cost" (default; affirmation only)
     no_cost: false,       // --overview-by-ai: suppress the cost/usage line (default: shown)
@@ -524,6 +525,7 @@ export function parseArgs() {
     ['flash_attention',      'flag',           ['--flash-attention']],
     ['live_today_date',      'flag',           ['--live-today-date']],
     ['cpu',                  'flag',           ['--cpu']],
+    ['gpu',                  'optional_value', ['--gpu']],
     ['grounding',            'value',          ['--grounding']],
     ['cost',                 'flag',           ['--cost']],
     ['no_cost',              'flag',           ['--no-cost']],
@@ -1356,11 +1358,23 @@ BROWSE:
                              --timeout <minutes> caps the run (default 20); reads
                              CE_AI_OVERVIEW_MODEL / CE_AI_OVERVIEW_TIMEOUT_MS as
                              fallbacks.
-  --cpu                      With --overview-by-ai --model: force the local GGUF
-                             onto the CPU (full system RAM) instead of the GPU.
-                             Prefer this on an integrated/small GPU: the default
-                             only recovers from GPU out-of-memory, NOT from other
-                             GPU failures (e.g. backend crashes).
+  --cpu                      Run local models (a GGUF given with --model, and the
+                             embedding models) on the CPU, in system RAM, instead of
+                             the GPU. The same as --gpu off. The default recovers
+                             from GPU out-of-memory by retrying on the CPU, but NOT
+                             from other GPU failures (a driver or backend crash);
+                             --cpu is the answer to those.
+  --gpu [backend]            Which GPU backend local models use: auto (default) |
+                             cuda | vulkan | metal | off. auto takes the first of
+                             CUDA, Vulkan, CPU that loads on the machine. A named
+                             backend is used or the run stops with the reason: it
+                             is never swapped for another, and a failed load is not
+                             retried on the CPU. Only a backend whose prebuilt
+                             binary is installed can be chosen; nothing is
+                             downloaded or built. With no value, --gpu prints what
+                             this machine has (backend in use, device, memory,
+                             installed backends) and exits; it needs no index.
+                             See docs/CODEEXAM_GPU.md.
   --local-reasoning <on|off> For a local THINKING model (e.g. Gemma 4): "on"
                              (default) lets the model reason; "off" suppresses
                              reasoning so the answer fits CE's output budgets (a

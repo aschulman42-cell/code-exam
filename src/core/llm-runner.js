@@ -19,6 +19,8 @@
 // chatSessionOptions) that ai-overview-local.js and the claims commands use.
 
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { claudeSupportsTemperature } from '../utils.js';
 import { assertLocalOnly, isLocalApiUrl, isAirGapped } from './air-gapped.js';
 import { resolveProvider, canonicalProviderId } from './providers.js';
@@ -791,10 +793,92 @@ export function llamaLogToStderr(level, message) {
   if (!text) return;
   process.stderr.write(text.endsWith('\n') ? text : `${text}\n`);
 }
+// ---- --gpu: which of the runtime's backends ------------------------------------
+// node-llama-cpp takes gpu: "auto" | "cuda" | "vulkan" | "metal" | false and, given
+// nothing, tries its installed prebuilt binaries from best to worst (CUDA, then Vulkan,
+// then the CPU). CodeExam used to give it nothing, so the choice was the library's and
+// only --cpu could override it. --gpu names one. The preference is process-wide: it is
+// set once from the command line and read here, so the engine sites (CLI, GUI server,
+// overview, ask, embedding) need no change and cannot disagree.
+export const GPU_CHOICES = ['auto', 'cuda', 'vulkan', 'metal', 'off'];
+let _gpuPreference = 'auto';
+export function getGpuPreference() { return _gpuPreference; }
+export function setGpuPreference(choice) {
+  if (!GPU_CHOICES.includes(choice)) throw new Error(`--gpu takes ${GPU_CHOICES.slice(0, -1).join(', ')} or off; got "${choice}"`);
+  _gpuPreference = choice;
+}
+/** The GPU backends the runtime has for a platform (not which are installed or work). */
+export function gpuBackendsForPlatform(platform = process.platform, arch = process.arch) {
+  if (platform === 'darwin') return arch === 'x64' ? ['metal', 'cuda', 'vulkan'] : ['metal', 'vulkan'];
+  return ['cuda', 'vulkan'];
+}
+/**
+ * The --gpu value (and --cpu) as one of GPU_CHOICES, or a thrown message. The library
+ * turns a backend that does not exist on the platform into "auto" without a word
+ * (metal on Windows, cuda on Apple Silicon), so that is refused here, before anything opens.
+ */
+export function parseGpuChoice(value, { cpu = false, platform = process.platform, arch = process.arch } = {}) {
+  const raw = value == null || value === true || value === '' ? null : String(value).trim().toLowerCase();
+  let choice = raw == null ? (cpu ? 'off' : 'auto') : (raw === 'cpu' || raw === 'none' || raw === 'false' ? 'off' : raw);
+  if (!GPU_CHOICES.includes(choice)) throw new Error(`--gpu takes auto, cuda, vulkan, metal or off; got "${value}"`);
+  if (cpu && choice !== 'off' && choice !== 'auto') throw new Error(`--cpu and --gpu ${choice} contradict each other: --cpu means --gpu off`);
+  if (cpu) choice = 'off';
+  if (choice !== 'auto' && choice !== 'off' && !gpuBackendsForPlatform(platform, arch).includes(choice)) {
+    throw new Error(`--gpu ${choice}: the ${choice} backend is not available on ${platform} ${arch}; the choices here are ${gpuBackendsForPlatform(platform, arch).join(', ')}, auto or off`);
+  }
+  return choice;
+}
+/** After a failed GPU load, CodeExam retries on the CPU only when it chose the backend itself. */
+export function gpuFallbackAllowed() { return _gpuPreference === 'auto' || _gpuPreference === 'off'; }
+/** The message for a load that failed on a backend the user named. */
+export function namedGpuFailure(what) {
+  return `--gpu ${_gpuPreference}: ${what}; not retried on the CPU, since a backend was named. Use --gpu auto for the CPU fallback, or --gpu off.`;
+}
+
+/**
+ * What `--gpu` with no value prints: the backend the runtime takes on this machine when
+ * left to choose, the device, its memory, and which prebuilt backends are installed. Opens
+ * the runtime and loads no model. `open` and `listDir` are injectable for the tests.
+ */
+export async function gpuReport({ open = null, listDir = null } = {}) {
+  const lines = [];
+  let installed = [];
+  try {
+    const dir = listDir ? null : path.join(path.dirname(fileURLToPath(import.meta.resolve('node-llama-cpp'))), '..', '..', '@node-llama-cpp');
+    installed = (listDir ? listDir() : fs.readdirSync(dir)).filter((n) => !n.startsWith('.')).sort();
+  } catch { /* the folder layout is the library's; an unreadable one is reported as unknown */ }
+  let llama = null; let failure = null;
+  try { llama = open ? await open() : await getLlamaShared(); } catch (e) { failure = e; }
+  const here = gpuBackendsForPlatform();
+  if (llama) {
+    const backend = llama.gpu === false ? 'none (CPU)' : llama.gpu;
+    let names = []; let vram = null;
+    try { names = await llama.getGpuDeviceNames(); } catch { /* not every backend names its devices */ }
+    try { vram = await llama.getVramState(); } catch { /* */ }
+    const gb = (n) => (n / 2 ** 30).toFixed(1);
+    lines.push(`GPU backend in use on this machine (--gpu auto): ${backend}`);
+    if (names && names.length) lines.push(`  device:  ${names.join(', ')}`);
+    if (vram && vram.total) {
+      const shared = vram.unifiedSize && vram.unifiedSize >= vram.total * 0.9;
+      lines.push(`  memory:  ${gb(vram.total)} GB${shared ? ' (shared with system RAM, not dedicated VRAM)' : ''}, ${gb(vram.free)} GB free`);
+    }
+  } else {
+    lines.push(`No llama.cpp binary loads on this machine: ${isNoBinaryError(failure) ? NO_BINARY_MESSAGE : String((failure && failure.message) || failure)}`);
+  }
+  lines.push(`Backends the runtime has for ${process.platform} ${process.arch}: ${here.join(', ')}, and the CPU.`);
+  lines.push(`Prebuilt binaries installed: ${installed.length ? installed.join(', ') : 'unknown (could not read the runtime\'s folder)'}`);
+  lines.push('');
+  lines.push('--gpu auto (default) takes the first of CUDA, Vulkan, CPU that loads; --gpu cuda | vulkan | metal names one');
+  lines.push('(the run stops if it cannot be used, and is not retried on the CPU); --gpu off, or --cpu, uses the CPU.');
+  lines.push('Nothing is downloaded or built: only a backend listed as installed above can be chosen.');
+  return lines.join('\n');
+}
+
 export function llamaInitOptions({ cpu = false } = {}) {
-  return cpu
-    ? { gpu: false, build: 'never', logger: llamaLogToStderr }
-    : { build: 'never', logger: llamaLogToStderr };
+  const base ={ build: 'never', logger: llamaLogToStderr };
+  if (cpu || _gpuPreference === 'off') return { gpu: false, ...base };
+  if (_gpuPreference === 'auto') return base;
+  return { gpu: _gpuPreference, ...base };
 }
 
 // ONE Llama instance per process, per option set. node-llama-cpp 3.22.1 loses
@@ -816,16 +900,34 @@ export function llamaInitOptions({ cpu = false } = {}) {
 // own error handling (rethrowNoBinary, the early touch's swallow) is unchanged.
 const _llamaInstances = new Map();
 export async function getLlamaShared({ cpu = false } = {}, { loader = null, instances = _llamaInstances } = {}) {
-  const key = cpu ? 'cpu' : 'gpu';
+  // One instance per backend asked for: 'cpu', 'gpu' (the library's own choice), or a named one.
+  const named = !cpu && _gpuPreference !== 'auto' && _gpuPreference !== 'off' ? _gpuPreference : null;
+  const key = cpu || _gpuPreference === 'off' ? 'cpu' : (named || 'gpu');
   if (instances.has(key)) return instances.get(key);
   if (instances.size) {
     process.stderr.write(`  second engine instance (${key}): llama.cpp's own log lines may reach stdout from here on`
       + ' (node-llama-cpp 3.22.1; withcatai/node-llama-cpp#684)\n');
   }
   const create = loader || (async (opts) => (await import('node-llama-cpp')).getLlama(opts));
-  const p = Promise.resolve().then(() => create(llamaInitOptions({ cpu })));
+  const p = Promise.resolve().then(() => create(llamaInitOptions({ cpu }))).then((llama) => {
+    // Asked against got: a named backend that the runtime did not open is an error, never a quiet substitute.
+    if (named && llama && llama.gpu !== named) {
+      throw new Error(`--gpu ${named} was asked for and the runtime opened ${llama.gpu === false ? 'the CPU' : llama.gpu} instead`);
+    }
+    return llama;
+  });
   instances.set(key, p);
-  try { return await p; } catch (e) { instances.delete(key); throw e; }
+  try { return await p; } catch (e) {
+    instances.delete(key);
+    // No binary for a backend the user named: say which, and stay a no-binary error to callers.
+    if (named && isNoBinaryError(e)) {
+      const err = new Error(`No prebuilt binaries found for --gpu ${named}: no ${named} build of llama.cpp is installed that loads on this machine`
+        + ` (${named === 'cuda' ? 'CUDA needs an NVIDIA card and its CUDA 12 runtime' : named === 'vulkan' ? 'Vulkan needs a GPU driver that provides it' : 'Metal needs a Mac'}).`
+        + ' --gpu with no value shows what this machine has.');
+      throw err;
+    }
+    throw e;
+  }
 }
 /** Test-only: forget the shared instances (does not dispose them). */
 export function _resetLlamaShared(instances = _llamaInstances) { instances.clear(); }
@@ -987,6 +1089,10 @@ function makeGgufDrafter(modelPath, forceCpu, temperature, contextSize = null, f
       process.stderr.write(`Loading local model: ${modelPath}…\n`);
       let ctx = forceCpu ? null : await tryLoad(false);
       if (!ctx) {
+        // A backend the user named is not swapped for the CPU behind their back (--gpu).
+        if (!forceCpu && !gpuFallbackAllowed()) {
+          throw new Error(namedGpuFailure('the model and a context could not be loaded on it' + (lastError ? ` (${lastError.message})` : '')));
+        }
         process.stderr.write(forceCpu ? '  Using CPU (--cpu)…\n' : '  GPU could not fit model+context; retrying on CPU…\n');
         ctx = await tryLoad(true);
       }

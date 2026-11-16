@@ -47,6 +47,10 @@ install, then run one local-model operation on the connected machine before the
 network is cut; if that run reports no binary, build one while still online
 (`npx --yes node-llama-cpp source download --gpu <type>`, the recipe in
 [`cloud-gpu-chat-testing.md`](cloud-gpu-chat-testing.md)) and run it again.
+`ce --gpu`, with no value, prints which backend the machine will use and which
+prebuilt binaries are installed, without loading a model; it is a quick check to make
+before the network is cut. CodeExam's own `--gpu <backend>` only chooses among binaries
+already installed and fetches nothing ([`CODEEXAM_GPU.md`](CODEEXAM_GPU.md)).
 
 A localhost LLM endpoint (`CLAIM_SEARCH_API_URL=http://localhost:...`)
 is also treated as local and allowed — loopback only, judged on the real parsed

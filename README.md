@@ -269,6 +269,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_MECHANISMS_TESTS.md`](docs/CODEEXAM_MECHANISMS_TESTS.md) | The tests behind mechanisms: whether the functions litigants cite for a claim sit in one mechanism, measured on fourteen public claim charts |
 | [`CODEEXAM_SELF_PORTRAIT.md`](docs/CODEEXAM_SELF_PORTRAIT.md) | The pseudo-claims feature run on CodeExam's own source: ten claims across nine features, quoted as drafted, each beside the rubric claims the author wrote by hand for that feature |
 | [`LOCAL_LLM.md`](docs/LOCAL_LLM.md) | Local GGUF models, e.g. Gemma4, Qwen |
+| [`CODEEXAM_GPU.md`](docs/CODEEXAM_GPU.md) | GPUs: which backend a run uses (CUDA, Vulkan, CPU), the `--gpu` option, and what has actually been run on what |
 | [`AIR_GAPPED.md`](docs/AIR_GAPPED.md) | Enforced no-cloud operation |
 | [`SOURCE_CODE_PROTECTIVE_ORDERS.md`](docs/SOURCE_CODE_PROTECTIVE_ORDERS.md) | Source-code protective orders: the basics, the 2025–2026 AI provisions ("fully containerized"), and where CodeExam fits in |
 | [`CODEEXAM_AND_UNDERSTAND.md`](docs/CODEEXAM_AND_UNDERSTAND.md) | CodeExam beside SciTools Understand: where they overlap, the two "Overview" features that share a name, what each does that the other does not, using both in the same source-code exam |

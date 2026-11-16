@@ -174,3 +174,70 @@ test('getLlamaShared: one instance per option set, a rejected creation retried, 
   assert.strictEqual(x, y);
   assert.strictEqual(slowCalls, 1);
 });
+
+// ---- --gpu: which of the runtime's backends, chosen by the user ----------------
+// The preference is process-wide, so each test sets it and puts it back.
+const lr = await import('../src/core/llm-runner.js');
+const withPref = async (choice, fn) => { const was = lr.getGpuPreference(); lr.setGpuPreference(choice); try { return await fn(); } finally { lr.setGpuPreference(was); } };
+
+test('--gpu: auto keeps today\'s options, off is the CPU, a named backend is passed to the runtime', async () => {
+  await withPref('auto', () => { assert.ok(!('gpu' in llamaInitOptions())); });
+  await withPref('off', () => { assert.strictEqual(llamaInitOptions().gpu, false); });
+  for (const b of ['cuda', 'vulkan', 'metal']) {
+    await withPref(b, () => {
+      const o = llamaInitOptions();
+      assert.strictEqual(o.gpu, b);
+      assert.strictEqual(o.build, 'never', 'still never builds');
+      assert.strictEqual(o.logger, llamaLogToStderr);
+      assert.strictEqual(llamaInitOptions({ cpu: true }).gpu, false, 'a CPU request inside the run still means CPU');
+    });
+  }
+});
+
+test('--gpu: the value is checked against the platform before anything opens', () => {
+  const win = { platform: 'win32', arch: 'x64' };
+  assert.strictEqual(lr.parseGpuChoice('vulkan', win), 'vulkan');
+  assert.strictEqual(lr.parseGpuChoice('CUDA', win), 'cuda');
+  assert.strictEqual(lr.parseGpuChoice('off', win), 'off');
+  assert.strictEqual(lr.parseGpuChoice('cpu', win), 'off', 'cpu is accepted as a spelling of off');
+  assert.strictEqual(lr.parseGpuChoice(undefined, { ...win, cpu: true }), 'off', '--cpu alone is --gpu off');
+  assert.strictEqual(lr.parseGpuChoice('auto', win), 'auto');
+  assert.throws(() => lr.parseGpuChoice('metal', win), /metal.*not available on win32.*cuda, vulkan/s);
+  assert.throws(() => lr.parseGpuChoice('cuda', { platform: 'darwin', arch: 'arm64' }), /cuda.*not available on darwin.*metal/s);
+  assert.strictEqual(lr.parseGpuChoice('metal', { platform: 'darwin', arch: 'arm64' }), 'metal');
+  assert.throws(() => lr.parseGpuChoice('opencl', win), /--gpu takes auto, cuda, vulkan, metal or off/);
+  assert.throws(() => lr.parseGpuChoice('vulkan', { ...win, cpu: true }), /--cpu and --gpu vulkan/);
+  assert.strictEqual(lr.parseGpuChoice('off', { ...win, cpu: true }), 'off', '--cpu with --gpu off agrees');
+});
+
+test('--gpu: one instance per backend, and the backend that opened must be the one asked for', async () => {
+  const made = [];
+  const loader = async (opts) => { made.push(opts); return { gpu: opts.gpu === undefined ? 'cuda' : opts.gpu }; };
+  const instances = new Map();
+  await withPref('vulkan', async () => {
+    const a = await getLlamaShared({}, { loader, instances });
+    const b = await getLlamaShared({}, { loader, instances });
+    assert.strictEqual(a, b);
+    assert.strictEqual(made.length, 1);
+    assert.strictEqual(made[0].gpu, 'vulkan');
+  });
+  // The library can hand back something else (it turns an invalid choice into auto): refused.
+  const wrong = new Map();
+  await withPref('vulkan', async () => {
+    await assert.rejects(getLlamaShared({}, { loader: async () => ({ gpu: false }), instances: wrong }), /--gpu vulkan was asked for.*opened the CPU/s);
+    assert.strictEqual(wrong.size, 0, 'the mismatched instance is not kept');
+  });
+  // No binary for a named backend: the message names the backend, and is still a no-binary error to callers.
+  await withPref('cuda', async () => {
+    let caught;
+    try { await getLlamaShared({}, { loader: async () => { throw new Error('NoBinaryFoundError'); }, instances: new Map() }); } catch (e) { caught = e; }
+    assert.ok(caught, 'it throws');
+    assert.match(caught.message, /--gpu cuda/);
+    assert.ok(isNoBinaryError(caught), 'callers that test for a no-binary error still see one');
+  });
+});
+
+test('--gpu: the CPU fallback after a failed GPU load is taken only under auto', async () => {
+  await withPref('auto', () => { assert.strictEqual(lr.gpuFallbackAllowed(), true); });
+  for (const b of ['cuda', 'vulkan', 'metal']) await withPref(b, () => { assert.strictEqual(lr.gpuFallbackAllowed(), false); assert.match(lr.namedGpuFailure('could not fit'), new RegExp(`--gpu ${b}.*not retried on the CPU`, 's')); });
+});

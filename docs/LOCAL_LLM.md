@@ -51,12 +51,20 @@ More coming soon…
 
 Related flags (local GGUF only unless noted):
 
-- **`--cpu`** — run on the CPU (system RAM) instead of the GPU. Much slower, but
-  works without a compatible GPU, and is the right choice on a small/integrated
-  GPU: the GPU path recovers automatically from out-of-memory (by backing off),
-  but not from other backend failures — a CUDA or driver mismatch, an
-  unsupported GPU, or a model the GPU backend can't load — where `--cpu`
-  sidesteps the GPU entirely.
+- **`--cpu`** — run on the CPU (system RAM) instead of the GPU; the same as
+  `--gpu off`. Much slower, but works without a compatible GPU. For a
+  **generating** model it is the right choice on a small or integrated GPU: the
+  GPU path recovers automatically from out-of-memory (by backing off), but not
+  from other backend failures — a CUDA or driver mismatch, an unsupported GPU,
+  or a model the GPU backend can't load — where `--cpu` sidesteps the GPU
+  entirely. (The small **embedding** models are a different case: they have run
+  on an integrated Intel GPU, through Vulkan, faster than on the CPU. See
+  [`CODEEXAM_GPU.md`](CODEEXAM_GPU.md).)
+- **`--gpu [backend]`** — which GPU backend to use: `auto` (default), `cuda`,
+  `vulkan`, `metal` or `off`. A named backend is used or the run stops; it is not
+  swapped for another and not retried on the CPU. With no value it prints what
+  the machine has. Which backends have actually been run, and on what:
+  [`CODEEXAM_GPU.md`](CODEEXAM_GPU.md).
 - **`--context-size <n>`** — the model's context window (e.g. `16384`); a larger
   window needs more VRAM.
 - **`--flash-attention`** — frees VRAM for the KV cache — the Transformer
@@ -116,7 +124,7 @@ nothing in it knows any codebase (though its weights may reflect training on som
 disk it is inert.
 
 CodeExam runs it through **node-llama-cpp**, which binds llama.cpp into Node. At startup the GPU
-backend is chosen (`--cpu` forces the CPU), the weights are mapped into VRAM or RAM, and a
+backend is chosen (the first of CUDA, Vulkan and the CPU that loads; `--gpu` names one and `--cpu` forces the CPU), the weights are mapped into VRAM or RAM, and a
 **context** is allocated: the working memory the model reads and writes during a conversation,
 which also fixes how much text one conversation can hold. CodeExam tries 16,384 tokens first, then
 8,192, 4,096 and 2,048, until one fits beside the weights (`--context-size` puts your own number

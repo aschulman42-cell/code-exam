@@ -172,6 +172,24 @@ const _POST_BUILD_CONTINUE_KEYS =
 // `--tour` as a real flag (args.tour) is distinct from `--tour` appearing as
 // another flag's VALUE, e.g. `--literal "--tour"` (#249).
 const args = parseArgs();
+
+// --gpu: which of the runtime's backends local models use (auto | cuda | vulkan | metal | off).
+// Set once here for the whole process; --cpu is --gpu off. With no value, a report of what
+// this machine has, which needs no index and loads no model.
+if (args._explicit.has('gpu') || args.cpu) {
+  const { parseGpuChoice, setGpuPreference, gpuReport } = await import('./core/llm-runner.js');
+  if (args._explicit.has('gpu') && (args.gpu === true || args.gpu == null || args.gpu === '')) {
+    console.log(await gpuReport());
+    process.exit(0);
+  }
+  let choice;
+  try { choice = parseGpuChoice(args.gpu, { cpu: !!args.cpu }); } catch (e) {
+    process.stderr.write(`${e.message}\n`);
+    process.exit(2);
+  }
+  setGpuPreference(choice);
+  if (choice === 'off') args.cpu = true;   // every site that asks "CPU?" agrees
+}
 const _rawArgvForGui = process.argv.slice(2);
 const _wantsTour = !!args.tour;
 if (args.gui || _wantsTour) {
@@ -192,8 +210,10 @@ if (args.gui || _wantsTour) {
   // in here: --gui legitimately accepts server-only flags (e.g. --context-size)
   // that the CLI parser rejects.
   {
-    const _GUI_BOOL = new Set(['--gui', '--tour', ..._GUI_BOOL_FORWARD]);
-    const _GUI_VALUE = new Set(['--port', '--index-path', '--ndx', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--claude-model', '--temperature', '--context-size', '--local-reasoning', '--openai-key', '--openai-model', '--llm']);
+    // --cpu and --gpu <backend> are accepted and need no forwarding: the server is imported into
+    // this process, and the GPU preference was set for the whole process above (setGpuPreference).
+    const _GUI_BOOL = new Set(['--gui', '--tour', '--cpu', ..._GUI_BOOL_FORWARD]);
+    const _GUI_VALUE = new Set(['--gpu', '--port', '--index-path', '--ndx', '--index', '--load-index', '--model-path', '--model', '--local-model', '--api-key', '--key', '--claude-model', '--temperature', '--context-size', '--local-reasoning', '--openai-key', '--openai-model', '--llm']);
     const _unknown = [];
     for (let i = 0; i < _rawArgvForGui.length; i++) {
       let tok = _rawArgvForGui[i];

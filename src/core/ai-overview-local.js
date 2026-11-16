@@ -26,7 +26,7 @@
 import { CodeSearchIndex } from './CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from '../mcp-server.js';
 import { AI_OVERVIEW_TOOLS, aiOverviewPrompt } from './ai-overview.js';
-import { ggufContextOptions, chatSessionOptions, stripLocalArtifacts, getLlamaShared, rethrowNoBinary } from './llm-runner.js';
+import { ggufContextOptions, chatSessionOptions, stripLocalArtifacts, getLlamaShared, rethrowNoBinary, gpuFallbackAllowed, namedGpuFailure } from './llm-runner.js';
 import { aimlVerificationNote, unsupportedModelNames, aimlConverseNote, toolCallFooter } from './answer-disclosure.js';
 
 // The CE tool names the overview may call (same allow-list as the claude
@@ -597,6 +597,8 @@ export async function runAiOverviewLocal({ indexPath, modelPath, contextSize = 1
         // The model can load onto a small/integrated GPU yet leave no room for
         // the KV-cache (every context size OOMs). CPU uses full system RAM, so
         // retry once there before giving up.
+        // A backend the user named is not swapped for the CPU behind their back (--gpu).
+        if (!gpuFallbackAllowed()) throw new Error(namedGpuFailure('no context of any size could be created on it (out of memory?)'));
         status('GPU out of memory; retrying on CPU (slower) …');
         loaded = await tryLoad(true);
       }
