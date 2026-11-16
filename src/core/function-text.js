@@ -253,3 +253,21 @@ export function setReading(ranks, k) {
   const hit = ranks.filter((r) => r <= k).length;
   return { n, hit, any: hit > 0, share: n ? hit / n : null, all: n > 0 && hit === n };
 }
+
+// ---- two texts of one unit as one score ------------------------------------------
+// mechanism-fused-text-reach (2026-11-15) measured a mechanism scored by its label and
+// by its best member function's text together; the weighted sum at FUSE_LABEL_WEIGHT on
+// the label was the best form at every figure (docs/CODEEXAM_MECHANISMS_TESTS.md, "The
+// label and the function text as one score"). The arm and the weight are the measured
+// ones; neither is an option.
+/** The function-text form the fused score uses. */
+export const FUSE_ARM = 'comments';
+/** The weight on the unit's own text (a mechanism's label) in the fused score; the rest is on its best function. */
+export const FUSE_LABEL_WEIGHT = 0.3;
+/** w on the first list, 1 - w on the second; a unit missing one text is scored on the other alone. */
+export function fuseSum(a, b, w) {
+  const fin = (x) => (Number.isFinite(x) ? x : -Infinity);
+  return a.map((x, i) => { const y = b[i]; if (!Number.isFinite(x)) return fin(y); if (!Number.isFinite(y)) return x; return w * x + (1 - w) * y; });
+}
+/** The corpus id (`file@name`, forward slashes) of a mechanism member { file, name }. */
+export const memberId = (m) => `${String((m && m.file) || '').replace(/\\/g, '/')}@${(m && m.name) || ''}`;

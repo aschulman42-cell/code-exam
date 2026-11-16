@@ -331,3 +331,108 @@ describe('EmbeddingGemma in the registry', () => {
     assert.deepEqual(resolveEmbedModels('gemma2', { modelsDir: dir }).map((m) => m.name), ['gemma2'], 'named outright, it is still tried');
   });
 });
+
+describe('--function-text: an entry scored by its label and its best member function together', () => {
+  const fnIdx = { 'src/a.js': { parseTerms: { start: 1, end: 2 }, other: { start: 3, end: 4 } }, 'src\\b.js': { 'B::run': { start: 1, end: 2 } } };
+  const lines = { 'src/a.js': ['// split the list', 'function parseTerms() { return splitList(); }', 'function other() {', '}'], 'src\\b.js': ['run() {', '}'] };
+
+  it('parses --function-text as a flag, off by default', () => {
+    assert.equal(withArgv(['--embed-distance', 'x', '--function-text'], () => parseArgs()).function_text, true);
+    assert.equal(withArgv(['--embed-distance', 'x'], () => parseArgs()).function_text, false);
+  });
+
+  it('functionTexts gives each entry its members the index has as functions, one text per function', async () => {
+    const { functionTexts } = await import('../src/commands/embed-distance.js');
+    const { buildCorpus } = await import('../src/core/function-text.js');
+    const corpus = buildCorpus(fnIdx, (f) => lines[f]);
+    const entries = [
+      { label: 'one', members: [{ file: 'src/a.js', name: 'parseTerms' }, { file: 'src/a.js', name: 'gone' }] },
+      { label: 'two', members: [{ file: 'src\\b.js', name: 'B::run' }, { file: 'src/a.js', name: 'parseTerms' }] },
+      { label: 'none', members: [] },
+    ];
+    const plan = functionTexts(entries, corpus);
+    assert.deepEqual(plan.ids, [['src/a.js@parseTerms'], ['src/b.js@B::run', 'src/a.js@parseTerms'], []]);
+    assert.deepEqual(plan.texts.map((t) => t.key), ['src/a.js@parseTerms', 'src/b.js@B::run'], 'a function in two entries is one text');
+    assert.equal(plan.short.get('src/b.js@B::run'), 'b.js@B::run', 'what a row prints after via');
+    assert.ok(plan.texts[0].text.startsWith('parse terms'), plan.texts[0].text);
+    assert.ok(plan.texts[0].text.includes('split the list'), 'the comments form carries the comment');
+  });
+
+  it('rankFused weighs 0.3 on the label and 0.7 on the best function, and names the function that scored', async () => {
+    const { rankFused } = await import('../src/commands/embed-distance.js');
+    const { FUSE_LABEL_WEIGHT } = await import('../src/core/function-text.js');
+    assert.equal(FUSE_LABEL_WEIGHT, 0.3);
+    const q = [1, 0];
+    const cands = [
+      { label: 'label wins alone', members: [], vectors: [[0.8, 0.6]], chunks: ['c'], fnIds: ['f1'] },
+      { label: 'function wins', members: [], vectors: [[0.6, 0.8]], chunks: ['c'], fnIds: ['f1', 'f2'] },
+      { label: 'no function text', members: [], vectors: [[0.7, 0.714]], chunks: ['c'], fnIds: [] },
+      { label: 'function not embedded', members: [], vectors: [[0.5, 0.866]], chunks: ['c'], fnIds: ['missing'] },
+    ];
+    const fnVecs = new Map([['f1', [0.2, 0.98]], ['f2', [1, 0]]]);
+    const r = rankFused(q, cands, fnVecs);
+    assert.deepEqual(r.map((x) => x.label), ['function wins', 'no function text', 'function not embedded', 'label wins alone']);
+    assert.ok(Math.abs(r[0].cos - (0.3 * 0.6 + 0.7 * 1)) < 1e-9);
+    assert.equal(r[0].fn, 'f2');
+    assert.equal(r[1].cos, 0.7, 'an entry with no function text keeps its label cosine');
+    assert.equal(r[1].fn, null);
+    assert.equal(r[2].cos, 0.5, 'so does one whose functions have no vector');
+    assert.ok(Math.abs(r[3].cos - (0.3 * 0.8 + 0.7 * 0.2)) < 1e-9);
+    assert.deepEqual(r.map((x) => x.rank), [1, 2, 3, 4]);
+  });
+
+  it('a fused row says score, both cosines and via file@function; the listing says the band is not read', async () => {
+    const { rankFused } = await import('../src/commands/embed-distance.js');
+    const cands = [
+      { label: 'alpha', members: [{ name: 'run' }], vectors: [[0.6, 0.8]], chunks: ['c'], fnIds: ['src/a.js@run'] },
+      { label: 'beta', members: [], vectors: [[0.5, 0.866]], chunks: ['c'], fnIds: [] },
+    ];
+    const r = rankFused([1, 0], cands, new Map([['src/a.js@run', [1, 0]]]));
+    assert.equal(formatRow(r[0], 1), '1. score 0.8800  (label 0.6000, function 1.0000)  alpha  (1 fn)  via src/a.js@run');
+    assert.equal(formatRow(r[1], 1), '2. score 0.5000  (label 0.5000, function none)  beta  (0 fn)');
+    const long = 'media.zip!media/libraries/exoplayer/src/main/java/androidx/AdaptiveTrackSelection.java@AdaptiveTrackSelection::enable';
+    const s = rankFused([1, 0], [{ label: 'gamma', members: [], vectors: [[0.6, 0.8]], chunks: ['c'], fnIds: [long] }], new Map([[long, [1, 0]]]), 0.3, new Map([[long, 'AdaptiveTrackSelection.java@AdaptiveTrackSelection::enable']]));
+    assert.equal(s[0].fn, long, 'the full id is kept on the row');
+    assert.ok(formatRow(s[0], 1).endsWith('via AdaptiveTrackSelection.java@AdaptiveTrackSelection::enable'), 'the row prints the base name and the function');
+    const many = Array.from({ length: 12 }, (_, i) => ({ label: 'e' + i, members: [], vectors: [[0.4, 0.9165]], chunks: ['c'], fnIds: [] }));
+    const L = renderListing({ query: 'q', what: 'w', ranked: rankFused([1, 0], [...cands, ...many], new Map()), top: 3, filter: null, verbose: false, fused: true });
+    assert.ok(L[1].includes('median score'), L[1]);
+    assert.ok(L[1].includes('not read under --function-text'), L[1]);
+    assert.ok(!L.some((l) => l.startsWith('no clear match') || l.startsWith('borderline')), 'no band note under the fused score');
+    const plain = renderListing({ query: 'q', what: 'w', ranked: rankCandidates([1, 0], cands), top: 3, filter: null, verbose: false });
+    assert.ok(plain[1].includes('median cosine'));
+  });
+
+  it('refuses --function-text with --against, in one line, exit 2', () => {
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'src', 'index.js'), '--embed-distance', 'x', '--against', 'y', '--function-text'], { encoding: 'utf8' });
+    assert.equal(r.status, 2);
+    assert.ok(r.stderr.includes('--function-text') && r.stderr.includes('--against'), r.stderr);
+    assert.equal(r.stdout.trim(), '');
+  });
+
+  it('embedAll with a notice says what will be embedded and where, nothing when all is cached, and can store compactly', async () => {
+    const { embedEta } = await import('../src/core/embed.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-embed-notice-'));
+    const file = path.join(dir, 'v.json');
+    const ctx = { getEmbeddingFor: async (t) => ({ vector: [t.length, 1] }) };
+    const texts = [{ key: 'a', text: 'one' }, { key: 'b', text: 'three' }];
+    const said = [];
+    const w = process.stderr.write;
+    process.stderr.write = (s) => { said.push(String(s)); return true; };
+    try {
+      const m = await embedAll(ctx, texts, file, { quiet: true, notice: 'function texts', compact: true });
+      assert.equal(m.size, 2);
+      assert.equal(said.length, 1);
+      assert.ok(said[0].startsWith('# embedding 2 function texts, saved to ' + file), said[0]);
+      said.length = 0;
+      const again = await embedAll(ctx, texts, file, { quiet: true, notice: 'function texts', compact: true });
+      assert.deepEqual(said, [], 'silent when every vector is cached');
+      assert.ok(Math.abs(again.get('a')[0] - m.get('a')[0]) < 1e-6, 'the compact store reads back');
+    } finally { process.stderr.write = w; }
+    assert.equal(typeof readCache(file).items.a.b, 'string', 'base64, not an array');
+    assert.equal(embedEta(40), '40 s');
+    assert.equal(embedEta(200), '3 min');
+    assert.equal(embedEta(4800), '80 min');
+    assert.equal(embedEta(8400), '2 h 20 min');
+  });
+});

@@ -299,7 +299,8 @@ Dated one-line results; the tables are on the linked pages.
   the label and the function text together puts the right record first far more often on
   those self-test claims (78% and 61% reworded, against 56% and 46% for the better single
   text) and gains nothing on the chart rows; `--embed-distance` still scores the label
-  (2026-11-15, same page).
+  by default (2026-11-15, same page), and `--function-text` beside it scores the two
+  together, for testing.
 
 Results about mechanisms themselves that have no section yet (the grouper's cover and split
 measurements, the two describers compared as a table of contents, the no-match calibration

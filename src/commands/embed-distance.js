@@ -20,6 +20,7 @@
 //        [--elements @list.txt]   the elements verbatim, one per line, instead of CodeExam's split
 //        [--embed-model nomic|jina|coderank|qwen06|qwen4|<path.gguf>] [--max-results N]
 //        [--filter <s>] [--no-prefix] [--cpu] [--verbose]
+//        [--function-text]   on an index: label and best member function's text as one score (functionTexts, rankFused)
 //
 // embed-distance-per-element (2026-11-09): `@<file>` reads a claim, splits it as
 // --claim-locate and --claim-chart do (--elements @list overrides the split, the
@@ -38,6 +39,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { resolveEmbedModel, openEmbedder, embedAll, entryChunks, entryText, cosine, median, cut, TEXT_MAX_CHARS, EMBED_MODELS, DEFAULT_EMBED_MODEL } from '../core/embed.js';
 import { loadMechanismsIndex, foldRecords, recordBlock } from '../core/mechanisms-index.js';
+import { buildCorpus, functionText, fuseSum, memberId, FUSE_ARM, FUSE_LABEL_WEIGHT } from '../core/function-text.js';
 import { effectiveCount } from '../argparse.js';
 import { splitClaimElements, parseElementsFile } from './claim-locate.js';
 
@@ -134,11 +136,50 @@ export function rankCandidates(qv, cands) {
   return scored;
 }
 
-/** One listing row, the shape of the 2026-11-07 script: rank, cosine, distance, the candidate; under `verbose`, a mechanism entry's block (recordBlock) and then the chunk that scored. */
+/**
+ * --function-text (embed-distance-function-text-option, 2026-11-15): what each entry's
+ * second text is. For every entry, the ids (`file@name`) of its members that the index
+ * has as functions, and one text per such function, the mechanical text of
+ * src/core/function-text.js in its FUSE_ARM form. A function in several entries is
+ * embedded once. Returns { ids: [[id, ...] per entry], texts: [{ key: id, text }] }.
+ */
+export function functionTexts(entries, corpus) {
+  const byId = new Map(corpus.fns.map((f) => [f.id, f]));
+  const ids = entries.map((e) => [...new Set((e.members || []).map(memberId))].filter((id) => byId.has(id)));
+  const texts = [...new Set(ids.flat())].map((id) => ({ key: id, text: cut(functionText(byId.get(id), FUSE_ARM, corpus)) }));
+  // What a row prints after `via`: the file's base name and the function. A full path inside a
+  // zipped source tree ran past 150 characters on ExoPlayer 3 and pushed the name off the line.
+  const short = new Map(texts.map((t) => { const f = byId.get(t.key); return [t.key, `${f.file.split('/').pop()}@${f.name}`]; }));
+  return { ids, texts, short };
+}
+
+/**
+ * Rank candidates by label and best member function together: `w` on the label's
+ * best-chunk cosine, the rest on the highest cosine among the entry's functions
+ * (`c.fnIds`, vectors in `fnVecs`). An entry with no function text keeps its label
+ * cosine. Each row carries cos (the fused score, what it is ranked by), labelCos,
+ * fnCos and fn (the function that scored; null when there is none).
+ */
+export function rankFused(qv, cands, fnVecs, w = FUSE_LABEL_WEIGHT, short = null) {
+  const scored = cands.map((c) => {
+    let best = -2, bi = 0;
+    c.vectors.forEach((v, i) => { const x = cosine(qv, v); if (x > best) { best = x; bi = i; } });
+    let fnCos = -Infinity, fn = null;
+    for (const id of c.fnIds || []) { const v = fnVecs.get(id); if (!v) continue; const x = cosine(qv, v); if (x > fnCos) { fnCos = x; fn = id; } }
+    return { ...c, cos: fuseSum([best], [fnCos], w)[0], labelCos: best, fnCos: fn ? fnCos : null, fn, fnShort: fn && short ? short.get(fn) || fn : fn, fused: true, chunk: c.chunks ? c.chunks[bi] : c.text };
+  });
+  scored.sort((a, b) => b.cos - a.cos);
+  scored.forEach((s, i) => { s.rank = i + 1; });
+  return scored;
+}
+
+/** One listing row, the shape of the 2026-11-07 script: rank, cosine, distance, the candidate; under `verbose`, a mechanism entry's block (recordBlock) and then the chunk that scored. A row ranked by --function-text says score, the two cosines it is made of, and after the entry the function that scored, as file@name. */
 export function formatRow(x, width, { verbose = false } = {}) {
   const name = x.label != null ? `${x.label}  (${x.members ? x.members.length : 0} fn)` : (x.text.length > 200 ? x.text.slice(0, 200) + '…' : x.text);
   const holds = x.holds && x.holds.length ? `  holds ${x.holds.slice(0, 3).join(', ')}${x.holds.length > 3 ? ` +${x.holds.length - 3}` : ''}` : '';
-  const row = `${String(x.rank).padStart(width)}. cosine ${x.cos.toFixed(4)}  distance ${(1 - x.cos).toFixed(4)}  ${name}${holds}`;
+  const row = x.fused
+    ? `${String(x.rank).padStart(width)}. score ${x.cos.toFixed(4)}  (label ${x.labelCos.toFixed(4)}, function ${x.fnCos == null ? 'none' : x.fnCos.toFixed(4)})  ${name}${x.fn ? `  via ${x.fnShort || x.fn}` : ''}${holds}`
+    : `${String(x.rank).padStart(width)}. cosine ${x.cos.toFixed(4)}  distance ${(1 - x.cos).toFixed(4)}  ${name}${holds}`;
   if (!verbose || x.label == null) return row;
   const pad = ' '.repeat(width + 2);
   const block = x.entry ? recordBlock(x.entry, { verbose: true }).map((l) => `${pad}${l}`) : [];
@@ -215,10 +256,11 @@ export function listingStats(ranked, { calibrated = true } = {}) {
 }
 
 /** The listing as lines: the query (under `heading`, as `heading: query`, the per-element form), what was ranked (omitted when null: the caller printed it once), the median and the top row's margin over it (with a word that the band is not read under `modelName` when `calibrated` is false), a note (set apart by a blank line, so a reader sees it) when that margin says no match, with the small-index clause under SMALL_INDEX candidates, then the rows. */
-export function renderListing({ query, what, ranked, top, filter, verbose, heading = null, calibrated = true, modelName = null }) {
-  const { med, margin, word } = listingStats(ranked, { calibrated });
-  const unread = calibrated ? '' : `; the band is calibrated on nomic and not read under ${modelName || 'this model'}`;
-  const L = [`${heading ? `${heading}: ` : 'query: '}${query}`, `${what ? `${what}; ` : ''}median cosine ${med.toFixed(4)}${ranked.length >= MEDIAN_MIN ? ` (the nearest is ${margin.toFixed(4)} above it${unread})` : ''}`];
+export function renderListing({ query, what, ranked, top, filter, verbose, heading = null, calibrated = true, modelName = null, fused = false }) {
+  const { med, margin, word } = listingStats(ranked, { calibrated: calibrated && !fused });
+  // The band was calibrated on the label text's cosine; a fused score is on another scale.
+  const unread = fused ? '; the band is calibrated on the label text alone and not read under --function-text' : calibrated ? '' : `; the band is calibrated on nomic and not read under ${modelName || 'this model'}`;
+  const L = [`${heading ? `${heading}: ` : 'query: '}${query}`, `${what ? `${what}; ` : ''}median ${fused ? 'score' : 'cosine'} ${med.toFixed(4)}${ranked.length >= MEDIAN_MIN ? ` (the nearest is ${margin.toFixed(4)} above it${unread})` : ''}`];
   const small = ranked.length < SMALL_INDEX ? `; on an index of only ${nf(ranked.length)} entries the band under-calls, since an unrelated query's top row is the best of few draws and sits lower above the median (on the 34-entry demo three true matches scored 0.107 to 0.119): read the rows` : '';
   if (word === 'no clear match') L.push('', `no clear match: the nearest candidate is only ${margin.toFixed(4)} above the median, about what an unrelated candidate scores; the rows below are the least far, not a find${small}`);
   else if (word === 'borderline') L.push('', `borderline: the nearest candidate is ${margin.toFixed(4)} above the median, in the band (${NO_MATCH_MARGIN} to ${BORDERLINE_MARGIN}) where queries with a known mechanism and queries the codebase has nothing for both land; read the rows before calling it a find${small}`);
@@ -299,11 +341,25 @@ export async function doEmbedDistance(args) {
   const top = effectiveCount(args, args.max_results, 20);
   const filter = args.filter ? String(args.filter) : null;
 
-  let entries = null, data = null;
+  const fused = !!args.function_text;
+  if (fused && against != null) { console.error('--function-text scores an index\'s mechanism entries by their member functions, and --against gives texts that have none: use it with --ndx <index> and no --against'); process.exitCode = 2; return; }
+
+  let entries = null, data = null, fnPlan = null;
   if (indexPath) {
     data = loadMechanismsIndex({ indexPath }, { cache: false });
     if (!data || !data.records.length) { console.error(`${indexPath} has no mechanisms.json; build it with --build-mechanisms (no model needed)`); process.exitCode = 2; return; }
     entries = foldRecords(data.records);
+    if (fused) {
+      // The function texts are built from the index's source lines, with no model.
+      process.stderr.write('# reading the index for --function-text…\n');
+      const { CodeSearchIndex } = await import('../core/CodeSearchIndex.js');
+      const log = console.log;
+      console.log = () => {};   // the index loader reports progress on stdout
+      let idx;
+      try { idx = new CodeSearchIndex({ indexPath }); if (idx._ensureFunctionIndex) idx._ensureFunctionIndex(); } finally { console.log = log; }
+      fnPlan = functionTexts(entries, buildCorpus(idx.functionIndex || {}, (f) => idx.fileLines.get(f)));
+      if (!fnPlan.texts.length) { console.error(`--function-text: none of the ${nf(entries.length)} mechanism entries of ${indexPath} has a member the index holds as a function; without --function-text the entries are ranked by label`); process.exitCode = 2; return; }
+    }
   }
   if (multi) console.log(source);
   if (models.length > 1) console.log(`${models.length} models in turn: ${models.map((m) => m.name).join(', ')}`);
@@ -341,7 +397,7 @@ export async function doEmbedDistance(args) {
         continue;
       }
 
-      let cands, what;
+      let cands, what, fnVecs = null;
       if (against != null) {
         const file = against.slice(1);
         const { lines, cutCount } = readCandidateList(file);
@@ -360,14 +416,22 @@ export async function doEmbedDistance(args) {
         cands = entries.map((e, i) => ({ text: texts[i], label: e.label, members: e.members || [], entry: e, chunks: chunks[i], vectors: chunks[i].map((t, c) => (t === texts[i] ? whole.get(`${e.id}:${i}`) : more.get(`${e.id}:${i}:${c}`))) }));
         const fresh = (stats.whole.fresh || 0) + (stats.chunks.fresh || 0), cached = (stats.whole.cached || 0) + (stats.chunks.cached || 0);
         what = `${nf(entries.length)} mechanism entries of ${indexPath} (label + member names, best chunk of ${CHUNK}; ${nf(cached)} vectors from cache, ${nf(fresh)} embedded)`;
+        if (fused) {
+          // The second text: each member function's, in its own cache file; the entry cache above is untouched.
+          const fs2 = {};
+          fnVecs = await embedAll(embedder.ctx, fnPlan.texts, embedCacheFile(indexPath, model.base, `function-text-${FUSE_ARM}`), { prefix: dp, label: 'function texts', stats: fs2, quiet: !args.verbose, notice: 'function texts', compact: true });
+          cands.forEach((c, i) => { c.fnIds = fnPlan.ids[i]; });
+          const none = fnPlan.ids.filter((l) => !l.length).length;
+          what = `${nf(entries.length)} mechanism entries of ${indexPath}, each scored by its label and its best member function's text together (${FUSE_LABEL_WEIGHT} on the label + member names, ${Number((1 - FUSE_LABEL_WEIGHT).toFixed(2))} on the function's name, vocabulary and comments; ${nf(fnPlan.texts.length)} functions, ${nf(fs2.cached || 0)} from cache, ${nf(fs2.fresh || 0)} embedded${none ? `; ${nf(none)} entries have no function text and keep their label cosine` : ''})`;
+        }
       }
       if (multi) console.log(what);
       const rows = [];
       queries.forEach((query, i) => {
-        const ranked = rankCandidates(qvs.get(`q${i}`), cands);
+        const ranked = fnVecs ? rankFused(qvs.get(`q${i}`), cands, fnVecs, FUSE_LABEL_WEIGHT, fnPlan.short) : rankCandidates(qvs.get(`q${i}`), cands);
         if (multi) console.log('');
-        for (const line of renderListing({ query, what: multi ? null : what, ranked, top, filter, verbose: !!args.verbose, heading: multi ? `element ${i + 1} of ${queries.length}` : null, calibrated, modelName: model.name })) console.log(line);
-        const { margin, word } = listingStats(ranked, { calibrated });
+        for (const line of renderListing({ query, what: multi ? null : what, ranked, top, filter, verbose: !!args.verbose, heading: multi ? `element ${i + 1} of ${queries.length}` : null, calibrated, modelName: model.name, fused: !!fnVecs })) console.log(line);
+        const { margin, word } = listingStats(ranked, { calibrated: calibrated && !fnVecs });
         const first = ranked[0];
         const hit = filter ? filterRanked(ranked, filter)[0] : null;
         rows.push({ n: i + 1, element: query, nearest: first ? (first.label != null ? first.label : first.text) : '', margin: ranked.length >= MEDIAN_MIN ? margin : null, word, filterRank: hit ? hit.rank : null });

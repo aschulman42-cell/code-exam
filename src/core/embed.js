@@ -158,8 +158,18 @@ export const CACHE_CHECKPOINT = 500;
 /** Vectors wider than this are stored as base64 float32, not JSON arrays (a 2,560-dim model's 15,000 vectors as arrays overflowed V8's string limit on the Asus, 2026-11-07). */
 export const COMPACT_ABOVE_DIMS = 1024;
 
-const encodeVec = (v) => (v.length > COMPACT_ABOVE_DIMS ? { b: Buffer.from(new Float32Array(v).buffer).toString('base64') } : { v });
+const encodeVec = (v, compact = false) => (compact || v.length > COMPACT_ABOVE_DIMS ? { b: Buffer.from(new Float32Array(v).buffer).toString('base64') } : { v });
 const decodeVec = (item) => (Array.isArray(item.v) ? item.v : typeof item.b === 'string' ? Array.from(new Float32Array(new Uint8Array(Buffer.from(item.b, 'base64')).buffer)) : null);
+
+/** With embedAll's `notice`: a progress line at most this often. */
+export const NOTICE_EVERY_MS = 60000;
+/** Seconds as a reader's estimate: "40 s", "3 min", "1 h 20 min". */
+export function embedEta(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 90) return `${s} s`;
+  const m = Math.round(s / 60);
+  return m < 90 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
 
 export function readCache(file) {
   try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return j && j.items ? j : { items: {} }; } catch { return { items: {} }; }
@@ -171,11 +181,28 @@ export function readCache(file) {
  * `ctx` is anything with getEmbeddingFor(text) -> { vector }. Written every
  * CACHE_CHECKPOINT fresh embeddings, so a stop keeps what ran.
  */
-export async function embedAll(ctx, texts, file, { prefix = '', label = '', quiet = false, stats = null } = {}) {
+export async function embedAll(ctx, texts, file, { prefix = '', label = '', quiet = false, stats = null, notice = null, compact = false } = {}) {   // compact: store every vector as base64 float32 (a per-function cache has many times an entry cache's vectors)
   const cache = file ? readCache(file) : { items: {} };
   const out = new Map();
   let fresh = 0;
   const t0 = Date.now();
+  // `notice` (a word for what is embedded, e.g. "function texts") says the cost before it is
+  // paid and then reports at most once a minute, whatever `quiet` is: how many texts are not
+  // in the cache, where they are saved, and after the first hundred how long is left. Nothing
+  // is written when every vector comes from the cache.
+  let missing = 0, lastSaid = t0;
+  if (notice) {
+    for (const { key, text } of texts) { const hit = cache.items[key]; if (!(hit && hit.h === sha(prefix + text))) missing++; }
+    if (missing) process.stderr.write(`# embedding ${missing.toLocaleString('en-US')} ${notice}${file ? `, saved to ${file} so the next run reads them` : ''}…\n`);
+  }
+  const said = () => {
+    if (!notice || !missing) return;
+    const now = Date.now();
+    if (fresh !== 100 && now - lastSaid < NOTICE_EVERY_MS) return;
+    lastSaid = now;
+    const left = Math.max(0, missing - fresh) * ((now - t0) / 1000) / Math.max(1, fresh);
+    process.stderr.write(`#   ${fresh.toLocaleString('en-US')} of ${missing.toLocaleString('en-US')} ${notice}, about ${embedEta(left)} left\n`);
+  };
   const save = () => {
     if (!file) return;
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -188,10 +215,11 @@ export async function embedAll(ctx, texts, file, { prefix = '', label = '', quie
     if (hv) { out.set(key, hv); continue; }
     const e = await ctx.getEmbeddingFor(prefix + text);
     const v = normalize([...e.vector]);
-    cache.items[key] = { h, ...encodeVec(v) };
+    cache.items[key] = { h, ...encodeVec(v, compact) };
     out.set(key, v);
     fresh++;
     if (fresh % CACHE_CHECKPOINT === 0) save();
+    said();
     if (!quiet && fresh % 100 === 0) process.stderr.write(`  ${label}: ${fresh.toLocaleString('en-US')} embedded…\n`);
   }
   if (fresh % CACHE_CHECKPOINT) save();

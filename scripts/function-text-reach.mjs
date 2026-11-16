@@ -68,7 +68,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { ARMS, buildCorpus, functionText, unitChunks, unitsOf, rollUp, setReading, leafOf } from '../src/core/function-text.js';
+import { ARMS, buildCorpus, functionText, unitChunks, unitsOf, rollUp, setReading, leafOf, FUSE_ARM, fuseSum } from '../src/core/function-text.js';
 import { resolveEmbedModel, entryChunks, entryText, embedAll, openEmbedder, median } from '../src/core/embed.js';
 import { foldRecords } from '../src/core/mechanisms-index.js';
 import { parseSidecar, baseName } from '../src/core/hof.js';
@@ -226,15 +226,12 @@ export function scoreIndex(methods, queries, ks) {
 // functions' texts. Each alone was scored above. These read both for one unit. The arm of
 // the function text and the weights were fixed before any run, and every one is reported:
 // nothing here is searched for the best figure.
-export const FUSE_ARM = 'comments';
+// FUSE_ARM and fuseSum live in src/core/function-text.js since --embed-distance --function-text uses them too.
+export { FUSE_ARM, fuseSum };
 export const FUSE_WEIGHTS = [0.3, 0.5, 0.7];   // the weight on the unit's own text
 const fin = (x, other) => (Number.isFinite(x) ? x : other);
 /** The higher of the two cosines per unit; a unit with only one text keeps that one. */
 export function fuseMax(a, b) { return a.map((x, i) => Math.max(fin(x, -Infinity), fin(b[i], -Infinity))); }
-/** w on the first list, 1 - w on the second; a unit missing one text is scored on the other alone. */
-export function fuseSum(a, b, w) {
-  return a.map((x, i) => { const y = b[i]; if (!Number.isFinite(x)) return fin(y, -Infinity); if (!Number.isFinite(y)) return x; return w * x + (1 - w) * y; });
-}
 /** Reciprocal-rank fusion of the two lists (the form scripts/describe-reach.mjs uses, k = RRF_K). */
 export function fuseRanks(a, b) { return rrfFuse([a, b]); }
 /** The fused methods for one kind of unit, given how to get its two score lists from the per-query scratch. */

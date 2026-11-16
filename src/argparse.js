@@ -149,6 +149,7 @@ export function parseArgs() {
     against: null,           // one text, or @file with one candidate per line; none = the index's mechanism entries
     embed_model: null,       // nomic (default) | jina | coderank | qwen06 | qwen4 | gemma | gemma-search | gemma2 | <path.gguf> | list
     no_prefix: false,        // embed the texts without the model's retrieval prefixes
+    function_text: false,    // --embed-distance on an index: score each entry by its label and its best member function's text together
     use_tree_sitter: true,     // tree-sitter wherever a grammar ships; --regex-parser opts out
     regex_parser: false,
     extensions: null,
@@ -746,6 +747,8 @@ export function parseArgs() {
     ['against',              'value',          ['--against']],
     ['embed_model',          'value',          ['--embed-model']],
     ['no_prefix',            'flag',           ['--no-prefix']],
+    // embed-distance-function-text-option (2026-11-15): rank entries by label and best member function together
+    ['function_text',        'flag',           ['--function-text']],
     // Force the one-claim-per-line reading on a file that carries no format
     // marker (hand-made corpora). --single-claim forces the other way, for a
     // one-line claim that would otherwise be auto-detected as a corpus of one.
@@ -1281,7 +1284,7 @@ SEARCH:
                              --max-results N (0 = all); --filter <s> keeps ranks and names
                              the member that matched; --verbose shows the chunk that scored.
                              Its own options, each below: --against, --embed-model,
-                             --no-prefix.
+                             --no-prefix, --function-text.
   --against <text|@file>     With --embed-distance: what to measure to. One text, or
                              @file with one candidate per line ('#' lines skipped).
                              Without it, the candidates are the index's mechanism entries.
@@ -1301,6 +1304,22 @@ SEARCH:
   --no-prefix                With --embed-distance: embed the texts without the model's
                              retrieval prefixes (nomic's search_query: / search_document:,
                              the instruction line of coderank and qwen).
+  --function-text            With --embed-distance on an index (not with --against), for
+                             testing: score each mechanism entry by two texts together,
+                             0.3 on its label and member names and 0.7 on the best of its
+                             member functions' own texts (name, ranked vocabulary and
+                             comments, built from the code with no model). Rows read
+                             score, the two cosines, the entry, and "via file@function",
+                             the function that scored. The first run embeds one text per
+                             function and saves them beside mechanisms.json (about a
+                             minute for CodeExam's own 2,100 functions and about 45
+                             for ExoPlayer 3's 45,000 functions on a laptop's
+                             integrated GPU; the count and an estimate go to stderr,
+                             and a second run reads them). The no-match band is not read
+                             under this score. Off by default: on CodeExam's self-test
+                             claims it put the right entry first far more often, on
+                             litigants' chart rows it gained nothing
+                             (docs/CODEEXAM_MECHANISMS_TESTS.md).
   --files-search <query>     Show files containing a term, sorted by hit count
   --folders-search <query>   Show folders containing a term, sorted by hit count
   --multisect-search <terms> Multi-term intersection search (semicolon-separated terms)

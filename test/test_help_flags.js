@@ -87,6 +87,12 @@ describe('the embed options each have a help entry, and --embed-model list', () 
     assert.ok(entry(r.stdout, '--against'));
     assert.ok(entry(r.stdout, '--no-prefix'));
   });
+  it('--function-text has an entry, shown under --help embed, that says it is off by default and what it costs', () => {
+    const r = run('--help', 'embed');
+    assert.ok(entry(r.stdout, '--function-text'), 'no entry headed --function-text');
+    assert.match(r.stdout, /--function-text[\s\S]*Off by default/);
+    assert.match(r.stdout, /--function-text[\s\S]*45,000 functions/);
+  });
   it('the --embeddings line says it is about the examined code, and points at --embed-model list', () => {
     const r = run('--help', 'embeddings');
     const line = r.stdout.split(/\r?\n/).findIndex((l) => l.startsWith('  --embeddings '));
