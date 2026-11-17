@@ -157,6 +157,41 @@ export function functionTexts(entries, corpus) {
 }
 
 /**
+ * The texts an index's entries are embedded as, with their cache keys: each entry's label
+ * and member names whole, and the chunks of CHUNK names beyond that. One definition for
+ * --embed-distance, --semantic-search and --build-embeddings, so all three read and write
+ * the same cache files. Returns { texts, chunks, whole: [{key,text}], extra: [{key,text}] }.
+ */
+export function entryEmbedPlan(entries) {
+  const texts = entries.map((e) => entryText(e, 'label+members').text);
+  const chunks = entries.map((e) => entryChunks(e, 'label+members', CHUNK));
+  const whole = entries.map((e, i) => ({ key: `${e.id}:${i}`, text: texts[i] }));
+  const extra = [];
+  chunks.forEach((cs, i) => cs.forEach((t, c) => { if (t !== texts[i]) extra.push({ key: `${entries[i].id}:${i}:${c}`, text: t }); }));
+  return { texts, chunks, whole, extra };
+}
+
+/** The candidates rankCandidates and rankFused take, from an entryEmbedPlan and its two vector maps. */
+export function entryCandidates(entries, plan, wholeVecs, extraVecs) {
+  return entries.map((e, i) => ({ text: plan.texts[i], label: e.label, members: e.members || [], entry: e, chunks: plan.chunks[i], vectors: plan.chunks[i].map((t, c) => (t === plan.texts[i] ? wholeVecs.get(`${e.id}:${i}`) : extraVecs.get(`${e.id}:${i}:${c}`))) }));
+}
+
+/**
+ * The function texts of an index's entries, built from its source lines with no model:
+ * { plan: functionTexts(...), corpus }. The index loader reports progress on stdout, which
+ * is silenced here so a listing stays a listing.
+ */
+export async function loadFunctionPlan(indexPath, entries) {
+  const { CodeSearchIndex } = await import('../core/CodeSearchIndex.js');
+  const log = console.log;
+  console.log = () => {};
+  let idx;
+  try { idx = new CodeSearchIndex({ indexPath }); if (idx._ensureFunctionIndex) idx._ensureFunctionIndex(); } finally { console.log = log; }
+  const corpus = buildCorpus(idx.functionIndex || {}, (f) => idx.fileLines.get(f));
+  return { plan: functionTexts(entries, corpus), corpus };
+}
+
+/**
  * Rank candidates by label and best member function together: `w` on the label's
  * best-chunk cosine, the rest on the highest cosine among the entry's functions
  * (`c.fnIds`, vectors in `fnVecs`). An entry with no function text keeps its label
@@ -368,12 +403,7 @@ export async function doEmbedDistance(args) {
     if (fused) {
       // The function texts are built from the index's source lines, with no model.
       process.stderr.write('# reading the index for --function-text…\n');
-      const { CodeSearchIndex } = await import('../core/CodeSearchIndex.js');
-      const log = console.log;
-      console.log = () => {};   // the index loader reports progress on stdout
-      let idx;
-      try { idx = new CodeSearchIndex({ indexPath }); if (idx._ensureFunctionIndex) idx._ensureFunctionIndex(); } finally { console.log = log; }
-      fnPlan = functionTexts(entries, buildCorpus(idx.functionIndex || {}, (f) => idx.fileLines.get(f)));
+      fnPlan = (await loadFunctionPlan(indexPath, entries)).plan;
       if (!fnPlan.texts.length) { console.error(`--function-text: none of the ${nf(entries.length)} mechanism entries of ${indexPath} has a member the index holds as a function; without --function-text the entries are ranked by label`); process.exitCode = 2; return; }
     }
   }
@@ -434,14 +464,11 @@ export async function doEmbedDistance(args) {
         what = `${nf(lines.length)} candidates from ${file}${cutCount ? ` (${cutCount} line(s) cut at ${nf(TEXT_MAX_CHARS)} characters)` : ''}`;
       } else {
         // the index's entries, as describe-reach scores them; whole texts and the chunks beyond them cached beside mechanisms.json
-        const texts = entries.map((e) => entryText(e, 'label+members').text);
-        const chunks = entries.map((e) => entryChunks(e, 'label+members', CHUNK));
+        const plan = entryEmbedPlan(entries);
         const stats = { whole: {}, chunks: {} };
-        const whole = await embedAll(embedder.ctx, entries.map((e, i) => ({ key: `${e.id}:${i}`, text: texts[i] })), embedCacheFile(indexPath, model.base, 'label+members'), { prefix: dp, label: 'entries', stats: stats.whole, quiet: !args.verbose });
-        const extra = [];
-        chunks.forEach((cs, i) => cs.forEach((t, c) => { if (t !== texts[i]) extra.push({ key: `${entries[i].id}:${i}:${c}`, text: t }); }));
-        const more = extra.length ? await embedAll(embedder.ctx, extra, embedCacheFile(indexPath, model.base, `label+members_chunks${CHUNK}`), { prefix: dp, label: 'chunks', stats: stats.chunks, quiet: !args.verbose }) : new Map();
-        cands = entries.map((e, i) => ({ text: texts[i], label: e.label, members: e.members || [], entry: e, chunks: chunks[i], vectors: chunks[i].map((t, c) => (t === texts[i] ? whole.get(`${e.id}:${i}`) : more.get(`${e.id}:${i}:${c}`))) }));
+        const whole = await embedAll(embedder.ctx, plan.whole, embedCacheFile(indexPath, model.base, 'label+members'), { prefix: dp, label: 'entries', stats: stats.whole, quiet: !args.verbose });
+        const more = plan.extra.length ? await embedAll(embedder.ctx, plan.extra, embedCacheFile(indexPath, model.base, `label+members_chunks${CHUNK}`), { prefix: dp, label: 'chunks', stats: stats.chunks, quiet: !args.verbose }) : new Map();
+        cands = entryCandidates(entries, plan, whole, more);
         const fresh = (stats.whole.fresh || 0) + (stats.chunks.fresh || 0), cached = (stats.whole.cached || 0) + (stats.chunks.cached || 0);
         what = `${nf(entries.length)} mechanism entries of ${indexPath} (label + member names, best chunk of ${CHUNK}; ${nf(cached)} vectors from cache, ${nf(fresh)} embedded)`;
         if (fused) {

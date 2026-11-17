@@ -466,6 +466,17 @@ if (String(args.embed_model || '').trim().toLowerCase() === 'list') {
   console.log(formatEmbedModelList());
   process.exit(0);
 }
+// semantic-search-cli: like --embed-distance, dispatched before the index is constructed.
+if (args.build_embeddings) {
+  const { doBuildEmbeddings } = await import('./commands/semantic-search.js');
+  await doBuildEmbeddings(args);
+  process.exit(process.exitCode || 0);
+}
+if (args.semantic_search) {
+  const { doSemanticSearch } = await import('./commands/semantic-search.js');
+  await doSemanticSearch(args);
+  process.exit(process.exitCode || 0);
+}
 if (args.embed_distance) {
   const { doEmbedDistance } = await import('./commands/embed-distance.js');
   await doEmbedDistance(args);

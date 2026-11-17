@@ -220,6 +220,12 @@ the one-line version.
   HOF sits in the pipeline). Its complement is the test on litigated patents, where the
   yardstick is what the parties cited, agreement with a party rather than truth
   ([`litigated-claims-ground-truth.md`](litigated-claims-ground-truth.md)).
+- **Searching by meaning.** `--semantic-search "<text>"` ranks the mechanism rows under a
+  local embedding model, each by its label and its best function's text, and lists the
+  functions that scored as hits and near hits, each with the rows that hold it; it needs
+  `--build-embeddings` once per index ([`cli.md`](cli.md)). The mechanisms are what makes
+  the ranking possible at this size, and the listing shows functions because a row of thirty
+  functions does not say which one matched.
 - **Measuring distance from prose.** `--embed-distance "<text>"` ranks the index's mechanism
   rows by cosine to the text under a local embedding model, each row represented by its label
   and member names, and `--embed-distance @<claim file>` does it for every element of a claim
@@ -233,8 +239,9 @@ the one-line version.
 
 Two optional files, both beside the index's own and both going with the directory:
 `mechanisms.json`, written by `--build-mechanisms` or the GUI's **Build** button and carrying
-the descriptions `--describe` adds; and `embeddings/`, written by `--embed-distance` when it
-embeds the rows' labels and names, one cache file per model and text. The on-disk format is
+the descriptions `--describe` adds; and `embeddings/`, written by `--build-embeddings` for `--semantic-search` (the rows' labels
+and names and each function's text) and by `--embed-distance` when it measures, one file per
+model and text. The on-disk format is
 on [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md); what each file holds under a protective
 order is in the inventory on
 [`SOURCE_CODE_PROTECTIVE_ORDERS.md`](SOURCE_CODE_PROTECTIVE_ORDERS.md).

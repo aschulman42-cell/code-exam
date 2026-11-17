@@ -176,6 +176,18 @@ export function readCache(file) {
 }
 
 /**
+ * How many of `texts` ({ key, text }) the cache at `file` does not hold under `prefix`: what
+ * embedAll would have to embed. --semantic-search reads it to decide between searching and
+ * telling the user to run --build-embeddings; nothing is loaded or written.
+ */
+export function missingInCache(file, texts, prefix = '') {
+  const cache = readCache(file);
+  let n = 0;
+  for (const { key, text } of texts) { const hit = cache.items[key]; if (!(hit && hit.h === sha(prefix + text))) n++; }
+  return n;
+}
+
+/**
  * Embed `texts` (array of { key, text }) with the cache at `file`; returns a Map
  * key -> unit vector, and reports { fresh, cached } through `stats` when given.
  * `ctx` is anything with getEmbeddingFor(text) -> { vector }. Written every

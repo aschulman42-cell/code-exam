@@ -107,12 +107,17 @@ Exact and regex code search wants **lexical precision, not nearest-neighbor appr
 so embeddings buy little for the core browse-and-cross-reference workload; and keeping the
 index as inverted-index structures serialized to JSON makes it transparent, diffable, and
 trivially portable — no database server to stand up, no opaque binary store. Where semantic
-search stands (2026-11-10): `--search` is literal; `--embed-distance` measures a text — a claim
-element, say — against the index's mechanisms under a local embedding model, a measurement
-command rather than a search; and prose-to-code search built on that embedding and the
-mechanism labels is being developed on issue #363, not yet shipped. The older RAG/embedding
-backlog is issues #201 and #202. All of it is a layer *on top of* the lexical index, not a
-replacement for it.
+search stands (2026-11-17): `--search` is literal. `--semantic-search "<text>"` searches an index
+by meaning under a local embedding model: it ranks the index's mechanisms, each by its label and
+by its best function's text, and lists the functions that scored as hits and near hits, after a
+one-time `--build-embeddings` ([`cli.md`](cli.md)). The vectors are JSON files in the index
+directory, not a database. It finds code described in ordinary words well on a codebase with
+descriptive names and comments; on a patent claim it finds the part of a codebase the claim is
+about and does not tie one limitation to its code
+([`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md)). `--embed-distance` is the
+same ranking as raw cosines, the instrument those measurements use. The older RAG/embedding
+backlog is issues #201 and #202, and the claim-to-code work is issue #363. All of it is a layer
+*on top of* the lexical index, not a replacement for it.
 
 ## Current limits on use
 

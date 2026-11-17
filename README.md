@@ -257,7 +257,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_SUMMARIZING.md`](docs/CODEEXAM_SUMMARIZING.md) | Summarizing code: overview, digest, analyze, GUI chat, and the mechanisms and `--toc` table of contents (outline) |
 | [`QUASI_SOURCE.md`](docs/QUASI_SOURCE.md) | Binary analysis and bundled-JS extraction |
 | [`DETECTING_AI_ML.md`](docs/DETECTING_AI_ML.md) | The AI/ML, LLM-app, and infrastructure detector suite |
-| [`STRUCTURAL_SEARCH.md`](docs/STRUCTURAL_SEARCH.md) | Non-textual search: fingerprints, structural dupes, deobfuscation; and where semantic search stands (`--embed-distance` measures; prose-to-code search is being built on #363) |
+| [`STRUCTURAL_SEARCH.md`](docs/STRUCTURAL_SEARCH.md) | Non-textual search: fingerprints, structural dupes, deobfuscation; and semantic search (`--semantic-search` on a local embedding model: what it finds and what it does not) |
 | [`CODEEXAM_COMPARING.md`](docs/CODEEXAM_COMPARING.md) | Comparing code: near/structural duplicates, struct-diff, external diff tools (outline) |
 | [`AI_ASSISTED_CODE_EXAM.md`](docs/AI_ASSISTED_CODE_EXAM.md) | Optional LLM assistance (`--analyze`, claim search, input masking) |
 | [`CODEEXAM_PATENT_CLAIMS.md`](docs/CODEEXAM_PATENT_CLAIMS.md) | Searching and charting patent claims against a codebase |

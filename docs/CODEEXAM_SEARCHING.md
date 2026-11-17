@@ -66,9 +66,15 @@ described in [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md); the patent-
 
 Bridging prose and code that use **different terminology** — the "vocabulary hop" — is very much a
 work in progress; synonym expansion (above) and `--synonymize` are the current mechanical
-approaches. Why CodeExam does *not* (yet) reach for a semantic / vector database to do this is
-explained in [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md) — the embedding-on-top-of-lexical
-exploration, #201 / #202.
+approaches. Since 2026-11-17 there is also a search by meaning:
+`ce --ndx <index> --build-embeddings` once, then `ce --ndx <index> --semantic-search "<text>"`,
+which ranks the index's mechanisms under a local embedding model and lists the functions that
+scored, hits then near hits, with no network call ([`cli.md`](cli.md)). It answers a plain
+description of what code does better than it answers a patent claim, whose wording is further
+from the code's: what it has been measured to find, and not to find, is on
+[`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md). Why the index itself stays
+lexical, with the embeddings as files on top of it and no vector database, is explained in
+[`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md) (#201 / #202).
 
 ## Searching when you don't quite know what you're searching for
 

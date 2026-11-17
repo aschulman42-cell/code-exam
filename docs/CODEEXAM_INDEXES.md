@@ -79,15 +79,16 @@ each feature, and what the regex tier misses in each, is on
 
 A built index is just a directory of JSON files — no database server, no binary store. The choice
 is deliberate: exact and regex code search wants **lexical precision, not nearest-neighbor
-approximation**, and plain JSON stays transparent, diffable, and trivially portable. No search
-reads a vector store today (the one vector file an index can carry, `<index>/embeddings/`, is
-what `--embed-distance` caches when asked to measure a text against the index's mechanism
-labels, and under `--function-text` against its functions' texts, a measurement rather than a
-retrieval path); embedding-based retrieval is being explored
-only as a layer *on top* of the lexical index (#201 / #202), not as a replacement. Two optional
+approximation**, and plain JSON stays transparent, diffable, and trivially portable. One search
+reads vectors: `--semantic-search` (2026-11-17), from the JSON files under
+`<index>/embeddings/` that `--build-embeddings` writes, one vector per mechanism entry's label
+and member names and one per function's text; `--embed-distance` reads and writes the same
+files when it measures. There is no vector database, and every other search is lexical:
+embedding-based retrieval is a layer *on top* of the lexical index (#201 / #202), not a
+replacement. Two optional
 files join the index's own after later steps: `mechanisms.json`, the cover of the index's
 functions in mechanism records that `--build-mechanisms` writes and `--describe` adds sentences
-to, and `embeddings/`, the vector cache `--embed-distance` keeps; both are explained on
+to, and `embeddings/`, the vectors `--build-embeddings` writes and `--embed-distance` caches; both are explained on
 [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) and both go with the directory. The fuller
 argument is in
 [`STRUCTURAL_SEARCH.md`](STRUCTURAL_SEARCH.md). And a vector store useful *here* is a tall order:

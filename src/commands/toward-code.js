@@ -1,4 +1,4 @@
-// toward-code.js — --embed-distance --toward-code: reword each claim element toward an index's own names with a model, one call per element, as the search query --embed-distance ranks by
+// toward-code.js — --embed-distance --toward-code and --semantic-search --toward-code: reword each claim element toward an index's own names with a model, one call per element, as the search query --embed-distance ranks by
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -232,7 +232,7 @@ export function formatRewriteFile({ rows, form, engine, indexPath, claimSource, 
     `# --toward-code ${form}: ${rows.length} element${rows.length === 1 ? '' : 's'} of ${claimSource} reworded toward the names of ${indexPath}`,
     `# by ${engine}, ${generatedAt}; given ${vocabularyCount} vocabulary word${vocabularyCount === 1 ? '' : 's'}${sampleCount ? `, ${sampleCount} sample entries` : ''}${specFile ? `, the specification in ${specFile}` : ', no specification'}`,
     '# A rewording is a search query written by a model, not a reading of the claim.',
-    '# Reuse with no model call: --embed-distance @<claim> --toward-code @<this file>',
+    '# Reuse with no model call: --embed-distance @<claim> --toward-code @<this file>  (or --semantic-search @<claim> --toward-code @<this file>)',
   ];
   rows.forEach((r, i) => {
     L.push(`# element ${i + 1} as written: ${one(r.original)}`);

@@ -40,8 +40,10 @@ hardened (#65, #60), so treat deep inheritance chains as a strong lead rather th
 
 Find code by what it contains: literal, fast (inverted-index), and regex search, plus **multisect** —
 the smallest scope containing substantially all of *N* terms at once — and `--claim-search`, which
-turns prose (a patent claim, a spec) into a multisect query. Full treatment in
-[`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md).
+turns prose (a patent claim, a spec) into a multisect query. `--semantic-search` finds code by
+meaning when the words are not the code's own, on a local embedding model with no network call,
+after a one-time `--build-embeddings`; it lists functions as hits and near hits, places to read
+and not findings. Full treatment in [`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md).
 
 ## Browsing
 

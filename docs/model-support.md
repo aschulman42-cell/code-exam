@@ -417,14 +417,16 @@ scoring.
   model's navigation reached it alone. A stronger defensibility claim
   than an internal comparison could make.
 
-## Embedding models (`--embed-distance`)
+## Embedding models (`--semantic-search`, `--embed-distance`)
 
 The matrix above is about generating models. Embedding models are a separate, smaller
 list: `src/core/embed.js` names each one with the prompts its makers specify, and
 `--embed-model list` prints the list, what is installed and what each is run with. Only
 nomic ships with CodeExam; the rest are downloads into `models/`. All run at a 2,048-token
 context, Q8_0 quantization. The no-match band of `--embed-distance` is calibrated on nomic
-only.
+only. `--semantic-search` uses the model an index's embeddings were built with, gemma when the
+index has them, and `--build-embeddings` builds with gemma when its file is installed and with
+nomic otherwise ([`cli.md`](cli.md)).
 
 | name | model | query prompt | document prompt | status |
 |---|---|---|---|---|

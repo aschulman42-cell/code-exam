@@ -146,6 +146,8 @@ export function parseArgs() {
     multi_index: null,
     skip_semantic: true,
     embed_distance: null,    // embed-distance-cli: the text to measure from
+    semantic_search: null,   // semantic-search-cli: the text (or @claim file) to search the index for by meaning
+    build_embeddings: false, // semantic-search-cli: build the embeddings --semantic-search reads
     against: null,           // one text, or @file with one candidate per line; none = the index's mechanism entries
     embed_model: null,       // nomic (default) | jina | coderank | qwen06 | qwen4 | gemma | gemma-search | gemma2 | <path.gguf> | list
     no_prefix: false,        // embed the texts without the model's retrieval prefixes
@@ -745,6 +747,9 @@ export function parseArgs() {
     ['limit',                'int',            ['--limit']],
     ['hof_claims',           'value',          ['--claims']],
     // embed-distance-cli (2026-11-07): the cosine instrument of docs/describe-reach.md as a command
+    // semantic-search-cli (2026-11-17): the --embed-distance --function-text ranking as a search, and its build step
+    ['semantic_search',      'value',          ['--semantic-search']],
+    ['build_embeddings',     'flag',           ['--build-embeddings']],
     ['embed_distance',       'value',          ['--embed-distance']],
     ['against',              'value',          ['--against']],
     ['embed_model',          'value',          ['--embed-model']],
@@ -1270,6 +1275,41 @@ SEARCH:
   --literal <query>          Literal/exact text search
   --fast <query>             Fast inverted-index search
   --regex <pattern>          Regex pattern search
+  --semantic-search <text|@file>
+                             Search the index for text by meaning, under a local
+                             embedding model (no network call). Results are places in
+                             the code: the function that scored, its file and lines,
+                             the groups of functions (mechanisms) holding it and, when
+                             the index has descriptions, the group's sentence. HITS are
+                             the closest code found, NEAR HITS the next; both are
+                             relative to this index and this text, places to read and
+                             not findings. @file reads a claim and searches for every
+                             element (--elements @list gives them verbatim): a list per
+                             element, then the places found for the most elements.
+                             Needs --build-embeddings once per index; a search builds
+                             nothing and says what to run. The model is the index's own:
+                             gemma when it has gemma embeddings, else what it has;
+                             --embed-model <name> chooses. Test code is left out
+                             (--include-tests). --filter <s> keeps the results whose
+                             function, path or group contains <s>; --max-results N per
+                             tier (default 10, 0 = all); --verbose shows full paths,
+                             every group and the score's parts. --toward-code
+                             restate|label has a model reword the text toward the
+                             codebase's names first (its own entry below; needs --llm
+                             or --model). Ends with any steps that use a language model
+                             and might help, and names any option given that does
+                             nothing here. --embed-distance is the same ranking as raw
+                             cosines, for measuring.
+  --build-embeddings         Build what --semantic-search reads: one vector per group
+                             of functions (its name and member names) and one per
+                             function (its name, vocabulary and comments), saved under
+                             <index>/embeddings. Local model, no network call; needs
+                             mechanisms.json (--build-mechanisms). Uses gemma when its
+                             file is installed, else nomic; --embed-model <name> to
+                             choose. Says how many texts before it starts, reports
+                             about once a minute, and continues where a stopped run
+                             left off. Seconds on a small index; about 45 minutes for
+                             45,000 functions on a laptop CPU (2026-11-16).
   --embed-distance <text|@file>
                              Cosine distance under a local embedding model: from <text>
                              to --against "<text>" (one pair), to --against @file (one
@@ -1326,8 +1366,9 @@ SEARCH:
                              litigants' chart rows it gained nothing
                              (docs/CODEEXAM_MECHANISMS_TESTS.md).
   --toward-code <restate|label|@file>
-                             With --embed-distance on an index (not with --against), for
-                             testing: a model rewords each claim element toward the names
+                             With --semantic-search, or with --embed-distance on an index
+                             (not with --against): a model rewords each claim element (or
+                             the one text) toward the names
                              this codebase uses, one call per element, and the entries
                              are ranked by the rewording. A claim says things in a
                              patent's words and code in an engineer's, and the embedding
@@ -1355,7 +1396,8 @@ SEARCH:
                              is there: a good rank under this option has not been shown
                              to tell code that practises an element from code that does
                              not. Off by default.
-  --spec <file>              With --embed-distance --toward-code restate|label: the
+  --spec <file>              With --toward-code restate|label (--semantic-search or
+                             --embed-distance): the
                              patent's specification as text, given to the rewriting
                              model with every element as the source for what the
                              claim's terms mean. A long specification is sent once per

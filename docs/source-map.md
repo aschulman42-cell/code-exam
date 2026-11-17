@@ -72,7 +72,8 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/commands/pseudo-claims.js` — drafts illustrative pseudo-claims from anchor-function evidence packs, with grounding and fixed caveats
 - `src/commands/search.js` — --search/--literal/--fast/--regex/--files-search/--folders-search plus rename-marker query expansion
 - `src/commands/synonymize.js` — rewrites claim wording away from a codebase's identifiers to manufacture a retrieval gap; never reads an index
-- `src/commands/toward-code.js` — --embed-distance --toward-code: reword each claim element toward an index's own names with a model, one call per element, as the search query --embed-distance ranks by
+- `src/commands/semantic-search.js` — --semantic-search: search an index for text by meaning, under a local embedding model; --build-embeddings: build what it searches
+- `src/commands/toward-code.js` — --embed-distance --toward-code and --semantic-search --toward-code: reword each claim element toward an index's own names with a model, one call per element, as the search query --embed-distance ranks by
 
 ## src/core — the engine room
 
@@ -283,6 +284,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_third_party_notices.js` — every shipped third-party file (grammars/*.wasm, public/vendor/*) has a row in THIRD-PARTY-NOTICES.md naming the installed version
 - `test/test_treesitter_c_names.js` — a C/C++ function's name never carries the token before it (CALLBACK, APIENTRY, a type the grammar could not place), on tree-sitter and the regex fallback
 - `test/test_vocab_extract.js` — vocabulary-guided terms: splitCompoundToken, prompt concordance, claim keywords
+- `test/test_semantic_search.js` — --semantic-search and --build-embeddings with no model: the flags, which model a search uses and what it says when embeddings are missing, results as functions with entries of one function collapsed, the tiers, the filter, the view across elements, the closing steps, and the CLI's messages
 - `test/test_toward_code.js` — --embed-distance --toward-code with a stub model: the two prompts and what each is given, a failed call keeping the element, the saved rewrites file read back, the sample entries, the option end to end
 - `test/test_vocabulary.js` — vocabulary corpus: noise-doc exclusion, cross-corpus weights, claim-filter guards
 - `test/test_whousedby.js` — catalog v2 annotateUsedBy: named imports credited per library, self-imports excluded

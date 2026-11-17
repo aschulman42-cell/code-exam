@@ -572,8 +572,11 @@ cited functions, beside CodeExam's name search on the same names, are on
 the mechanisms' labels and member names under a local embedding model reach most drafted
 anchors and over half of the litigants' cited functions (2026-11-06), with no model reading any
 code ([`describe-reach.md`](describe-reach.md); the figures are in "Where this points" below).
-What shipped from it is the measurement command, next; what has not is a retrieval step that
-uses it; and the gap it leaves is register, not vocabulary.
+What shipped from it is the measurement command, next, and since 2026-11-17 a search command on
+the same ranking, `--semantic-search` ([`cli.md`](cli.md)), which lists functions as hits and
+near hits and is not a step of `--claim-locate` or `--claim-chart`; what has not shipped is a
+retrieval step in the claim pipeline that uses it; and the gap it leaves is register, not
+vocabulary.
 
 The one-command form of that measurement is `--embed-distance` ([`cli.md`](cli.md)):
 `ce --ndx <index> --embed-distance "<claim element>"` ranks the index's mechanisms by distance
