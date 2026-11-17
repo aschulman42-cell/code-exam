@@ -286,3 +286,60 @@ describe('function-text-reach: fusing a unit\'s own text with its best function\
     assert.deepEqual(catalogEntries(null, fns), []);
   });
 });
+
+// claim-rewording-blind-test (2026-11-16): the --reword run's own arithmetic, with no model.
+import path from 'node:path';
+import { sameness, crowding, topUnits, rewordFile, REWORD_ARMS, REWORD_ARM_SPEC } from '../scripts/function-text-reach.mjs';
+
+describe('function-text-reach: --reword, the limitations reworded before they are embedded', () => {
+  it('parses the arms, the rewriting model and where the rewrites and specifications are, and refuses what cannot run', () => {
+    const o = parseOwnArgs(['--filings', 'w', '--reword', 'blind,label', '--llm', 'claude', '--reword-dir', 'r', '--wrong-map', 'm.json', '--force']);
+    assert.deepEqual([o.reword, o.llm, o.rewordDir, o.wrongMap, o.force], [['blind', 'label'], 'claude', 'r', 'm.json', true]);
+    assert.equal(parseOwnArgs(['--filings', 'w']).reword, null);
+    assert.throws(() => parseOwnArgs(['--filings', 'w', '--reword', 'paraphrase', '--llm', 'claude']), /--reword takes blind, restate, label, spec/);
+    assert.throws(() => parseOwnArgs(['--hof', 'a', '--reword', 'blind', '--llm', 'claude']), /--reword goes with --filings/);
+    assert.throws(() => parseOwnArgs(['--filings', 'w', '--reword', 'blind']), /--reword needs --llm/);
+    assert.throws(() => parseOwnArgs(['--filings', 'w', '--reword', 'spec', '--llm', 'claude']), /the spec arm needs --spec-dir/);
+  });
+
+  it('the four arms differ only in what the model is given: blind is the restate form with no vocabulary', () => {
+    assert.deepEqual(REWORD_ARMS, ['blind', 'restate', 'label', 'spec']);
+    assert.deepEqual(REWORD_ARM_SPEC.blind, { form: 'restate', vocabulary: false, spec: false });
+    assert.deepEqual(REWORD_ARM_SPEC.restate, { form: 'restate', vocabulary: true, spec: false });
+    assert.deepEqual(REWORD_ARM_SPEC.label, { form: 'label', vocabulary: true, spec: false });
+    assert.deepEqual(REWORD_ARM_SPEC.spec, { form: 'restate', vocabulary: true, spec: true });
+  });
+
+  it('a job\'s rewordings are one file per model, arm and job, with the wrong index in the name', () => {
+    const f = rewordFile('dir', 'claude-sonnet-4-6', 'label', 'foundry-1-11__bitcoin-core__secp256k1__b6c2a3c@huggingface__tgi');
+    assert.ok(f.split(path.sep).join('/').endsWith('dir/claude-sonnet-4-6/label/foundry-1-11__bitcoin-core__secp256k1__b6c2a3c@huggingface__tgi.json'), f);
+    assert.ok(!/[ :]/.test(rewordFile('d', 'a model: x', 'blind', 'a job/b').replace(/^d/, '').split(path.sep).join('')), 'a name is made safe for a file');
+  });
+
+  it('sameness is the cosines over every pair of a chart\'s limitations; one limitation has no pair', () => {
+    const s = sameness([[1, 0], [0, 1], [1, 0]]);
+    assert.deepEqual(s, { sum: 1, pairs: 3 });
+    assert.deepEqual(sameness([[1, 0]]), { sum: 0, pairs: 0 });
+  });
+
+  it('topUnits gives the first n units, the best score and the median, skipping a unit with no score', () => {
+    const t = topUnits([0.2, 0.9, -Infinity, 0.5, 0.7], 2);
+    assert.deepEqual(t.top, [1, 4]);
+    assert.equal(t.best, 0.9);
+    assert.equal(t.median, 0.6);
+    assert.deepEqual(topUnits([], 5), { top: [], best: null, median: null });
+  });
+
+  it('crowding counts the first-row slots taken by a unit in half or more of an index\'s lists, and in at least two', () => {
+    // four queries: unit 7 is in all four lists, unit 3 in two (half), the rest in one
+    const c = crowding([[7, 3, 1], [7, 3, 2], [7, 4, 5], [7, 6, 8]]);
+    assert.equal(c.slots, 12);
+    assert.equal(c.crowded, 6);
+    assert.deepEqual(c.units.sort(), [3, 7]);
+    // two queries: a unit must be in both
+    assert.equal(crowding([[1, 2], [2, 3]]).crowded, 2);
+    assert.equal(crowding([[1, 2], [3, 4]]).crowded, 0);
+    // one query crowds nothing
+    assert.deepEqual(crowding([[1, 2, 3]]), { slots: 0, crowded: 0, units: [] });
+  });
+});

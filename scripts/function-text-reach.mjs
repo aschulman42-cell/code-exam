@@ -38,6 +38,22 @@
  *                     units are cut to those holding a sampled function
  *   --limit N         the first N queries per index (a smoke run)
  *   --dry             no model: counts and three sample texts per arm
+ *   --reword <arms>   with --filings (claim-rewording-blind-test, 2026-11-16): reword each
+ *                     chart row's limitation with a model before embedding it, by the
+ *                     prompts of src/commands/toward-code.js, and score each wording beside
+ *                     the limitation as written. Arms: blind (the restate prompt, no
+ *                     vocabulary), restate (the index's vocabulary), label (vocabulary and
+ *                     sample entries), spec (restate with the patent's specification)
+ *   --llm <provider>  the rewriting model for --reword (claude, chatgpt, ...)
+ *   --reword-dir <d>  where rewrites are kept, one file per model, arm and job; a file
+ *                     that is there is used and no model is called
+ *                     (default %LOCALAPPDATA%\CodeExam\toward-code)
+ *   --spec-dir <d>    the specifications for the spec arm, US<patent>.txt
+ *   --wrong-map <f>   JSON { "<job index dir>": "<another job's index dir>" }: also reword
+ *                     and rank each job's limitations on an index its chart does not
+ *                     accuse (the restate and label arms; blind and as-written are ranked
+ *                     there unchanged)
+ *   --force           send past the cloud cost guard
  *   --cache <dir>     where vectors are kept (default %LOCALAPPDATA%\CodeExam\function-text)
  *
  * Methods, one line of the result each. Unit function: the four arms. Units
@@ -79,8 +95,10 @@ import { extractCommandCatalog } from '../src/core/breadcrumbs-commands.js';
 const slash = (s) => String(s || '').replace(/\\/g, '/');
 const nf = (x) => Number(x || 0).toLocaleString('en-US');
 
+export const REWORD_ARMS = ['blind', 'restate', 'label', 'spec'];
+
 export function parseOwnArgs(argv) {
-  const o = { filings: null, only: null, hof: [], index: null, claimsFile: null, arms: [...ARMS], k: [1, 5, 25, 100], pool: 3500, limit: 0, model: 'nomic', cpu: false, cache: null, dry: false, json: null, md: false };
+  const o = { filings: null, only: null, hof: [], index: null, claimsFile: null, arms: [...ARMS], k: [1, 5, 25, 100], pool: 3500, limit: 0, model: 'nomic', cpu: false, cache: null, dry: false, json: null, md: false, reword: null, llm: null, rewordDir: null, specDir: null, wrongMap: null, force: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const v = () => { if (i + 1 >= argv.length) throw new Error(`${a} takes a value`); return argv[++i]; };
@@ -100,11 +118,20 @@ export function parseOwnArgs(argv) {
     else if (a === '--dry') o.dry = true;
     else if (a === '--json') o.json = v();
     else if (a === '--md') o.md = true;
+    else if (a === '--reword') { o.reword = list(); for (const x of o.reword) if (!REWORD_ARMS.includes(x)) throw new Error(`--reword takes ${REWORD_ARMS.join(', ')}; got "${x}"`); }
+    else if (a === '--llm') o.llm = v();
+    else if (a === '--reword-dir') o.rewordDir = v();
+    else if (a === '--spec-dir') o.specDir = v();
+    else if (a === '--wrong-map') o.wrongMap = v();
+    else if (a === '--force') o.force = true;
     else if (a === '--help' || a === '-h') o.help = true;
     else throw new Error(`unknown argument ${a}`);
   }
   if (!o.help && !o.filings && !o.hof.length) throw new Error('give --filings <work dir> or --hof <run dir>');
   if (o.claimsFile && o.hof.length !== 1) throw new Error('--claims-file goes with one --hof run');
+  if (o.reword && !o.filings) throw new Error('--reword goes with --filings');
+  if (o.reword && !o.llm) throw new Error('--reword needs --llm <provider>: the model that writes the rewordings, or whose saved ones are read');
+  if (o.reword && o.reword.includes('spec') && !o.specDir) throw new Error('the spec arm needs --spec-dir <dir> holding US<patent>.txt');
   return o;
 }
 
@@ -370,7 +397,7 @@ async function prepare(dir, name, answerIds, o, embedder) {
       } });
     }
   }
-  return { methods, info, fns };
+  return { methods, info, fns, mechLabels: mech.map((u) => u.e.label) };
 }
 
 // ---- the two test sets -------------------------------------------------------
@@ -386,12 +413,15 @@ function filingJobs(o) {
     const fnsByFile = functionsByFile(JSON.parse(fs.readFileSync(path.join(dir, 'function_index.json'), 'utf8')));
     const byMember = recordsByMember(JSON.parse(fs.readFileSync(path.join(dir, 'mechanisms.json'), 'utf8')).records);
     const queries = [];
+    // The whole claim as the chart gives it: every row's limitation text, in order.
+    const claim = f.chartRows.map((w) => String(w.limitation || '').trim()).filter(Boolean).join('\n');
+    const patent = ((manifest.candidates || []).find((c) => c.id === f.id) || {}).patent || null;
     for (const w of f.chartRows) {
       const text = String(w.limitation || '').trim();
       const answers = oneFunctionIds(scoreFiling(w.names, w.files.length ? w.files : f.files, fnsByFile, byMember));
       if (text.length > 15 && answers.length) queries.push({ id: `${f.id} ${w.label}`, texts: [text], answers });
     }
-    if (queries.length) jobs.push({ name: f.dir, label: `${f.id} ${f.repo}`, dir, queries });
+    if (queries.length) jobs.push({ name: f.dir, label: `${f.id} ${f.repo}`, dir, queries, claim, patent, filing: f.id });
     else process.stderr.write(`# ${f.id} ${f.repo}: no chart row with limitation text and a cited function the index holds; left out
 `);
   }
@@ -436,6 +466,230 @@ export function renderTable(title, rows, ks, md) {
   return [title, fmt(head), ...rows.map(fmt)].join('\n');
 }
 
+// ---- rewording the limitations (claim-rewording-blind-test, 2026-11-16) -----------
+// --embed-distance --toward-code rewords a claim element toward a codebase's names before
+// embedding it. On the two claims it was first run on it moved a suspected class from the
+// hundreds to the tens and showed three ways of failing: every element of a claim made to
+// sound alike, the first rows filled by entries sharing a common word, and every element
+// looking matched. This scores the rewording on the chart rows, where a party's cited
+// functions are the answers, with the prompts as committed and four arms fixed before any
+// run. Beside reach it reports what needs no answer key: how alike a chart's limitations
+// are once reworded (sameness), and how much of the first five rows the same few entries
+// take (crowding); and it ranks each claim on an index its chart does not accuse.
+
+const safeName = (s) => String(s).replace(/[^A-Za-z0-9._@-]+/g, '_');
+
+/** Where one job's rewordings under one model and arm are kept. */
+export function rewordFile(dir, modelId, arm, jobKey) {
+  return path.join(dir, safeName(modelId), arm, `${safeName(jobKey)}.json`);
+}
+
+/** The sum of cosines over every pair of (unit) vectors and the number of pairs: a chart's limitations against each other. */
+export function sameness(vecs) {
+  let sum = 0, pairs = 0;
+  for (let i = 0; i < vecs.length; i++) for (let j = i + 1; j < vecs.length; j++) { sum += dot(vecs[i], vecs[j]); pairs++; }
+  return { sum, pairs };
+}
+
+/** The `n` highest-scoring units of one query, its best score and the median score. */
+export function topUnits(scores, n = 5) {
+  const idx = [];
+  for (let i = 0; i < scores.length; i++) if (Number.isFinite(scores[i])) idx.push(i);
+  idx.sort((a, b) => scores[b] - scores[a]);
+  return { top: idx.slice(0, n), best: idx.length ? scores[idx[0]] : null, median: idx.length ? median(idx.map((i) => scores[i])) : null };
+}
+
+/**
+ * Crowding over one index's queries: of the slots in their first-n lists, how many are taken
+ * by a unit that is in the list of half or more of the queries (and of at least two).
+ * One query has nothing to crowd. Returns { slots, crowded, units }.
+ */
+export function crowding(topLists) {
+  const n = topLists.length;
+  if (n < 2) return { slots: 0, crowded: 0, units: [] };
+  const need = Math.max(2, Math.ceil(n / 2));
+  const count = new Map();
+  for (const l of topLists) for (const u of new Set(l)) count.set(u, (count.get(u) || 0) + 1);
+  const hubs = new Set([...count].filter(([, c]) => c >= need).map(([u]) => u));
+  let slots = 0, crowded = 0;
+  for (const l of topLists) for (const u of l) { slots++; if (hubs.has(u)) crowded++; }
+  return { slots, crowded, units: [...hubs] };
+}
+
+/** What an arm gives the rewriting model: the form of src/commands/toward-code.js, and whether the vocabulary and the specification go in. */
+export const REWORD_ARM_SPEC = {
+  blind: { form: 'restate', vocabulary: false, spec: false },
+  restate: { form: 'restate', vocabulary: true, spec: false },
+  label: { form: 'label', vocabulary: true, spec: false },
+  spec: { form: 'restate', vocabulary: true, spec: true },
+};
+
+const LABEL_METHOD = 'mechanism: label and members (baseline)';
+const FUSED_METHOD = 'mechanism: fused, weighted sum, 0.3 own text';
+
+/**
+ * Make, or read back, every rewording a run needs. Returns get(arm, job, wrongName|null) ->
+ * rows of rewriteElements. One file per model, arm and job under o.rewordDir; a file whose
+ * elements are the job's limitations is used as it is and no model is called for it.
+ */
+async function makeRewordings(o, jobs, wrong, allJobs) {
+  const tc = await import('../src/commands/toward-code.js');
+  const { cachedVocabularyWords } = await import('../src/core/vocabulary.js');
+  const { vocabConcordanceOptions } = await import('../src/commands/claim.js');
+  const runner = await import('../src/core/llm-runner.js');
+  const model = runner.resolveModel({ llm: o.llm });
+  if (!model) throw new Error(`--llm ${o.llm}: no such provider`);
+  if (model.kind === 'error') throw new Error(model.error);
+  const dir = path.resolve(o.rewordDir || path.join(process.env.LOCALAPPDATA || '.', 'CodeExam', 'toward-code'));
+  const vopt = { ...vocabConcordanceOptions({ args: { no_claim_filter: true }, localModelPath: null }).options, maxFuncNames: 0 };
+  const ctx = new Map();
+  const ctxOf = (indexDir) => {
+    if (!ctx.has(indexDir)) {
+      const words = cachedVocabularyWords(indexDir, vopt).words;
+      const samples = tc.sampleEntryTexts(foldRecords(JSON.parse(fs.readFileSync(path.join(indexDir, 'mechanisms.json'), 'utf8')).records));
+      ctx.set(indexDir, { words, samples });
+    }
+    return ctx.get(indexDir);
+  };
+  const byName = new Map(allJobs.map((j) => [j.name, j]));
+  const store = new Map();
+  const pending = [];
+  for (const arm of o.reword) {
+    const A = REWORD_ARM_SPEC[arm];
+    for (const job of jobs) {
+      const elements = job.queries.map((q) => q.texts[0]);
+      const targets = [{ indexDir: job.dir, tag: null }];
+      // The wrong-codebase control: the arms that are told an index's words, told another index's.
+      if (wrong && wrong[job.name] && A.vocabulary && !A.spec) {
+        const w = byName.get(wrong[job.name]);
+        if (!w) throw new Error(`--wrong-map names ${wrong[job.name]} for ${job.name}, which is not one of the jobs`);
+        targets.push({ indexDir: w.dir, tag: w.name });
+      }
+      for (const t of targets) {
+        const key = `${arm}|${job.filing}|${job.name}|${t.tag || ''}`;
+        const file = rewordFile(dir, model.model, arm, `${job.filing}__${job.name}${t.tag ? `@${t.tag}` : ''}`);
+        if (fs.existsSync(file)) {
+          const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+          if (JSON.stringify(saved.elements) === JSON.stringify(elements)) { store.set(key, saved.rows); continue; }
+        }
+        const c = A.vocabulary || A.form === 'label' ? ctxOf(t.indexDir) : { words: [], samples: [] };
+        let spec = null, specFile = null;
+        if (A.spec) {
+          specFile = path.join(path.resolve(o.specDir), `US${job.patent}.txt`);
+          if (!fs.existsSync(specFile)) throw new Error(`the spec arm needs ${specFile} (job ${job.label})`);
+          spec = fs.readFileSync(specFile, 'utf8').trim();
+        }
+        pending.push({ key, file, arm, job, elements, form: A.form, vocabulary: A.vocabulary ? c.words : [], samples: A.form === 'label' ? c.samples : [], spec, specFile, index: t.indexDir });
+      }
+    }
+  }
+  if (pending.length) {
+    const calls = pending.flatMap((p) => p.elements.map((e) => ({ inChars: tc.buildTowardCodePrompt(p.form).length + tc.buildTowardCodeUser({ element: e, claim: p.job.claim, vocabulary: p.vocabulary, samples: p.samples, spec: p.spec, form: p.form }).length, outTokens: 80 })));
+    process.stderr.write(`# rewording: ${calls.length} model calls over ${pending.length} job-arms (${runner.describeEngine(model)}); ${store.size} job-arms read from ${dir}\n`);
+    if (!runner.claimsCostGate(model, calls, `reword (${calls.length} calls)`, { force: o.force })) throw new Error('stopped at the cost guard; --force sends anyway');
+    runner.resetCloudUsage();
+    const draft = runner.makeDrafter(model, 0);
+    for (const p of pending) {
+      const rows = await tc.rewriteElements({ draft, elements: p.elements, claim: p.job.claim, vocabulary: p.vocabulary, samples: p.samples, spec: p.spec, form: p.form });
+      const failed = rows.filter((r) => r.error).length;
+      process.stderr.write(`# reworded ${p.arm} ${p.job.label}${p.index !== p.job.dir ? ` with the words of ${path.basename(p.index)}` : ''}: ${rows.length} limitation(s)${failed ? `, ${failed} NOT reworded (${rows.find((r) => r.error).error})` : ''}\n`);
+      fs.mkdirSync(path.dirname(p.file), { recursive: true });
+      fs.writeFileSync(p.file, JSON.stringify({ generated: new Date().toISOString(), engine: runner.describeEngine(model), arm: p.arm, form: p.form, job: p.job.label, index: path.basename(p.index), vocabularyCount: p.vocabulary.length, sampleCount: p.samples.length, specFile: p.specFile, elements: p.elements, rows }, null, 1));
+      store.set(p.key, rows);
+    }
+    const cost = runner.actualCostLine(model);
+    if (cost) process.stderr.write(`${cost}\n`);
+  } else process.stderr.write(`# rewording: every job-arm read from ${dir}; no model call\n`);
+  return { get: (arm, job, tag = null) => store.get(`${arm}|${job.filing}|${job.name}|${tag || ''}`), engine: runner.describeEngine(model), modelId: model.model, dir };
+}
+
+const emptyExtra = () => ({ same: { sum: 0, pairs: 0 }, crowd: { slots: 0, crowded: 0 }, margins: [], wrongMargins: [], wrongCrowd: { slots: 0, crowded: 0 }, notReworded: 0 });
+
+/** The --reword run: every wording of every job's limitations, scored on the mechanism entries by label and by label with function text. */
+async function rewordMain(o, jobs, allJobs = jobs) {
+  const wrong = o.wrongMap ? JSON.parse(fs.readFileSync(path.resolve(o.wrongMap), 'utf8')) : null;
+  const rw = await makeRewordings(o, jobs, wrong, allJobs);
+  const model = resolveEmbedModel(o.model);
+  const e = await openEmbedder(model.path, { cpu: o.cpu });
+  const embedder = { ctx: e.ctx, dispose: e.dispose, query: model.query, doc: model.doc, name: model.name };
+  const wordings = ['written', ...o.reword];
+  const pooled = Object.fromEntries(wordings.map((w) => [w, { [LABEL_METHOD]: null, [FUSED_METHOD]: null, units: 0, ...emptyExtra() }]));
+  const perJob = [];
+  const want = new Set([`function: ${FUSE_ARM}`, LABEL_METHOD, FUSED_METHOD]);
+  const preps = new Map();
+  const prepFor = async (job, answerIds) => {
+    if (!preps.has(job.name)) { const p = await prepare(job.dir, job.name, answerIds, { ...o, arms: [FUSE_ARM] }, embedder); p.methods = p.methods.filter((m) => want.has(m.name)); preps.set(job.name, p); }
+    return preps.get(job.name);
+  };
+  const embedTexts = async (texts) => { const m = await embedAll(embedder.ctx, texts.map((t, i) => ({ key: String(i), text: String(t).slice(0, 1500) })), null, { prefix: embedder.query, quiet: true }); return texts.map((_, i) => m.get(String(i))); };
+  const byName = new Map(allJobs.map((j) => [j.name, j]));
+  try {
+    // Every accused index first, so an index sampled for its own answers is the one reused as another job's wrong index.
+    for (const job of jobs) await prepFor(job, new Set(job.queries.flatMap((q) => q.answers)));
+    for (const job of jobs) {
+      const prep = preps.get(job.name);
+      const labelMethod = prep.methods.find((m) => m.name === LABEL_METHOD);
+      const wjob = wrong && wrong[job.name] ? byName.get(wrong[job.name]) : null;
+      const wprep = wjob ? await prepFor(wjob, new Set(wjob.queries.flatMap((q) => q.answers))) : null;
+      const wlabel = wprep ? wprep.methods.find((m) => m.name === LABEL_METHOD) : null;
+      const rec = { job: job.label, index: job.name, queries: job.queries.length, entries: labelMethod ? labelMethod.units : 0, wrongIndex: wjob ? wjob.name : null, wrongEntries: wlabel ? wlabel.units : 0, wordings: {} };
+      for (const w of wordings) {
+        const rows = w === 'written' ? null : rw.get(w, job);
+        const texts = rows ? rows.map((r) => r.rewritten) : job.queries.map((q) => q.texts[0]);
+        const vecs = await embedTexts(texts);
+        const scored = scoreIndex(prep.methods, job.queries.map((q, i) => ({ id: q.id, answers: q.answers, vecs: [vecs[i]] })), o.k);
+        const P = pooled[w];
+        for (const name of [LABEL_METHOD, FUSED_METHOD]) {
+          if (!scored[name]) continue;
+          P[name] = P[name] || { real: null, control: null, chance: null };
+          for (const part of ['real', 'control', 'chance']) P[name][part] = mergeTally(P[name][part], scored[name][part], o.k);
+        }
+        const out = { notReworded: rows ? rows.filter((r) => r.error).length : 0 };
+        P.notReworded += out.notReworded;
+        const same = sameness(vecs);
+        P.same.sum += same.sum; P.same.pairs += same.pairs;
+        out.sameness = same.pairs ? same.sum / same.pairs : null;
+        if (labelMethod) {
+          const tops = vecs.map((v) => topUnits(labelMethod.scoreOf(v, {})));
+          const c = crowding(tops.map((t) => t.top));
+          P.crowd.slots += c.slots; P.crowd.crowded += c.crowded;
+          const margins = tops.filter((t) => t.best != null).map((t) => t.best - t.median);
+          P.margins.push(...margins);
+          Object.assign(out, { crowding: c.slots ? c.crowded / c.slots : null, crowdedBy: c.units.map((u) => prep.mechLabels[u]), margins, first: tops.map((t) => (t.top.length ? prep.mechLabels[t.top[0]] : null)) });
+        }
+        // The wrong codebase: the same limitations, worded for it where the arm is told an index's words, ranked on it.
+        if (wlabel && w !== 'spec') {
+          const wrows = w === 'restate' || w === 'label' ? rw.get(w, job, wjob.name) : rows;
+          const wtexts = wrows ? wrows.map((r) => r.rewritten) : job.queries.map((q) => q.texts[0]);
+          const wvecs = wrows === rows ? vecs : await embedTexts(wtexts);
+          const tops = wvecs.map((v) => topUnits(wlabel.scoreOf(v, {})));
+          const c = crowding(tops.map((t) => t.top));
+          P.wrongCrowd.slots += c.slots; P.wrongCrowd.crowded += c.crowded;
+          const margins = tops.filter((t) => t.best != null).map((t) => t.best - t.median);
+          P.wrongMargins.push(...margins);
+          Object.assign(out, { wrongMargins: margins, wrongCrowding: c.slots ? c.crowded / c.slots : null, wrongFirst: tops.map((t) => (t.top.length ? wprep.mechLabels[t.top[0]] : null)) });
+        }
+        out.label = scored[LABEL_METHOD] || null;
+        out.fused = scored[FUSED_METHOD] || null;
+        rec.wordings[w] = out;
+      }
+      perJob.push(rec);
+      process.stderr.write(`# scored ${job.label}\n`);
+    }
+  } finally { await embedder.dispose(); }
+
+  const pct = (n, d) => (d ? `${Math.round(100 * n / d)}%` : '-');
+  const reach = (t) => o.k.map((k) => (t ? `${pct(t.real.hit[k], t.real.answers)} (${pct(t.control.hit[k], t.control.answers)})` : '-'));
+  const med = (a) => (a.length ? median(a).toFixed(3) : '-');
+  const head = ['wording', ...o.k.map((k) => `label ≤${k} (other limitation)`), ...o.k.map((k) => `with function text ≤${k} (other)`), 'sameness', 'crowding', 'margin', 'wrong index: margin', 'wrong index: crowding', 'not reworded'];
+  const rows = wordings.map((w) => { const P = pooled[w]; return [w, ...reach(P[LABEL_METHOD]), ...reach(P[FUSED_METHOD]), P.same.pairs ? (P.same.sum / P.same.pairs).toFixed(3) : '-', pct(P.crowd.crowded, P.crowd.slots), med(P.margins), med(P.wrongMargins), pct(P.wrongCrowd.crowded, P.wrongCrowd.slots), String(P.notReworded)]; });
+  const functions = pooled.written[LABEL_METHOD] ? pooled.written[LABEL_METHOD].real.answers : 0;
+  const title = `${jobs.length} jobs, ${jobs.reduce((a, j) => a + j.queries.length, 0)} chart rows, ${functions} cited functions in a mechanism entry; embedding ${embedder.name}; reworded by ${rw.engine}`;
+  if (o.md) console.log([`**${title}**`, '', `| ${head.join(' | ')} |`, `|${head.map((_, i) => (i ? '---:' : '---')).join('|')}|`, ...rows.map((r) => `| ${r.join(' | ')} |`)].join('\n'));
+  else { const wd = head.map((h, i) => Math.max(h.length, ...rows.map((r) => String(r[i]).length))); const fmt = (r) => r.map((c, i) => (i ? String(c).padStart(wd[i]) : String(c).padEnd(wd[i]))).join('  '); console.log([title, fmt(head), ...rows.map(fmt)].join('\n')); }
+  if (o.json) fs.writeFileSync(o.json, JSON.stringify({ generated: new Date().toISOString(), embedModel: embedder.name, rewriter: rw.engine, rewordDir: rw.dir, options: { ...o }, pooled, perJob }, null, 1));
+}
+
 // ---- main -----------------------------------------------------------------------
 
 async function main() {
@@ -443,6 +697,7 @@ async function main() {
   if (o.help) { console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').filter((l) => /^ \*( |$)/.test(l)).map((l) => l.slice(3)).join('\n')); return; }
   const jobs = o.filings ? filingJobs(o) : hofJobs(o);
   if (!jobs.length) { console.error('function-text-reach: nothing to score'); process.exit(1); }
+  if (o.reword) return rewordMain(o, jobs, o.only ? filingJobs({ ...o, only: null }) : jobs);
   let embedder = null;
   if (!o.dry) {
     const model = resolveEmbedModel(o.model);

@@ -57,6 +57,13 @@ through its label (95% against 78%, and 85% against 59%, over two runs of 212 cl
 the text embedded for a mechanism can likely be improved without a model; the link from one
 limitation to its code is still not made by any text measured here.
 
+Rewording the limitation with a model before embedding it has now been measured on the same
+chart rows (2026-11-16, the section near the end of this page). It reaches more of the cited
+code, and another limitation's rewording reaches the same code almost as often; the
+codebase's own vocabulary added nothing over a rewording made without it; and a rewording
+did not make a codebase the chart does not accuse look matched. The rows are too few and too
+alike to say more: the one chart whose limitations cite different code improved a great deal.
+
 ## Do the functions a litigant cites for a claim sit together? (2026-11-14)
 
 **The question.** A mechanism is the unit CodeExam describes, embeds for `--embed-distance`
@@ -1000,6 +1007,186 @@ node scripts/function-text-reach.mjs --hof <index>/hof/<run> --claims-file <rewo
 Give each model its own `--cache` folder: the script's vector cache is kept per index and
 keyed by prompt and text, not by model, so two models that share a document prompt would
 read each other's vectors.
+
+## Does rewording a limitation toward the code reach it? (2026-11-16)
+
+A claim says things in a patent's words and code in an engineer's, and the embedding does
+not cross between them on its own ([`describe-reach.md`](describe-reach.md), "Register, not
+breadth"). `--embed-distance --toward-code` has a model reword each claim element before it
+is embedded ([`cli.md`](cli.md)). This section scores that rewording where a party's cited
+functions are the answers: the 39 chart rows of the twelve filings above, 129 of whose 139
+cited functions are in a mechanism.
+
+**The arms**, fixed before any run, each one model call per limitation:
+
+| arm | what the model is given, beside the limitation and the chart's other limitations |
+|---|---|
+| as written | no model; the baseline of the sections above |
+| blind | nothing: the restate prompt with an empty vocabulary list |
+| restate | 150 words from the index's names |
+| label | those words and 40 of the index's mechanism entries taken at even steps; it writes a label and function names, the shape of what is ranked |
+| spec | the restate arm, with the patent's specification |
+
+The prompts are those of `src/commands/toward-code.js` as committed in `a316232`. They had
+been revised once, on one claim (the '101, below), and were not changed for or during these
+runs. Rewriting models: Claude Sonnet 4.6 on every arm, ChatGPT (gpt-5.1) on the first three;
+one rewording per limitation at temperature 0. ChatGPT returned nothing for two limitations
+(the restate arm on the Coinbase SDK filing); those two are ranked as written.
+
+**What is measured**, besides reach (the share of cited functions whose mechanism is within
+5, 25 and 100):
+
+- *Other limitation*: the rewording of another limitation of the same chart, read against
+  this row's cited functions, as in the sections above.
+- *Sameness*: the mean cosine between the limitations of one chart, as embedded. A rewording
+  that raises it has made a chart's limitations sound alike. It needs no answers.
+- *Crowding*: of the first five rows of every limitation of an index, the share taken by
+  entries that are in the first five for half or more of that index's limitations (and at
+  least two). A rewording that raises it is pulling toward the same few entries.
+- *Margin*: how far the nearest entry sits above the median entry, the median over rows.
+- *Wrong index*: each chart's limitations ranked on an index the chart does not accuse, a
+  codebase of another field (the pairs are below). For the restate and label arms the
+  limitation is reworded again with that index's words; the blind arm and the limitation as
+  written are ranked there unchanged; the spec arm was not run there.
+
+```
+node scripts/function-text-reach.mjs --filings <work folder> --reword blind,restate,label,spec --llm claude --spec-dir <folder of US<patent>.txt> --wrong-map <pairs.json> --k 5,25,100 --embed-model gemma --cache <gemma's own folder>
+```
+
+Rewordings are kept one file per model, arm and job (`--reword-dir`), and a second run reads
+them and calls no model. 429 model calls in all, $3.62.
+
+### The result
+
+By mechanism label, the right limitation and, in parentheses, another limitation of the
+same chart. Under EmbeddingGemma, reworded by Claude:
+
+| wording | within 5 | within 25 | within 100 | with function text, within 25 | sameness | crowding | margin | wrong index: margin | wrong index: crowding |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| as written | 18% (21%) | 54% (50%) | 84% (78%) | 50% (47%) | 0.709 | 51% | 0.144 | 0.127 | 49% |
+| blind | 21% (22%) | 50% (50%) | 83% (75%) | 52% (50%) | 0.684 | 50% | 0.171 | 0.131 | 52% |
+| restate | 15% (15%) | 53% (54%) | 88% (81%) | 50% (50%) | 0.694 | 60% | 0.161 | 0.128 | 59% |
+| label | 26% (24%) | 60% (54%) | 91% (81%) | 57% (52%) | 0.754 | 61% | 0.195 | 0.133 | 59% |
+| spec | 19% (19%) | 51% (51%) | 91% (82%) | 47% (48%) | 0.721 | 61% | 0.154 | | |
+
+Under EmbeddingGemma, reworded by ChatGPT:
+
+| wording | within 5 | within 25 | within 100 | with function text, within 25 | sameness | crowding | margin | wrong index: margin | wrong index: crowding |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| blind | 18% (18%) | 43% (39%) | 89% (81%) | 43% (45%) | 0.682 | 48% | 0.155 | 0.129 | 39% |
+| restate | 15% (16%) | 53% (49%) | 87% (81%) | 44% (43%) | 0.685 | 46% | 0.155 | 0.126 | 42% |
+| label | 22% (22%) | 50% (46%) | 84% (78%) | 50% (44%) | 0.721 | 49% | 0.157 | 0.131 | 46% |
+
+Under nomic, reworded by Claude:
+
+| wording | within 5 | within 25 | within 100 | with function text, within 25 | sameness | crowding | margin | wrong index: margin | wrong index: crowding |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| as written | 13% (16%) | 46% (42%) | 73% (71%) | 48% (46%) | 0.775 | 47% | 0.096 | 0.096 | 39% |
+| blind | 26% (28%) | 48% (47%) | 84% (78%) | 53% (47%) | 0.793 | 52% | 0.110 | 0.092 | 48% |
+| restate | 26% (26%) | 50% (49%) | 83% (77%) | 54% (47%) | 0.802 | 52% | 0.130 | 0.094 | 54% |
+| label | 31% (29%) | 58% (53%) | 84% (76%) | 60% (53%) | 0.804 | 63% | 0.160 | 0.106 | 59% |
+| spec | 25% (26%) | 57% (55%) | 86% (79%) | 57% (54%) | 0.825 | 52% | 0.112 | | |
+
+Under nomic, reworded by ChatGPT:
+
+| wording | within 5 | within 25 | within 100 | with function text, within 25 | sameness | crowding | margin | wrong index: margin | wrong index: crowding |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| blind | 17% (15%) | 45% (43%) | 84% (78%) | 43% (40%) | 0.789 | 45% | 0.115 | 0.096 | 49% |
+| restate | 19% (14%) | 47% (42%) | 81% (75%) | 50% (40%) | 0.774 | 42% | 0.113 | 0.098 | 39% |
+| label | 27% (22%) | 53% (50%) | 80% (74%) | 57% (52%) | 0.780 | 54% | 0.123 | 0.103 | 46% |
+
+One point of reach is 1.3 functions.
+
+### What it says
+
+- **A rewording reaches more of the cited code, and the other limitation's rewording
+  reaches it almost as often.** Under nomic every rewording raises reach, the blind one
+  included (within 5 from 13% to between 17% and 31%, within 100 from 73% to between 80% and
+  86%), and the control rises with it nearly point for point. Under gemma, which already
+  reads 84% within 100 as written, only Claude's label and spec arms rise. The gap between
+  the right limitation and another one is 4 points within 25 as written and never more than
+  6 for any rewording by label. The earlier finding stands for rewordings as it did for
+  text built from the code: the wording finds the patent's part of the code, not the
+  limitation's.
+- **The codebase's vocabulary added nothing a model did not already write.** The restate
+  arm is the blind arm plus 150 of the index's words, and the two are level: 53% and 50%
+  within 25 under gemma with Claude, 50% and 48% under nomic. ChatGPT's blind arm is 10
+  points lower than its restate arm at one depth under gemma (43% against 53%) and level
+  elsewhere.
+- **The label form is the best arm, and what in it helps is not separated.** It leads
+  within 5 and within 25 with Claude under both embedders (60% and 58% within 25). It was run only with
+  the vocabulary and the sample entries together, so whether the shape, the samples or the
+  words do the work is not known. It also raises sameness (0.709 to 0.754 under gemma) and,
+  with Claude, crowding (51% to 61%).
+- **The specification did not help.** The spec arm is level with or below the restate arm
+  within 25 under gemma (51% against 53%) and above it under nomic (57% against 50%) with
+  the control beside it (55%), at roughly ten times the input tokens.
+- **A rewording did not make the wrong codebase look matched.** On an index the chart does
+  not accuse, the nearest entry's margin over the median barely moves under any rewording
+  (0.127 as written, 0.126 to 0.133 reworded, under gemma; 0.096, then 0.092 to 0.106, under
+  nomic), where on the accused index it rises (0.144 to between 0.154 and 0.195; 0.096 to
+  between 0.110 and 0.160). The blind arm, which is told nothing of any codebase, shows the
+  same difference. Crowding is the exception: Claude's rewordings raise it on the wrong
+  index as on the accused one.
+- **Claude's rewordings crowd the first rows and ChatGPT's do not.** 60% and 61% against
+  51% as written under gemma for Claude's restate and label arms; 46% and 49% for ChatGPT's.
+- **The gain there is sits in one filing.** Under gemma the label arm's rise within 25 is
+  the Spark chart: 4 of its 21 cited functions as written, 10 reworded, with another
+  limitation's rewording at 1 both times. That is the one chart outside elliptic-curve code
+  with more than two cited functions in a mechanism. In the six secp256k1 and bitcoin
+  filings, 102 of the 129 functions, the right limitation and another one score the same
+  under every wording, since those charts cite the same functions for several limitations
+  and the control cannot separate them there.
+
+### What it decides
+
+The outcomes and what each would decide were written before the runs. The one that
+happened: an arm raises reach, and the other-limitation control, sameness or crowding rises
+with it. So `--toward-code` stays a testing option, a shortlist for a later reading step is
+made from the limitation as written, and a rank under a rewording is not read as a finding.
+The vocabulary did no better than the blind arm, which by the same list takes it out of the
+restate prompt; the prompts are left as they are while the option is for testing only.
+
+What this test could not decide: 39 rows is too few, and 24 of them too alike. The one chart
+where limitations cite different code moved a long way, and one chart is an example, not a
+result.
+
+### The wrong-index pairs
+
+Chosen from the patents' titles and the repositories' file names, before any rewording was
+made: Spark's chart on bitcoin/bitcoin; the solana and both bitcoin charts on Spark; the
+consensus-specs, secp256k1 (four charts), Coinbase SDK and dstoken charts on
+text-generation-inference; the text-generation-inference chart on dstoken. A rule drafted
+first (the next filing's index) was dropped before the runs because it paired secp256k1 with
+bitcoin/bitcoin, which carries a copy of secp256k1. Margins on indexes of very different
+size (149 entries to 16,677) are not on one scale; the table compares each index with
+itself across wordings.
+
+### The two claims run first, apart from the chart rows
+
+`--toward-code` was first run on two claims with no party's citation, and its prompt was
+revised once on the first of them, so neither is counted above.
+
+- Claim 1 of US 8,752,101 against ExoPlayer 3 (10,828 entries, gemma, Claude), read against
+  a class Andrew suspects. The nearest entry labelled `AdaptiveTrackSelection` on the three
+  elements about choosing the rate: rank 151, 1,109 and 342 as written; 78, 229 and 103
+  restated; 7, 190 and 25 in the label form. The first prompt's label form had written the
+  claim's main idea for five of nine elements and ranked that class 7th for the preamble;
+  the revised prompt put the preamble at 575. The first rows are `Builder / bitrate` setters
+  in both forms.
+- A pseudo-claim for CodeExam's own no-cloud mode against CodeExam's index (426 entries,
+  gemma), written to avoid the code's word "air-gapped". Rank of `[file] air-gapped.js` over
+  its eight elements: 3, 33, 2, 13, 35, 3, 10, 124 as written; 11, 33, 4, 5, 11, 2, 13, 3
+  restated by ChatGPT; 4, 35, 4, 8, 41, 5, 11, 4 in Claude's label form. Neither model wrote
+  "air-gapped", though "air" and "gapped" were among the words shown, separately.
+
+Limits: 39 rows, 24 of them from six filings on secp256k1 and bitcoin that cite overlapping
+functions; the charts are parties' advocacy, and a hit is agreement with a party, not
+correctness; every codebase and patent here is public and both models may know them from
+training, so nothing here tests confidential code, the case the vocabulary was meant for;
+one rewording per limitation; the label form without the vocabulary was not run; no local
+rewriting model; the whole claim shown to the model is the chart's limitation texts in
+order, not the patent's claim.
 
 ## Sections to come
 

@@ -301,10 +301,18 @@ Dated one-line results; the tables are on the linked pages.
   text) and gains nothing on the chart rows; `--embed-distance` still scores the label
   by default (2026-11-15, same page), and `--function-text` beside it scores the two
   together, for testing.
-- Whether rewording the claim toward the code's words reaches it: not known yet.
-  `--embed-distance --toward-code` (2026-11-16, for testing) has a model reword each claim
-  element, shown the index's vocabulary and no source code, and ranks the records by the
-  rewording. It has been run on one claim: claim 1 of US 8,752,101 against ExoPlayer 3 under
+- Whether rewording the claim toward the code's words reaches it: somewhat, and not in a
+  way that tells one limitation from another. `--embed-distance --toward-code` (2026-11-16,
+  for testing) has a model reword each claim element, shown the index's vocabulary and no
+  source code, and ranks the records by the rewording. On the 39 litigant chart rows
+  (2026-11-16, [`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md)), under
+  EmbeddingGemma with Claude's rewordings, the record holding a cited function is within 25
+  for 54% of cited functions as written and 60% in the label form, and another limitation's
+  rewording scores 50% and 54%. A rewording made with no vocabulary did as well as one made
+  with it. A rewording did not make a codebase the chart does not accuse look matched. The
+  rows are few and mostly from one library; the one chart whose limitations cite different
+  code went from 4 of 21 functions to 10. The option stays for testing, and a rank under it
+  is not read as a finding. It was first run on one claim: claim 1 of US 8,752,101 against ExoPlayer 3 under
   EmbeddingGemma, reworded by Claude Sonnet, read against a class Andrew suspects
   (`AdaptiveTrackSelection`), not a party's citation. On the three elements about choosing
   the rate, the nearest record labelled with that class is at rank 151, 1,109 and 342 of
@@ -320,9 +328,8 @@ Dated one-line results; the tables are on the linked pages.
     setters that share the word and do not choose a rate. The class is not in the first
     five rows for any element.
 
-  The two controls that would say whether a good rank means anything (another limitation
-  of the same claim, and a codebase without the feature) have not been run. Until they
-  are, a rank under this option is not evidence that code practises an element.
+  The two controls (another limitation of the same chart, and a codebase without the
+  feature) have since been run on the chart rows, as above, not on this claim.
 
 Results about mechanisms themselves that have no section yet (the grouper's cover and split
 measurements, the two describers compared as a table of contents, the no-match calibration
