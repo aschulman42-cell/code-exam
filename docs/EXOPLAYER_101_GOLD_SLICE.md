@@ -5,6 +5,8 @@ on ExoPlayer. It records what the examined ExoPlayer index and source archive sh
 claim, so future CodeExam retrieval and local-model experiments can be scored against a
 small, explicit target.
 
+This is a test file created by Codex (GPT-5.6-Luna medium) as part of claim-chart testing.
+
 ## Provenance and scope
 
 - Claim input: `8752101_claim_1.txt` in the working corpus.
