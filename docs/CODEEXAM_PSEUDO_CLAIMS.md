@@ -620,6 +620,9 @@ recipe, the ladder, the runs so far and where the work went next are on
   this page: the self-test, the real-world yardstick, the rubric scores, the census figures.
 - [`CODEEXAM_SELF_PORTRAIT.md`](CODEEXAM_SELF_PORTRAIT.md) — CodeExam described by its own
   `--pseudo-claims` feature, one claim per feature beside the rubric pages.
+- [`CODEEXAM_SEMANTIC_SEARCH.md`](CODEEXAM_SEMANTIC_SEARCH.md) — searching a codebase by meaning; how the
+  self-test's pseudo-claims fare under it, and that pseudo-claims are not yet among the texts it
+  compares against.
 - [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md) — searching and charting
   *real* patent claims against code (pseudo-claims' sibling).
 - [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) — the grouper's cover of a whole

@@ -158,6 +158,10 @@ at the feature that serves it.
 - **Multisect search** — narrowing a multi-term search to the smallest scope
   in which all the terms co-occur, from file or class, to function, to the specific
   lines. → [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md)
+- **Semantic search** — describing what code does in your own words, or giving a
+  patent claim, and getting back the functions whose names and comments are nearest in
+  meaning, on a local embedding model with nothing sent anywhere. A hit is a place to
+  read, not a finding. → [`CODEEXAM_SEMANTIC_SEARCH.md`](docs/CODEEXAM_SEMANTIC_SEARCH.md)
 - **Helping map the client/server boundary** — `--client-server` finds
   declared server routes and the client calls that consume them, reconciled
   by URL path, and flags client calls with **no matching server route** — the
@@ -250,6 +254,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_KEY_FEATURES.md`](docs/CODEEXAM_KEY_FEATURES.md) | Browse and search, catalogs — the overview |
 | [`TOUR.md`](docs/TOUR.md) | A short tour of the bundled demo index: the GUI's AI/ML accordions, then four commands to try on it |
 | [`CODEEXAM_SEARCHING.md`](docs/CODEEXAM_SEARCHING.md) | Literal / fast / regex search and multisect |
+| [`CODEEXAM_SEMANTIC_SEARCH.md`](docs/CODEEXAM_SEMANTIC_SEARCH.md) | Semantic search: finding code from a description or a claim on a local embedding model; what your text is compared to, `--filter` and `--toward-code` and the caution they need, and what is tested |
 | [`CODEEXAM_BROWSING.md`](docs/CODEEXAM_BROWSING.md) | Structural lists, cross-reference, and code-surfacing metrics |
 | [`CODEEXAM_MAPPING_DEPENDENCIES.md`](docs/CODEEXAM_MAPPING_DEPENDENCIES.md) | Imports, the bill of materials, and dependencies: each dependency command (and the GUI's Imports accordion) in one table — what it answers, what it reads, what it does not read — and what is not done |
 | [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md) | Vocabulary, breadcrumbs, Overview / Overview by AI |

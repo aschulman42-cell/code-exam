@@ -69,7 +69,7 @@ work in progress; synonym expansion (above) and `--synonymize` are the current m
 approaches. Since 2026-11-17 there is also a search by meaning:
 `ce --ndx <index> --build-embeddings` once, then `ce --ndx <index> --semantic-search "<text>"`,
 which ranks the index's mechanisms under a local embedding model and lists the functions that
-scored, hits then near hits, with no network call ([`cli.md`](cli.md)). It answers a plain
+scored, hits then near hits, with no network call ([`CODEEXAM_SEMANTIC_SEARCH.md`](CODEEXAM_SEMANTIC_SEARCH.md), which also says when to use it and when to use the exact searches on this page). It answers a plain
 description of what code does better than it answers a patent claim, whose wording is further
 from the code's: what it has been measured to find, and not to find, is on
 [`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md). Why the index itself stays

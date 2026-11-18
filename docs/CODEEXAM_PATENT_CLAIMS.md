@@ -28,7 +28,7 @@ against real-world data, including charts that parties filed against open-source
 ## From a claim to the code
 
 The first problem is vocabulary: a claim is written in the drafter's language (as modified through
-PTO examination), and the codebase names things its own way. Bridging that gap is the hard part, and CodeExam offers two routes:
+PTO examination), and the codebase names things its own way. Bridging that gap is the hard part, and CodeExam offers these routes:
 
 - **`--claim-search <prose>`** — extract the distinctive terms from a claim (or spec, or
   requirement) and run them as a multisect search (see [`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md)),
@@ -36,6 +36,12 @@ PTO examination), and the codebase names things its own way. Bridging that gap i
 - **`--claim-locate <prose>`** — propose candidate symbols from the claim, verify them against the
   index (discarding ones that don't exist), navigate a hop from the survivors, and emit a set of
   **targets** to chart. `--hunt` widens the search when the first pass comes up short.
+- **`--semantic-search @claim.txt`** — rank the codebase against each element by meaning, on a
+  local embedding model with no language-model call, and list the nearest functions as hits
+  and near hits, then the places found for the most elements. It finds the part of a codebase
+  a claim is about better than it ties one limitation to its code, reads no code and gives no
+  verdict. See [`CODEEXAM_SEMANTIC_SEARCH.md`](CODEEXAM_SEMANTIC_SEARCH.md), including its warning about steering a
+  search toward a hoped-for result.
 - **In Chat and other MCP clients: `claim_elements` and `claim_candidates`** — the same splitter,
   and the deterministic half of `--claim-locate`'s retrieval (name match weighted by rarity, a
   search of function bodies, the direction check, sponge marking) as tools. The model supplies
@@ -183,6 +189,8 @@ counts look.
   it is tested against, the agreement runs on them and the self-test.
 - [`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md) — multisect and `--claim-search`, the search
   layer under claim charting.
+- [`CODEEXAM_SEMANTIC_SEARCH.md`](CODEEXAM_SEMANTIC_SEARCH.md) — searching a codebase for a claim's elements
+  by meaning, with no language model; what it can and cannot stand in for.
 - [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md) — the verdict labels, `--mask-all`, and the
   determinism boundary the model operates within.
 - [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) — `--reproducible` and the provenance header.

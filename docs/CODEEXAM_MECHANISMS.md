@@ -223,7 +223,8 @@ the one-line version.
 - **Searching by meaning.** `--semantic-search "<text>"` ranks the mechanism rows under a
   local embedding model, each by its label and its best function's text, and lists the
   functions that scored as hits and near hits, each with the rows that hold it; it needs
-  `--build-embeddings` once per index ([`cli.md`](cli.md)). The mechanisms are what makes
+  `--build-embeddings` once per index ([`CODEEXAM_SEMANTIC_SEARCH.md`](CODEEXAM_SEMANTIC_SEARCH.md), which shows the
+  text embedded for a row and for a function). The mechanisms are what makes
   the ranking possible at this size, and the listing shows functions because a row of thirty
   functions does not say which one matched.
 - **Measuring distance from prose.** `--embed-distance "<text>"` ranks the index's mechanism

@@ -112,6 +112,7 @@ source, and AI-engine details), #215.
 ## Related
 
 - [`LOCAL_LLM.md`](LOCAL_LLM.md) — running the local GGUF models that make air-gapped AI possible.
+- [`CODEEXAM_SEMANTIC_SEARCH.md`](CODEEXAM_SEMANTIC_SEARCH.md) — a search by meaning that makes no network call at all: every embedding model is local, so `--air-gapped` changes nothing about it except to refuse a cloud model for the optional `--toward-code` rewording.
 - [`AI_ASSISTED_CODE_EXAM.md`](AI_ASSISTED_CODE_EXAM.md) — the optional AI features `--air-gapped` gates.
 - [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) — `--reproducible` and the provenance header.
 - [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md) — claim work under a protective order.

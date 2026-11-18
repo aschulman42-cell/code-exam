@@ -43,7 +43,8 @@ the smallest scope containing substantially all of *N* terms at once — and `--
 turns prose (a patent claim, a spec) into a multisect query. `--semantic-search` finds code by
 meaning when the words are not the code's own, on a local embedding model with no network call,
 after a one-time `--build-embeddings`; it lists functions as hits and near hits, places to read
-and not findings. Full treatment in [`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md).
+and not findings ([`CODEEXAM_SEMANTIC_SEARCH.md`](CODEEXAM_SEMANTIC_SEARCH.md)). Full treatment of the exact searches
+in [`CODEEXAM_SEARCHING.md`](CODEEXAM_SEARCHING.md).
 
 ## Browsing
 
