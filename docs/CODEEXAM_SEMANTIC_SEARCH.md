@@ -55,6 +55,7 @@ as with pseudo-claims, a GUI control is planned and not built.
 - [This is a different kind of search: nearest, not matching](#this-is-a-different-kind-of-search-nearest-not-matching)
 - [What "embedding" means here](#what-embedding-means-here)
 - [Using it](#using-it)
+- [Working with no network: every step on your machine](#working-with-no-network-every-step-on-your-machine)
 - [What to expect, and what a non-match looks like](#what-to-expect-and-what-a-non-match-looks-like)
 - [When you expected something and it is not there](#when-you-expected-something-and-it-is-not-there)
 - [What your text is compared to](#what-your-text-is-compared-to)
@@ -157,6 +158,53 @@ the top row of any one.
 benchmark and example code is left out by default, with a count), `--embed-model <name>`.
 An option that does nothing here, such as `--function-text`, is named in the header and not
 silently dropped.
+
+## Working with no network: every step on your machine
+
+Everything on this page can be done with no network connection, which is what code under a
+protective order usually requires. The two optional steps that use a language model can use
+a local one.
+
+| step | what runs | network |
+|---|---|---|
+| build the index and its mechanisms | CodeExam, no model | none |
+| `--build-embeddings` | the embedding model, local | none |
+| `--semantic-search` | the embedding model, local | none |
+| `--describe` (optional) | a language model; local with `--model <gguf>` | none with a local model |
+| `--toward-code` (optional) | a language model; local with `--model <gguf>` | none with a local model |
+
+With `--air-gapped` on each command, a slip to a cloud model is refused and not sent:
+
+```
+ce --ndx <index> --build-mechanisms --air-gapped
+ce --ndx <index> --build-embeddings --air-gapped
+ce --ndx <index> --semantic-search "<your text>" --air-gapped
+ce --ndx <index> --describe --model <gemma-4 gguf> --local-reasoning off --air-gapped
+ce --ndx <index> --semantic-search "<your text>" --toward-code restate --model <gemma-4 gguf> --local-reasoning off --air-gapped
+```
+
+- **Gemma 4 needs `--local-reasoning off`.** It thinks before it answers, and with reasoning
+  left on the thinking uses up the reply: every description comes back empty. See
+  [`LOCAL_LLM.md`](LOCAL_LLM.md). (Gemma 4 is a language model; the embedding model
+  EmbeddingGemma is a different thing, [below](#embedding-models-local-one-set-of-data-per-model).)
+- **What has been run this way**, all on CodeExam's own index, with Gemma 4 12B (Q4_K_M) on
+  a laptop GPU, 2026-11-18 and 19:
+  - `--describe`: 508 records described, none failed, none empty, 13 to 32 words each. The
+    first attempt, without `--local-reasoning off`, described none of 501. How long the run
+    took was not recorded.
+  - `--semantic-search` over that index, with the Gemma 4 sentences under the results.
+  - `--toward-code`, one text in each form, `restate` and `label`. Both completed. The
+    `label` rewording of "local-only source-code review" was a list of names the codebase
+    does not have, and the function that enforces local-only operation, third for the text
+    as written, was not among its results.
+- **What that does and does not show.** It shows the steps run with no network. It is one
+  index, the tool's own code, and one text for `--toward-code`: it says nothing about how
+  good a local model's descriptions or rewordings are. The searches in those runs used the
+  nomic embedding model; the local language-model steps have not been run on this page's
+  default, EmbeddingGemma, on that machine.
+
+More on working offline: [`AIR_GAPPED.md`](AIR_GAPPED.md) and
+[`SOURCE_CODE_PROTECTIVE_ORDERS.md`](SOURCE_CODE_PROTECTIVE_ORDERS.md).
 
 ## What to expect, and what a non-match looks like
 
@@ -303,8 +351,11 @@ ELEMENT 1 of 11, as written: A method of establishing a secure communication con
   ranked. `label` has done better in the runs so far.
 - This is the one part of a search that calls a language model. A cloud model prints its
   projected cost first and is refused under `--air-gapped`; a local model works there. The
-  model is shown your text, the whole claim, 150 words from the index's names and, for
-  `label`, 40 of its group labels. It is shown no source code.
+  model is shown your text, the whole claim, a list of words from the index's names and, for
+  `label`, a sample of its group labels. It is shown no source code. How many words and
+  labels varies with the index and the model, and each run says how many it used before it
+  calls the model: for example 150 words and 40 labels in the cloud runs behind this page,
+  80 words and 40 labels for CodeExam's own index with a local Gemma 4.
 - With `@claim.txt` the rewordings are saved beside the claim file, and
   `--toward-code @<that file>` repeats the search with no model call. Keep that file: it is
   the record of what was actually searched for.
@@ -320,6 +371,10 @@ written and 11th in the `label` form (2026-11-17, Claude, one call, public code)
 sentence per group, one call per group. A search shows that sentence under each result,
 which makes a list far quicker to read, especially where names say little. The sentences are
 not ranked on (see [below](#descriptions-are-shown-not-ranked-on)).
+
+With a local Gemma 4 model add `--local-reasoning off`
+(`--describe --model <gemma-4 gguf> --local-reasoning off`); without it every sentence comes
+back empty. See [Working with no network](#working-with-no-network-every-step-on-your-machine).
 
 The output ends by suggesting `--describe` when an index has no descriptions, and
 `--toward-code` when the text reads like a claim or when nothing stood out.
