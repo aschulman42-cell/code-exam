@@ -57,6 +57,53 @@ function _printExpansionNotice(orig, expansion) {
   console.log(note);
 }
 
+// search-huge-line-from-minified-bundle (2026-11-19). A hit on a line of a minified bundle
+// was printed whole: `--search rust` on a snapshot of Bram printed nine lines of 9,837 to
+// 327,144 characters, the match up to 285,944 characters in. A line longer than LONG_LINE
+// is shown as a window around its first match, with the line's length said, so the reader
+// sees what matched and knows what was left out. --full-lines prints lines whole.
+/** A matched line longer than this is shown as a window around its first match. */
+export const LONG_LINE = 300;
+/** Characters shown on each side of the match in such a window. */
+export const LINE_WINDOW_PAD = 100;
+const _nf = (n) => Number(n).toLocaleString('en-US');
+
+/**
+ * A finder for where a query matched in a line: a case-insensitive RegExp of the query's
+ * words (any of them), or the pattern itself under `regex`. Null when the pattern does not
+ * compile; the caller then cuts from the line's start.
+ */
+export function queryFinder(query, { regex = false, caseSensitive = false } = {}) {
+  const q = String(query == null ? '' : query);
+  if (!q.trim()) return null;
+  try {
+    if (regex) return new RegExp(q, caseSensitive ? 'g' : 'gi');
+    const words = q.split(/\s+/).filter(Boolean).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    return new RegExp(words.join('|'), caseSensitive ? 'g' : 'gi');
+  } catch { return null; }
+}
+
+/** The line as it is printed: trimmed, and when it is long, a window around the first match with a note of its length. */
+export function windowLine(line, find, { limit = LONG_LINE, pad = LINE_WINDOW_PAD } = {}) {
+  const s = String(line == null ? '' : line).trim();
+  if (s.length <= limit) return s;
+  let first = null, count = 0;
+  if (find) {
+    const re = new RegExp(find.source, find.flags.includes('g') ? find.flags : `${find.flags}g`);
+    for (let m = re.exec(s); m && count < 100000; m = re.exec(s)) {
+      if (!first) first = m;
+      count++;
+      if (m[0].length === 0) re.lastIndex++;
+    }
+  }
+  const at = first ? first.index : 0;
+  const len = first ? Math.min(first[0].length, limit) : 0;
+  const from = Math.max(0, at - pad);
+  const to = Math.min(s.length, at + len + (first ? pad : 2 * pad));
+  const note = `[line of ${_nf(s.length)} chars${count > 1 ? `; ${_nf(count)} matches, the first shown` : ''}; --full-lines shows it whole]`;
+  return `${from > 0 ? '…' : ''}${s.slice(from, to)}${to < s.length ? '…' : ''}  ${note}`;
+}
+
 /**
  * Pretty-print search results, grouped by file.
  * @param {SearchResult[]} results
@@ -70,7 +117,9 @@ function _printExpansionNotice(orig, expansion) {
  */
 export function printResults(results, { verbose = false, maxResults = null,
                                         pathMatches = null, totalFound = null,
-                                        pathFilter = null, index = null } = {}) {
+                                        pathFilter = null, index = null,
+                                        find = null, fullLines = false } = {}) {
+  const shownLine = (t) => (fullLines ? String(t).trim() : windowLine(t, find));
   // Show active path filter
   if (pathFilter) {
     console.log(`  [path filter: --in ${pathFilter}]`);
@@ -158,12 +207,13 @@ export function printResults(results, { verbose = false, maxResults = null,
       if (!allLiteral && r.matchType !== 'literal') typeTag = `  (${r.matchType})`;
 
       const displayLine = index ? index.applyRenames(r.lineText) : r.lineText;
-      console.log(`    L${r.lineNumber}  ${displayLine.trim()}${funcTag}${typeTag}`);
+      console.log(`    L${r.lineNumber}  ${shownLine(displayLine)}${funcTag}${typeTag}`);
 
       if (verbose) {
         console.log(`\n    Context:`);
         for (const ctxLine of r.context.split('\n')) {
-          console.log(`      ${ctxLine}`);
+          // A context line is cut the same way; an ordinary one keeps its indentation.
+          console.log(`      ${fullLines || ctxLine.length <= LONG_LINE ? ctxLine : windowLine(ctxLine, find)}`);
         }
         console.log();
       }
@@ -253,6 +303,8 @@ export function doSearch(index, args) {
     totalFound,
     pathFilter: args.vocab_in || null,
     index,
+    find: expansion.expanded ? queryFinder(expansion.query, { regex: true, caseSensitive: true }) : queryFinder(args.search),
+    fullLines: !!args.full_lines,
   });
 }
 
@@ -284,6 +336,8 @@ export function doLiteral(index, args) {
     totalFound,
     pathFilter: args.vocab_in || null,
     index,
+    find: queryFinder(expansion.query, { regex: !!expansion.expanded, caseSensitive: !!expansion.expanded }),
+    fullLines: !!args.full_lines,
   });
 }
 
@@ -322,6 +376,8 @@ export function doFast(index, args) {
     totalFound,
     pathFilter: args.vocab_in || null,
     index,
+    find: queryFinder(args.fast),
+    fullLines: !!args.full_lines,
   });
 }
 
@@ -353,6 +409,8 @@ export function doRegex(index, args) {
     totalFound,
     pathFilter: args.vocab_in || null,
     index,
+    find: queryFinder(pattern, { regex: true, caseSensitive }),
+    fullLines: !!args.full_lines,
   });
 }
 

@@ -11,6 +11,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { isMinified } from '../src/core/CSI-helpers.js';
+import { minifiedLeftLines } from '../src/core/CodeSearchIndex.js';
+
+// search-huge-line-from-minified-bundle (2026-11-19): a minified file the build could not
+// reformat used to be indexed as written with no word said.
+test('the build summary names a minified file left as written, with the reason', () => {
+  assert.deepEqual(minifiedLeftLines([]), []);
+  assert.deepEqual(minifiedLeftLines(undefined), []);
+  const one = minifiedLeftLines([{ file: 'app/vendor/bundle.umd.js', why: 'the reformatter failed (boom)' }]);
+  assert.match(one[0], /^ {2}1 minified file was indexed as written, not reformatted; functions in it are not found/);
+  assert.equal(one[1], '    app/vendor/bundle.umd.js: the reformatter failed (boom)');
+  const many = minifiedLeftLines(Array.from({ length: 7 }, (_, i) => ({ file: `b${i}.js`, why: 'no reformatter is installed (js-beautify is an optional dependency)' })));
+  assert.match(many[0], /^ {2}7 minified files were indexed as written/);
+  assert.equal(many.length, 7);
+  assert.equal(many[6], '    ... and 2 more');
+});
 
 const rep = (line, n) => Array.from({ length: n }, () => line).join('\n');
 

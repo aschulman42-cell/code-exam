@@ -218,6 +218,7 @@ export function parseArgs() {
     context: 3,
     verbose: false,
     full_path: false,
+    full_lines: false,       // --full-lines: print a matched line whole (search, literal, fast, regex)
     bare: false,
     provenance: false,
     filter: null,
@@ -544,6 +545,7 @@ export function parseArgs() {
     ['context',              'int',            ['--context']],
     ['verbose',              'flag',           ['--verbose', '-v']],
     ['full_path',            'flag',           ['--full-path']],
+    ['full_lines',           'flag',           ['--full-lines']],
     ['filter',               'value',          ['--filter']],
     ['include_path',         'list',           ['--include-path']],
     ['top_n',                'value',          ['--top-n']],
@@ -1271,7 +1273,9 @@ INDEX MANAGEMENT:
 
 SEARCH:
   --search <query>           Search the index (literal, with subtoken and
-                             vocabulary expansion)
+                             vocabulary expansion). The text matches anywhere,
+                             inside longer words too: rust also finds trust and
+                             isTrusted. For the whole word, --regex "\\brust\\b".
   --literal <query>          Literal/exact text search
   --fast <query>             Fast inverted-index search
   --regex <pattern>          Regex pattern search
@@ -1524,6 +1528,11 @@ DISPLAY / FILTERING (query-time, does not affect index build):
   --context <n>              Context lines around matches (default: 3)
   -v, --verbose              Show extra detail
   --full-path                Show full file paths in output
+  --full-lines               With --search, --literal, --fast and --regex: print a
+                             matched line whole however long it is. By default a
+                             line over 300 characters (a minified bundle's can be
+                             hundreds of thousands) is shown as a window around
+                             its first match, with the line's length.
   --provenance               Print a provenance header at the top of stdout:
                              CE version + generation time, tool source URL,
                              index, and the invoking command (secrets masked).

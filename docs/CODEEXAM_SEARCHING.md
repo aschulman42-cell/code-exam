@@ -13,7 +13,11 @@ more) — is in [`CODEEXAM_BROWSING.md`](CODEEXAM_BROWSING.md).
 In every mode below, CodeExam gives a hit fuller context than a filename and line number — see
 **How results are shown** below.
 
-- **`--search` / `--literal`** — plain substring search across indexed content.
+- **`--search` / `--literal`** — plain substring search across indexed content. A substring
+  matches inside longer words too: `--search rust` also finds `trust` and `isTrusted`. For
+  the whole word use `--regex "\brust\b"`. A hit on a very long line (over 300 characters;
+  a minified bundle's line can be hundreds of thousands) is shown as a window around the
+  first match with the line's length; `--full-lines` prints it whole.
 - **`--fast`** — inverted-index search: the same query resolved through the token index, for speed
   on large codebases.
 - **`--regex`** — regular-expression search, with the matched line and its context. Importantly,

@@ -146,7 +146,8 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 - **Does**: Searches the index for the query as literal text (case-insensitive, a substring of any line), lists the files whose paths contain it, and, when the query carries a rename marker (`_KW_`, `_CMD_`, `_IMPORT_`: the display names the rename map gives minified identifiers), expands it to the original identifiers it stands for before searching. Nothing follows the literal pass: the semantic pass of the Python-era design was removed (#322), and `--help`'s "literal, with subtoken and vocabulary expansion" names the rename expansion.
 - **Good for**: The default search when you have a word or a fragment of a name and want every line that contains it; `--literal` is the same text search without the rename expansion, `--fast` looks the query up as a whole token in the inverted index.
-- **Couples with**: `--max-results`, `--context`, `--filter`, `--include-path`, `--exclude-path`, `--full-path`, `--verbose`.
+- **Long lines**: a matched line over 300 characters is shown as a window around its first match, with the line's length and the number of matches in it (`…e.isTrusted&&…  [line of 327,144 chars; 2 matches, the first shown; --full-lines shows it whole]`). The same for `--literal`, `--fast`, `--regex` and the context lines of `--verbose`. The query matches inside longer words (`rust` finds `trust`); `--regex "\brust\b"` is the whole word.
+- **Couples with**: `--max-results`, `--context`, `--filter`, `--include-path`, `--exclude-path`, `--full-path`, `--full-lines`, `--verbose`.
 - **Naming**: bare `--search`; the *type* of search is implicit. Other search modes carry explicit type prefixes (`--literal`, `--fast`, `--regex`).
 - **Verified against**: `src/argparse.js:216`
 
@@ -633,6 +634,13 @@ These modify how query results are rendered. They don't affect index state.
 - **Couples with**: many commands; semantics differ per command.
 - **Naming**: bare adjective, short alias `-v` (universal Unix convention).
 - **Verified against**: `src/argparse.js:236`
+
+#### `--full-lines`
+
+- **Does**: Prints a matched line whole, however long. Without it `--search`, `--literal`, `--fast` and `--regex` show a line over 300 characters as a window around its first match.
+- **Good for**: Copying a whole minified line out; seeing every match on a line.
+- **Couples with**: `--search`, `--literal`, `--fast`, `--regex`.
+- **Naming**: hyphenated boolean.
 
 #### `--full-path`
 

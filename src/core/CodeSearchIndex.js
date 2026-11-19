@@ -121,6 +121,21 @@ const _SKIP_DIRS = SKIP_DIRS;
 //   Shape 2 — huge file count / total bytes (the inverted-index build holds the
 //             whole corpus in memory): bigger heap, or shard + --multi-index.
 // A single very large file dominates when both would trip (its remedy differs).
+/**
+ * The build summary's lines for minified files that were indexed as they were (not
+ * reformatted into readable lines), each with its reason. Such a file's "lines" can be
+ * hundreds of thousands of characters, its functions are not found, and a search hit on
+ * it is shown as a window (search.js). Empty when there are none.
+ */
+export function minifiedLeftLines(list, max = 5) {
+  const l = Array.isArray(list) ? list : [];
+  if (!l.length) return [];
+  const out = [`  ${l.length} minified file${l.length === 1 ? ' was' : 's were'} indexed as written, not reformatted; functions in ${l.length === 1 ? 'it' : 'them'} are not found and a line can be very long:`];
+  for (const x of l.slice(0, max)) out.push(`    ${x.file}: ${x.why}`);
+  if (l.length > max) out.push(`    ... and ${l.length - max} more`);
+  return out;
+}
+
 export function buildOomAdvisory({ largestFileBytes = 0, fileCount = 0, totalBytes = 0 } = {}) {
   const MB = 1024 * 1024, GB = 1024 * MB;
   const LARGE_FILE = 15 * MB;   // a single file in the tens-of-MB range
@@ -3696,8 +3711,14 @@ export class CodeSearchIndex {
           });
           stats.prettified++;
           return pretty;
-        } catch { /* beautify failed — use original */ }
+        } catch (e) {
+          // beautify failed: the original is used, and the build says so by name
+          // (search-huge-line-from-minified-bundle, 2026-11-19: it used to be silent).
+          (stats.minifiedLeft = stats.minifiedLeft || []).push({ file: relPath, why: `the reformatter failed (${String(e && e.message || e).slice(0, 80)})` });
+          return content;
+        }
       }
+      (stats.minifiedLeft = stats.minifiedLeft || []).push({ file: relPath, why: 'no reformatter is installed (js-beautify is an optional dependency)' });
       return content;
     };
 
@@ -4005,6 +4026,7 @@ export class CodeSearchIndex {
       }
       console.log(`Indexing complete: ${stats.files_indexed} files${dedupNote}${archiveNote}${binNote}${prettyNote}, ` +
                   `${stats.total_lines} lines, ${stats.chunks_created} chunks`);
+      for (const line of minifiedLeftLines(stats.minifiedLeft)) console.log(line);
     }
 
     return stats;
