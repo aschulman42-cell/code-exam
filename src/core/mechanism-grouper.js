@@ -18,6 +18,7 @@
 // behind — only the multi-seed path graduates here.
 
 import { isIntrinsicName, extractConcepts, buildDocInclusiveVocabulary, _isNoiseDoc } from './vocabulary.js';
+import { isTestAttributedFunction } from './test-attribute.js';
 import { extractCommandCatalog } from './breadcrumbs-commands.js';
 import { findCallees } from './calls.js';
 import { TEXT_EXTENSIONS, splitCompoundToken } from '../utils.js';
@@ -155,13 +156,8 @@ export function isNoiseFile(file) {
 // and then a drafted claim on writing tests (the Bram field test, #291).
 // Window = the declaration line plus 3 lines above; heuristic and
 // Rust-focused by design (JS it()/describe() anonymity is out of scope).
-function isTestAttributedFunction(lines, startLine) {
-  for (let i = Math.max(0, startLine - 4); i < Math.min(lines.length, startLine); i++) {
-    const t = String(lines[i] || '').trim();
-    if (/^#\[(?:\w+(?:::\w+)*::)?test(?:\]|\()/.test(t) || /^#\[cfg\(test\)\]/.test(t)) return true;
-  }
-  return false;
-}
+// The rule itself is in test-attribute.js since 2026-11-19, shared with the symbol
+// table and the function corpus so search and claim candidates hold the same functions back.
 
 // --- third-party subtree detection (candidates-claim-worthiness) -------------
 // Candidate discovery answers a PROXY for the question it is asked: the user

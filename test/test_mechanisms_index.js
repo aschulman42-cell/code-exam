@@ -830,3 +830,64 @@ describe('the mechanisms index', () => {
     });
   });
 });
+
+// rust-inline-tests-pass-as-code (2026-11-19). A Rust source file holds its tests in the same
+// file, under #[test]. On a snapshot of Bram 78 such functions were in the mechanisms index,
+// none named or placed so the name-and-path test rule saw them, and the file kept no word of
+// which members they were. The fixture is written for this test; it is nobody's code.
+describe('tests inside a source file (Rust #[test]) are known to every surface', () => {
+  const TMP_R = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-inline-tests-'));
+  const SRC_R = path.join(TMP_R, 'src');
+  const body = (n) => Array.from({ length: n }, (_, i) => `    let v${i} = step(${i});`);
+  const LIB = [
+    '//! ledger.rs -- keeps the ledger of postings and settles them.',
+    'pub fn post_entry(amount: i64) -> i64 {', ...body(6), '    amount', '}',
+    '',
+    'pub fn settle_ledger(total: i64) -> i64 {', ...body(6), '    post_entry(total)', '}',
+    '',
+    'fn step(i: i64) -> i64 {', ...body(5), '    i', '}',
+    '',
+    '#[cfg(test)]',
+    'mod tests {',
+    '    use super::*;',
+    '',
+    '    #[test]',
+    '    fn posting_does_not_settle_when_ledger_is_empty() {', ...body(6), '        assert_eq!(post_entry(0), 0);', '    }',
+    '',
+    '    #[tokio::test]',
+    '    async fn settling_after_three_postings_keeps_the_total() {', ...body(6), '        assert_eq!(settle_ledger(3), 3);', '    }',
+    '}',
+    '',
+  ].join('\n');
+  let idxR = null, dataR = null;
+  before(async () => {
+    fs.mkdirSync(SRC_R, { recursive: true });
+    fs.writeFileSync(path.join(SRC_R, 'ledger.rs'), LIB);
+    idxR = new CodeSearchIndex({ indexPath: path.join(TMP_R, '.ndx') });
+    await idxR.buildIndex(SRC_R, { showProgress: false });
+    dataR = buildMechanismsIndex(idxR, { indexName: 'inline' });
+  });
+  after(() => { try { fs.rmSync(TMP_R, { recursive: true, force: true }); } catch { /* Windows holds a handle sometimes */ } });
+  const members = () => { const m = new Map(); for (const r of dataR.records) for (const x of r.members) m.set(x.name.split('::').pop(), x); return m; };
+
+  it('each member of a record says whether it is a test, and only a test says so', () => {
+    const m = members();
+    assert.ok(m.has('posting_does_not_settle_when_ledger_is_empty'), [...m.keys()].join(', '));
+    assert.equal(m.get('posting_does_not_settle_when_ledger_is_empty').test, true);
+    assert.equal(m.get('settling_after_three_postings_keeps_the_total').test, true);
+    for (const n of ['post_entry', 'settle_ledger']) assert.equal('test' in m.get(n), false, `${n} is not a test`);
+  });
+
+  it('the flag survives save and load', () => {
+    saveMechanismsIndex(idxR, dataR);
+    const back = loadMechanismsIndex(idxR, { cache: false });
+    assert.ok(back.records.flatMap((r) => r.members).some((x) => x.test === true));
+  });
+
+  it('--mechanisms -v marks a member that is a test, and no other', () => {
+    const recs = dataR.records.filter((r) => r.members.some((x) => /posting_does_not_settle/.test(x.name)));
+    const v = formatMechanismsList(dataR, recs, { verbose: true }).lines.join('\n');
+    assert.match(v, /posting_does_not_settle_when_ledger_is_empty[^\n]*\(test\)/);
+    assert.doesNotMatch(v, /@post_entry[^\n]*\(test\)/);
+  });
+});

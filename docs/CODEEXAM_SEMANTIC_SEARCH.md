@@ -155,7 +155,9 @@ the top row of any one.
 
 **Options you may want.** `--max-results N` (rows per tier, default 10; `0` for all),
 `--verbose` (full paths, every group, the score's two parts), `--include-tests` (test, mock,
-benchmark and example code is left out by default, with a count), `--embed-model <name>`.
+benchmark and example code is left out by default, with a count; a test is told by its
+directory, file or name, or by a test attribute above it, as Rust's `#[test]`),
+`--embed-model <name>`.
 An option that does nothing here, such as `--function-text`, is named in the header and not
 silently dropped.
 

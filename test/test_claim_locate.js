@@ -3072,3 +3072,52 @@ describe('claim-locate-test-gate-off-on-all-samples-corpus: the gate decides onc
     assert.equal(noMatchLine([]), 'No symbol in this index matches any predicted code word.');
   });
 });
+
+// rust-inline-tests-pass-as-code (2026-11-19). The test gate went by name and path alone, so a
+// Rust test under #[test] in a source file, named like a sentence, was a candidate like any
+// function (78 of them on a snapshot of Bram, none held back). The symbol table now says which
+// functions sit under a test attribute, and every gate reads that through isTestSymbol.
+import { buildSymbolTable as _bst } from '../src/core/symbol-verify.js';
+import { testGateDecision as _tgd } from '../src/commands/claim-locate.js';
+describe('the test gate also reads a test attribute above the function', () => {
+  const lines = [
+    'pub fn settle_ledger(total: i64) -> i64 {', '    total', '}',
+    '',
+    '#[cfg(test)]',
+    'mod tests {',
+    '    #[test]',
+    '    fn posting_does_not_settle_when_ledger_is_empty() {', '        assert!(true);', '    }',
+    '    #[rstest]',
+    '    fn a_parametrised_case_is_not_claimed() {', '        assert!(true);', '    }',
+    '}',
+  ];
+  const index = {
+    _ensureFunctionIndex() {},
+    functionIndex: { 'src/ledger.rs': {
+      settle_ledger: { start: 1, end: 3 },
+      posting_does_not_settle_when_ledger_is_empty: { start: 8, end: 10 },
+      a_parametrised_case_is_not_claimed: { start: 12, end: 14 },
+    } },
+    fileLines: new Map([['src/ledger.rs', lines]]),
+  };
+  const by = (t, n) => t.find((s) => s.name === n);
+  it('the name-and-path rule alone does not see such a test (the defect)', () => {
+    assert.equal(isTestSymbol({ name: 'posting_does_not_settle_when_ledger_is_empty', filepath: 'src/ledger.rs' }), false);
+  });
+  it('the symbol table marks it, and isTestSymbol holds it back', () => {
+    const t = _bst(index);
+    assert.equal(by(t, 'posting_does_not_settle_when_ledger_is_empty').test, true);
+    assert.equal(isTestSymbol(by(t, 'posting_does_not_settle_when_ledger_is_empty')), true);
+    assert.equal(isTestSymbol(by(t, 'settle_ledger')), false);
+    assert.equal('test' in by(t, 'settle_ledger'), false);
+  });
+  it('an attribute the rule does not know is left alone, not guessed at', () => {
+    assert.equal(isTestSymbol(by(_bst(index), 'a_parametrised_case_is_not_claimed')), false);
+  });
+  it('an index with no source lines marks nothing and does not throw', () => {
+    assert.ok(_bst({ functionIndex: index.functionIndex }).every((s) => !('test' in s)));
+  });
+  it('the share of test code in a pool counts the marked ones', () => {
+    assert.equal(_tgd(_bst(index), {}).held, 1);
+  });
+});

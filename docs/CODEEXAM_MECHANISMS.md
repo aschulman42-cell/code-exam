@@ -114,7 +114,11 @@ Then:
   `in <file>:`. The purpose is shown under the label, cut at 90 characters in the contents
   listing, and is the text a model reads first when asked to describe the record.
 - **Tags**: `test` (test code), `noise`, `vendored` (third-party code carried in the tree),
-  `giant`, `indivisible`.
+  `giant`, `indivisible`. A record is tagged `test` only when every member is a test. A
+  record can also mix tests with the code they test, which is usual in Rust, where tests sit
+  in the source file under `#[test]`: each such member carries `test: true` in
+  `mechanisms.json`, and `--mechanisms -v` prints `(test)` after it. An index built before
+  2026-11-19 has no such marks until `--build-mechanisms` is run again.
 
 ## How to read a label
 

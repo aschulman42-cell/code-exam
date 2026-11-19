@@ -159,7 +159,9 @@ alternative step 2 over file bodies; pseudo-claims run the arrow backwards.
   `--hunt-calls`; `--no-hunt` forces it off. `--propose-from-priors` is the legacy path, names
   from the model's own knowledge, useless on confidential code. `--include-tests` admits test,
   mock, benchmark and example symbols as candidates (held back by directory, file name or
-  symbol name since 2026-10-22; on an index that is nearly all such code, a samples corpus,
+  symbol name since 2026-10-22, and since 2026-11-19 also by a test attribute written above
+  the function, the Rust `#[test]` family, which is how a test inside a source file is told;
+  on an index that is nearly all such code, a samples corpus,
   the gate turns itself off and the run says so, since 2026-11-03); `--no-navigate` skips the
   hop (absent from `--help`).
 - `--embed-distance "<claim element>"` (since 2026-11-07) ranks the index's mechanisms

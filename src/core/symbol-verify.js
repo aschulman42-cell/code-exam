@@ -25,6 +25,7 @@
 
 // Split an identifier into lowercase tokens: camelCase, snake_case, ::, dots.
 import { findCallersMany } from './calls.js';
+import { isTestAttributedIn } from './test-attribute.js';
 
 export function symbolTokens(name) {
   return String(name || '')
@@ -43,12 +44,16 @@ export function buildSymbolTable(index) {
   const out = [];
   for (const [filepath, fns] of Object.entries(index.functionIndex || {})) {
     for (const [name, info] of Object.entries(fns || {})) {
-      out.push({
+      const sym = {
         filepath, name,
         bare: name.replace(/^.*::/, ''),
         start: info?.start, end: info?.end,
         tokens: symbolTokens(name),
-      });
+      };
+      // A test written inside a source file (Rust `#[test]`) has no test in its name or
+      // path; the attribute above it is the only sign, and isTestSymbol reads this mark.
+      if (isTestAttributedIn(index, filepath, info?.start)) sym.test = true;
+      out.push(sym);
     }
   }
   return out;

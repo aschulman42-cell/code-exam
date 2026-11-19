@@ -433,7 +433,7 @@ const TOOLS = [
         words: { type: 'string', description: 'One line per element, numbered as claim_elements numbers them, words comma-separated: "2: init, crypto, context". 3-6 words each, letters and digits only.' },
         max_per_element: { type: 'number', description: 'Candidates per element (default 8, max 50)' },
         granularity: { type: 'string', description: 'As for claim_elements; must match the numbering you used' },
-        include_tests: { type: 'boolean', description: 'Admit test, mock, benchmark and example symbols (held back by default, by directory, file name or symbol name; on an index that is nearly all such code the gate turns itself off and the result says so)' },
+        include_tests: { type: 'boolean', description: 'Admit test, mock, benchmark and example symbols (held back by default, by directory, file name, symbol name, or a test attribute above the function such as Rust #[test]; on an index that is nearly all such code the gate turns itself off and the result says so)' },
         include_op: { type: 'boolean', description: 'Admit binary string-table pseudo-source (held back by default)' },
       },
     },

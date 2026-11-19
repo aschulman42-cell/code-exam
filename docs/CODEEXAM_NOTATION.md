@@ -108,6 +108,10 @@ By default CodeExam **shows** them (marked, not hidden) and lets you drop them:
   `--exclude-tests` skips test files in caller / metrics results. (In the GUI, **View → Exclude
   Tests**.)
 
+- **`(test)` after a member** in `ce --mechanisms -v`: that function is a test, in a test
+  file or under a test attribute in a source file (Rust `#[test]`). The record it is in may
+  hold ordinary code too; a record made only of tests carries the tag `test` on its own line.
+
 Of course, test, benchmark, or demo code may be exactly what you're after — in which case just
 ignore the `[test]` tag or the dimming; it's a default hint, not a filter. (There's no flag to keep
 such rows while suppressing only the marking — the two flags above **drop** the rows instead.)

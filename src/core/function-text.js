@@ -31,6 +31,7 @@
  * Pure: buildCorpus takes a function index and a way to get a file's lines.
  */
 import { splitName } from './embed.js';
+import { isTestAttributedFunction } from './test-attribute.js';
 
 export const ARMS = ['name', 'vocab', 'comments', 'context'];
 /** Body identifiers kept per function, comment characters kept, literal words kept, names kept per side of a call. */
@@ -171,6 +172,8 @@ export function buildCorpus(functionIndex, linesOf) {
       if (!info || info.start == null || info.end == null) continue;
       const f = { id: `${file}@${name}`, file, name, cls: classOf(name), start: info.start, end: info.end, tf: new Map(), comments: '', strings: [], calls: [] };
       if (lines) {
+        // A test inside a source file (Rust `#[test]`): marked, so a search can leave it out.
+        if (isTestAttributedFunction(lines, info.start)) f.test = true;
         const src = splitSource(lines.slice(info.start - 1, info.end).join('\n'), file);
         f.tf = identifierCounts(src.code);
         f.comments = [leadingComment(lines, info.start, file), src.comments].filter(Boolean).join(' ');

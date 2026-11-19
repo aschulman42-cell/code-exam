@@ -46,6 +46,7 @@ import {
 } from '../core/symbol-verify.js';
 import { findCallersMany, invertedScanStats } from '../core/calls.js';
 import { contentWords, stem } from '../core/claim-terms.js';
+import { isTestAttributedIn } from '../core/test-attribute.js';
 // The scavenger hunt reuses the local tool-loop's hard-won guards rather than
 // reinventing them: budget-with-synthesize-now-stop, special-token
 // neutralization, Gemma's strict framing, and the zero-tool-call fabrication
@@ -760,7 +761,10 @@ export function contentCandidatesForWords(index, words, opts = {}) {
     // tens of thousands of raw matches on a big index, and "52,398 tests held
     // back" would describe the corpus, not the candidacy. What is counted is
     // the tests that stood between the caller and its limit.
-    if (!opts.includeTests && isTestSymbol({ name, filepath })) { if (named.length < limit) tests += 1; continue; }
+    // The match carries a name and a path; the function's line comes from the index, so a
+    // test under an attribute in a source file is held back here as it is in the name arm.
+    const startLine = index.functionIndex?.[filepath]?.[name]?.start;
+    if (!opts.includeTests && isTestSymbol({ name, filepath, test: isTestAttributedIn(index, filepath, startLine) })) { if (named.length < limit) tests += 1; continue; }
     named.push({ name, filepath });
   }
   if (fileScope) opts.onNote?.(`${fileScope} file-scope (non-function) match(es) dropped`);
@@ -1108,6 +1112,10 @@ const TEST_NAME_RE = {
   mock: /(?:^|::)(?:[A-Za-z0-9_]*(?:Mock|Fake|Stub)|(?:Mock|Fake|Stub)[A-Z][A-Za-z0-9_]*|(?:mock|fake|stub)_[A-Za-z0-9_]*|[A-Za-z0-9_]*_(?:mock|fake|stub))(?:$|::)/,
 };
 export function testSymbolClass(s) {
+  // Marked where the symbol was made (the symbol table, the function corpus, a
+  // mechanisms member): a test attribute stands above it in a source file, the
+  // one kind of test neither a name nor a path gives away (test-attribute.js).
+  if (s && s.test === true) return 'test';
   const name = s.name || '';
   for (const c of ['test', 'mock', 'bench']) if (TEST_NAME_RE[c].test(name)) return c;
   const fp = String(s.filepath || '');

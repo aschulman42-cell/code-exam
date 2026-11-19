@@ -114,10 +114,22 @@ export function sourcePath(file) { return String(file || '').split('!').pop().sp
 /** The path cut to its last `keep` segments, led by an ellipsis when cut. */
 export function shortPath(file, keep = 3) { const parts = sourcePath(file).split('/'); return parts.length > keep ? `…/${parts.slice(-keep).join('/')}` : parts.join('/'); }
 
+/**
+ * The header's words on test code: groups made only of tests, and test functions inside the
+ * groups that were kept. Empty when there is nothing to say.
+ */
+export function testLeftOutNote(testGroups, testFnsInKept, includeTests) {
+  if (includeTests) return '; test code included';
+  const parts = [];
+  if (testGroups) parts.push(`${plural(testGroups, 'group')} of test code`);
+  if (testFnsInKept) parts.push(`${plural(testFnsInKept, 'test function')} inside the groups ranked`);
+  return parts.length ? `; ${parts.join(' and ')} left out (--include-tests brings them in)` : '';
+}
+
 /** True when every member of the entry is test, mock, benchmark or example code (the --claim-locate gate's rule). */
 export function isTestEntry(e) {
   const ms = e.members || [];
-  return ms.length > 0 && ms.every((m) => isTestSymbol({ name: m.name, filepath: m.file }));
+  return ms.length > 0 && ms.every((m) => isTestSymbol({ name: m.name, filepath: m.file, test: m.test === true }));
 }
 
 /**
@@ -369,7 +381,11 @@ export async function doSemanticSearch(args) {
 
   const includeTests = !!args.include_tests;
   const fnById = new Map(corpus.fns.map((f) => [f.id, f]));
-  const isTestFn = (id) => { const f = fnById.get(id); return !!f && isTestSymbol({ name: f.name, filepath: f.file }); };
+  // A function is a test by its name or path, by the attribute above it (the corpus marks
+  // that from the source), or because the mechanisms index marked the member.
+  const markedTest = new Set();
+  for (const e of all) for (const m of e.members || []) if (m.test === true) markedTest.add(`${String(m.file).replace(/\\/g, '/')}@${m.name}`);
+  const isTestFn = (id) => { const f = fnById.get(id); return !!f && isTestSymbol({ name: f.name, filepath: f.file, test: f.test === true || markedTest.has(id) }); };
   const top = effectiveCount(args, args.max_results, TIER_ROWS);
   const filter = args.filter ? String(args.filter) : null;
 
@@ -382,7 +398,14 @@ export async function doSemanticSearch(args) {
     const more = plan.extra.length ? await embedAll(embedder.ctx, plan.extra, files[1], { prefix: model.doc, quiet: true }) : new Map();
     const fnVecs = await embedAll(embedder.ctx, fnPlan.texts, files[2], { prefix: model.doc, quiet: true, compact: true });
     let cands = entryCandidates(all, plan, whole, more);
-    cands.forEach((c, i) => { c.fnIds = includeTests ? fnPlan.ids[i] : fnPlan.ids[i].filter((id) => !isTestFn(id)); });
+    // Test functions inside groups that are otherwise the project's own code (a Rust source
+    // file with its tests under #[test]): left out function by function, and counted, so the
+    // header does not report five groups while a quarter of a codebase's functions went.
+    const testFnsInKept = new Set();
+    cands.forEach((c, i) => {
+      if (!isTestEntry(c.entry)) for (const id of fnPlan.ids[i]) if (isTestFn(id)) testFnsInKept.add(id);
+      c.fnIds = includeTests ? fnPlan.ids[i] : fnPlan.ids[i].filter((id) => !isTestFn(id));
+    });
     const testN = cands.filter((c) => isTestEntry(c.entry)).length;
     if (!includeTests) cands = cands.filter((c) => !isTestEntry(c.entry));
     const qvs = await embedAll(embedder.ctx, searched.map((t, i) => ({ key: `q${i}`, text: t })), null, { prefix: model.query, quiet: true });
@@ -390,7 +413,7 @@ export async function doSemanticSearch(args) {
     console.log(`Semantic search of ${ndx}${multi ? '' : ` for: ${queries[0]}`}`);
     if (multi) console.log(source);
     console.log(`${chosen.note}${missing ? ` (${plural(missing, 'text')} new since the build embedded now)` : ''}`);
-    console.log(`${plural(cands.length, 'group')} of functions ranked, each by its name and its best function's text${!includeTests && testN ? `; ${plural(testN, 'group')} of test code left out (--include-tests brings them in)` : includeTests ? '; test code included' : ''}`);
+    console.log(`${plural(cands.length, 'group')} of functions ranked, each by its name and its best function's text${testLeftOutNote(testN, testFnsInKept.size, includeTests)}`);
     console.log('A hit is the closest code found for the text, a place to read. It is not a finding that the code does what the text says.');
     if (reworded) console.log(reworded.header);
     for (const line of unusedOptionNotes(args)) console.log(line);

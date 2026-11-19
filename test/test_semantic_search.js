@@ -397,7 +397,7 @@ describe('--semantic-search and --build-embeddings: the command line', () => {
     assert.equal(r.status, 0, r.stderr.slice(-400));
     assert.match(r.stdout, /^Semantic search of \.CE for: refuse to send code to a cloud model/);
     assert.match(r.stdout, /using the gemma embeddings already built for this index/);
-    assert.match(r.stdout, /groups? of test code left out \(--include-tests brings them in\)/);
+    assert.match(r.stdout, /groups? of test code(?: and [\d,]+ test functions? inside the groups ranked)? left out \(--include-tests brings them in\)/);
     assert.match(r.stdout, /\n {2}HITS\n\s+1\. 0\.\d{3} {2}\S+ {3}\S+:\d+-\d+\n/);
     assert.match(r.stdout, /It is not a finding that the code does what the text says\./);
     assert.doesNotMatch(r.stdout, /cosine \d|distance \d/);
@@ -411,5 +411,32 @@ describe('--semantic-search and --build-embeddings: the command line', () => {
     const b = spawnSync(process.execPath, [ENTRY, '--ndx', '.CE', '--semantic-search', 'refuse a cloud model', '--spec', 'spec.txt'], { cwd: ROOT, encoding: 'utf8', input: '' });
     assert.equal(b.status, 2);
     assert.match(b.stderr, /--spec gives the patent's specification to the model that --toward-code restate\|label asks for rewrites/);
+  });
+});
+
+// rust-inline-tests-pass-as-code (2026-11-19): a member the mechanisms index marks as a test
+// counts as one, whatever its name and path.
+import { buildCorpus as _bc } from '../src/core/function-text.js';
+describe('semantic search: tests marked in the index, not only by name and path', () => {
+  it('an entry whose members are all marked is test code; a mixed entry is not', () => {
+    const allTests = { members: [{ name: 'posting_does_not_settle', file: 'src/ledger.rs', test: true }, { name: 'settling_keeps_total', file: 'src/ledger.rs', test: true }] };
+    const mixed = { members: [{ name: 'settle_ledger', file: 'src/ledger.rs' }, { name: 'posting_does_not_settle', file: 'src/ledger.rs', test: true }] };
+    assert.equal(isTestEntry(allTests), true);
+    assert.equal(isTestEntry(mixed), false);
+  });
+  it('the header counts whole test groups and the test functions left out of the groups kept', async () => {
+    const { testLeftOutNote } = await import('../src/commands/semantic-search.js');
+    assert.equal(testLeftOutNote(5, 0, false), '; 5 groups of test code left out (--include-tests brings them in)');
+    assert.equal(testLeftOutNote(5, 71, false), '; 5 groups of test code and 71 test functions inside the groups ranked left out (--include-tests brings them in)');
+    assert.equal(testLeftOutNote(0, 1, false), '; 1 test function inside the groups ranked left out (--include-tests brings them in)');
+    assert.equal(testLeftOutNote(0, 0, false), '');
+    assert.equal(testLeftOutNote(5, 71, true), '; test code included');
+  });
+  it('the function corpus marks a function under a test attribute', () => {
+    const lines = ['fn settle_ledger() {', '}', '', '#[test]', 'fn posting_does_not_settle() {', '}'];
+    const c = _bc({ 'src/ledger.rs': { settle_ledger: { start: 1, end: 2 }, posting_does_not_settle: { start: 5, end: 6 } } }, () => lines);
+    const by = (n) => c.fns.find((f) => f.name === n);
+    assert.equal(by('posting_does_not_settle').test, true);
+    assert.equal('test' in by('settle_ledger'), false);
   });
 });

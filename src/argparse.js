@@ -2369,8 +2369,9 @@ LLM ANALYSIS:
   --hunt-rounds <n>          --claim-locate: max model turns in the hunt (default 8).
   --hunt-calls <n>           --claim-locate: max tool calls in the hunt (default 24).
   --include-tests            --claim-locate: allow test, mock, benchmark and example
-                              symbols as candidates, by directory, file name or
-                              symbol name (excluded by default; a test exercising
+                              symbols as candidates, by directory, file name,
+                              symbol name, or a test attribute above the function
+                              (Rust #[test]) (excluded by default; a test exercising
                               an element is not the code implementing it). On an
                               index that is nearly all such code, a samples
                               corpus, the gate turns itself off and says so.

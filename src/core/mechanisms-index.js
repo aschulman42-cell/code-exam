@@ -99,7 +99,10 @@ export function buildMechanismsIndex(index, { indexName = '', purposeFor = null,
   let n = 0;
   for (const g of result.groups) {
     n++;
-    const members = g.members.map((m) => ({ file: m.file, name: m.name.includes('@') ? m.bare : m.name, start: m.start, end: m.end }));
+    // `test: true` on a member the grouper found under a test attribute or in a test file, and
+    // on no other. The record's `test` tag still means every member; this says which ones in a
+    // record that mixes tests with the code they test (33 of 108 records on a snapshot of Bram).
+    const members = g.members.map((m) => ({ file: m.file, name: m.name.includes('@') ? m.bare : m.name, start: m.start, end: m.end, ...(m.test ? { test: true } : {}) }));
     const files = [...new Set(members.map((m) => m.file))];
     const calls = outboundCalls(index, g.members);
     let purpose = '';
@@ -373,7 +376,7 @@ export function recordBlock(r, { verbose = false, dn = (n) => n, cut = (t) => t,
   const also = alsoOf(r);
   if (also) lines.push(`      ${also}`);
   if (verbose) {
-    for (const m of r.members) lines.push(`      ${m.file}@${dn(m.name)}${memberRange(m)}`);
+    for (const m of r.members) lines.push(`      ${m.file}@${dn(m.name)}${memberRange(m)}${m.test ? '  (test)' : ''}`);
   } else {
     const names = shown.map((m) => dn(m.name));
     const more = r.members.length > 12 ? ` (+${nf(r.members.length - 12)} more; -v lists every member as file@name)` : '';
