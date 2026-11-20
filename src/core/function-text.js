@@ -158,27 +158,46 @@ export function rankIdentifiers(tf, df, nDocs, top = VOCAB_TOP, skip = null) {
 /**
  * Everything the texts need, from a function index ({ file: { name: { start, end } } })
  * and `linesOf(file) -> string[] | null`. Returns
- * { fns: [{ id, file, name, cls, start, end, tf, comments, strings, calls }], df, n, callersOf }.
+ * { fns: [{ id, file, name, cls, start, end, tf, comments, strings, calls }], df, n, callersOf, rangesRead }.
  * A function whose file has no lines keeps its name and nothing else.
+ *
+ * A file's lines are read once per distinct line range, not once per function
+ * (function-corpus-minified-stall, 2026-11-19). A function record has a start and an end
+ * line and no column, so the functions of a minified file share a line, thousands to one,
+ * and each got the whole line split and counted again: on an index with three such files
+ * (10,918 functions on 946 ranges) that was 1.7 GB of text and 58 s before any search.
+ * Functions on one range share one `tf` Map and one `strings` array, which nothing writes
+ * to after this returns; a caller that needs to change them copies. `rangesRead` is how
+ * many ranges were read. What each function gets is what it got before.
  */
 export function buildCorpus(functionIndex, linesOf) {
   const fns = [];
   const known = new Set();
   for (const funcs of Object.values(functionIndex || {})) for (const name of Object.keys(funcs || {})) known.add(leafOf(name));
+  let rangesRead = 0;
   for (const [rawFile, funcs] of Object.entries(functionIndex || {})) {
     const file = rawFile.replace(/\\/g, '/');
     const lines = linesOf(rawFile) || null;
+    const byRange = new Map();   // "start-end" -> what the split of those lines gave
     for (const [name, info] of Object.entries(funcs || {})) {
       if (!info || info.start == null || info.end == null) continue;
       const f = { id: `${file}@${name}`, file, name, cls: classOf(name), start: info.start, end: info.end, tf: new Map(), comments: '', strings: [], calls: [] };
       if (lines) {
         // A test inside a source file (Rust `#[test]`): marked, so a search can leave it out.
         if (isTestAttributedFunction(lines, info.start)) f.test = true;
-        const src = splitSource(lines.slice(info.start - 1, info.end).join('\n'), file);
-        f.tf = identifierCounts(src.code);
-        f.comments = [leadingComment(lines, info.start, file), src.comments].filter(Boolean).join(' ');
-        f.strings = src.strings;
-        f.calls = calledNames(src.code, known).filter((c) => c !== leafOf(name));
+        const key = `${info.start}-${info.end}`;
+        let r = byRange.get(key);
+        if (!r) {
+          const src = splitSource(lines.slice(info.start - 1, info.end).join('\n'), file);
+          r = { tf: identifierCounts(src.code), comments: [leadingComment(lines, info.start, file), src.comments].filter(Boolean).join(' '), strings: src.strings, calls: calledNames(src.code, known) };
+          byRange.set(key, r);
+          rangesRead++;
+        }
+        f.tf = r.tf;
+        f.comments = r.comments;
+        f.strings = r.strings;
+        const own = leafOf(name);
+        f.calls = r.calls.filter((c) => c !== own);
       }
       fns.push(f);
     }
@@ -187,7 +206,7 @@ export function buildCorpus(functionIndex, linesOf) {
   for (const f of fns) for (const id of f.tf.keys()) df.set(id, (df.get(id) || 0) + 1);
   const callersOf = new Map();
   for (const f of fns) for (const c of f.calls) { if (!callersOf.has(c)) callersOf.set(c, []); callersOf.get(c).push(leafOf(f.name)); }
-  return { fns, df, n: fns.length, callersOf };
+  return { fns, df, n: fns.length, callersOf, rangesRead };
 }
 
 /** The text of one function under `arm` (one of ARMS). */

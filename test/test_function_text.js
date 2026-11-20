@@ -118,6 +118,38 @@ describe('function-text: the corpus and the four arms', () => {
     assert.deepEqual(c.callersOf.get('measure_snr'), ['select_rate']);
     assert.equal(fn(c, 'Queue.push').cls, 'Queue');
   });
+  // function-corpus-minified-stall (2026-11-19): a minified file puts thousands of functions on one
+  // line, a function record has lines and no columns, and the whole line was split again for every
+  // function on it: 58 s on an index with three such files, 1.7 GB of text read for 10,918 functions.
+  it('reads a line range once however many functions sit on it, and gives each the same words, strings and comments', () => {
+    const line = 'function alpha(){return beta(1)+gamma("left side")}function beta(n){return widgetCount*n}function gamma(s){/* trims */return s.trim()}';
+    const src = { 'min/bundle.js': ['// vendored', line, 'function delta() {', '  return alpha();', '}'] };
+    const fi = { 'min/bundle.js': { alpha: { start: 2, end: 2 }, beta: { start: 2, end: 2 }, gamma: { start: 2, end: 2 }, delta: { start: 3, end: 5 } } };
+    const c = buildCorpus(fi, (f) => src[f]);
+    assert.equal(c.n, 4);
+    assert.equal(c.rangesRead, 2, 'four functions on two distinct line ranges: two reads, not four');
+    const [a, b, g, d] = ['alpha', 'beta', 'gamma', 'delta'].map((n) => fn(c, n));
+    assert.deepEqual([...a.tf], [...b.tf], 'functions on one line have the line\'s words');
+    assert.deepEqual([...a.tf], [...g.tf]);
+    assert.equal(a.tf.get('widgetCount'), 1);
+    assert.deepEqual(a.strings, ['left side']);
+    assert.deepEqual(b.strings, a.strings);
+    assert.equal(a.comments, 'vendored trims');
+    assert.equal(g.comments, a.comments);
+    // a function's own name is left out of its own calls, and only of its own
+    assert.deepEqual(a.calls, ['beta', 'gamma']);
+    assert.deepEqual(b.calls, ['alpha', 'gamma']);
+    assert.deepEqual(g.calls, ['alpha', 'beta']);
+    assert.deepEqual(d.calls, ['alpha']);
+    assert.ok(!d.tf.has('widgetCount'), 'a function on its own lines keeps its own words');
+    // the shared words count once per function toward a word's rarity, as before
+    assert.equal(c.df.get('widgetCount'), 3);
+    assert.deepEqual(c.callersOf.get('alpha'), ['beta', 'gamma', 'delta']);
+    // the same text as a corpus built with nothing shared
+    const alone = buildCorpus({ 'min/bundle.js': { beta: fi['min/bundle.js'].beta } }, (f) => src[f]).fns[0];
+    assert.deepEqual([...b.tf], [...alone.tf]);
+    assert.equal(corpus().rangesRead, 5, 'a file with one function per range reads one range per function');
+  });
   it('keeps a function whose file has no lines, by its name alone', () => {
     const c = buildCorpus({ 'gone.c': { f: { start: 1, end: 3 } } }, () => null);
     assert.equal(functionText(c.fns[0], 'context', c), 'f. In gone');
