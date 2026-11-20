@@ -25,6 +25,7 @@
  */
 
 import { isPseudoSource } from '../binstrings.js';
+import { isTestPath } from './test-paths.js';
 
 // ========================================================================
 // Match-line hygiene (chart-term-hygiene-and-rarity-scoring)
@@ -107,7 +108,7 @@ function codeMatchedIndices(details, posMatched) {
  * @returns {{term_file_counts: number[], total_files: number}}
  */
 export function computeTermFileCounts(idx, terms, opts = {}) {
-  const { includePath, excludePath } = opts;
+  const { includePath, excludePath, excludeTests = false } = opts;
   idx._ensureFunctionIndex();
   const nTerms = terms.length;
   const termFileSets = new Array(nTerms).fill(null).map(() => new Set());
@@ -116,6 +117,7 @@ export function computeTermFileCounts(idx, terms, opts = {}) {
     const fpL = fp.toLowerCase();
     if (includePath && !includePath.some(p => fpL.includes(p.toLowerCase()))) return false;
     if (excludePath && excludePath.some(p => fpL.includes(p.toLowerCase()))) return false;
+    if (excludeTests && isTestPath(fp)) return false;   // --exclude-tests / --no-tests (test-paths.js)
     return true;
   };
 
@@ -144,7 +146,7 @@ export function computeTermFileCounts(idx, terms, opts = {}) {
 
 export function multisectSearch(idx, terms, opts = {}) {
   const {
-    minTerms: minTermsArg, includePath, excludePath,
+    minTerms: minTermsArg, includePath, excludePath, excludeTests = false,
     showProgress = true, matchRenames = false,
   } = opts;
 
@@ -213,6 +215,7 @@ export function multisectSearch(idx, terms, opts = {}) {
     const fpL = fp.toLowerCase();
     if (includePath && !includePath.some(p => fpL.includes(p.toLowerCase()))) return false;
     if (excludePath && excludePath.some(p => fpL.includes(p.toLowerCase()))) return false;
+    if (excludeTests && isTestPath(fp)) return false;   // --exclude-tests / --no-tests (test-paths.js)
     return true;
   };
 

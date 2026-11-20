@@ -25,6 +25,7 @@ import path from 'path';
 import { quotePathIfNeeded } from '../utils.js';
 import { effectiveMaxResults } from '../argparse.js';
 import { COMMENT_MATCH_WEIGHT } from '../core/multisect.js';
+import { isTestPath, leavesTestsOut, testsLeftOutLine } from '../core/test-paths.js';
 
 // ========================================================================
 // Term parser
@@ -812,6 +813,7 @@ export function doMultisect(index, args) {
   const includePath = args.vocab_in ? [args.vocab_in] :
     args.include_path ? args.include_path : null;
   const excludePath = args.exclude_path || null;
+  const excludeTests = leavesTestsOut(args);
 
   const matchRenames = !!args.match_renames;
 
@@ -819,6 +821,7 @@ export function doMultisect(index, args) {
     minTerms: minTerms || null,
     includePath,
     excludePath,
+    excludeTests,
     showProgress: true,
     matchRenames,
   });
@@ -831,6 +834,11 @@ export function doMultisect(index, args) {
   if (includePath && includePath.length > 0) {
     console.log(`  Path filter: --in ${includePath.join(', ')}`);
   }
+  // --exclude-tests / --no-tests: say what was left out, or, without them, that test code is in
+  // the results and which option leaves it out (the options were accepted and ignored until 2026-11-19).
+  const testFiles = [...index.files.keys()].filter(isTestPath).length;
+  if (excludeTests) console.log(`  ${testsLeftOutLine(args, testFiles) || `${args.exclude_tests ? '--exclude-tests' : '--no-tests'}: the index has no test, benchmark, mock or example files to leave out`} (of ${totalFiles} in the index)`);
+  else if (testFiles) console.log(`  Test code is searched too: ${testFiles} of the index's ${totalFiles} files are test, benchmark, mock or example code; --exclude-tests leaves them out.`);
   if (matchRenames) {
     console.log(`  Match-renames: ON (matching against rename-rendered source)`);
   }

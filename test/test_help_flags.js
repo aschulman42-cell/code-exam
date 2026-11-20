@@ -113,6 +113,16 @@ describe('the embed options each have a help entry, and --embed-model list', () 
     assert.match(r.stdout, /--toward-code[\s\S]*Off by default/);
     assert.match(r.stdout, /--embed-distance[\s\S]*--function-text, --toward-code, --spec\./, '--embed-distance lists them among its own options');
   });
+  // multisect-test-options-do-nothing (2026-11-19)
+  it('--exclude-tests says which commands read it and what happens with one that does not; --no-tests says it is the same', () => {
+    const r = run('--help', 'exclude-tests');
+    assert.ok(entry(r.stdout, '--exclude-tests'));
+    assert.ok(entry(r.stdout, '--no-tests'));
+    assert.match(r.stdout, /--exclude-tests[\s\S]*--multisect-search[\s\S]*Off by default/);
+    assert.match(r.stdout, /a line on\s+stderr says it did nothing/);
+    assert.match(r.stdout, /--no-tests\s+The same as --exclude-tests/);
+    assert.doesNotMatch(r.stdout, /from callers\/metrics results/, 'the old entry named two commands, one of which never read it');
+  });
   it('the --embeddings line says it is about the examined code, and points at --embed-model list', () => {
     const r = run('--help', 'embeddings');
     const line = r.stdout.split(/\r?\n/).findIndex((l) => l.startsWith('  --embeddings '));

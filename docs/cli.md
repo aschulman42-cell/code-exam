@@ -319,7 +319,7 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 
 - **Does**: Find callers of a function. `<spec>` is `FUNC` or `FILE@FUNC`; the file form lists only the sites that can reach that definition (a bare name lists every same-named site). Module-level sites are grouped under `(file scope)`.
 - **Good for**: "Who calls this?" — the most common reverse-navigation question.
-- **Couples with**: `--depth` (transitive callers), `--exclude-tests`, `--max-results`, `--filter`, `--include-path`, `--exclude-path`.
+- **Couples with**: `--depth` (transitive callers), `--max-results`, `--filter`, `--include-path`, `--exclude-path`. `--exclude-tests` is not read by `--callers` (this line said it was until 2026-11-19); given with it, a line on stderr says it did nothing.
 - **Naming**: noun-only.
 - **Verified against**: `src/argparse.js:249`
 
@@ -373,11 +373,13 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 
 #### `--exclude-tests`
 
-- **Does**: Exclude test files from callers/metrics results.
-- **Good for**: Hotspot and caller scans where you want only production code, not test fixtures.
-- **Couples with**: `--callers`, `--callees`, `--most-called`, `--hotspots`, `--gaps`, `--entry-points`, others. **Notable**: detection of "test file" is heuristic (path contains `test/`, file name starts with `test_`, etc.) — see Couplings.
-- **Naming**: `--exclude-X` form (parallels `--exclude-path`).
-- **Verified against**: `src/argparse.js:256`
+- **Does**: Leaves test code out of a search or a listing. `--no-tests` means the same thing in every command that reads either (since 2026-11-19; before that `--no-tests` was read only by the AI/ML listings). A file is test code by one rule, the one the claim tools use for `--include-tests`: it is under a directory named `test`, `tests`, `testing`, `testdata`, `__tests__`, `spec`, `bench`, `benchmarks`, `mock`, `mocks`, `fakes`, `stubs`, `example`, `examples` or `samples`, or its name is of the shape `test_*`, `*_test`, `*.test.*`, `*.spec.*`, `FooTest`, `TestFoo`, `bench_*`, `mock_*`, `example_*`. The patterns are anchored at word boundaries, so `latest.js`, `contest/` and `attest.c` stay in. Off by default: these commands include test code unless the option is given.
+- **Read by**: the text searches (`--search`, `--regex`, `--literal`, `--fast`, `--files-search`, `--folders-search`), `--multisect-search` (whose header says how many files were left out, or, without the option, how many test files are being searched), `--list-files`, `--list-functions` (and its `-alpha` and `-size` forms), `--list-classes`, `--most-called`, `--hotspots`, `--entry-points`, `--gaps`, `--domain-fns`, `--class-hotspots`, `--data-structs`, and the AI/ML listings, which drop the records their detectors tagged as test or example code.
+- **Not read by**: everything else, including `--callers`, `--callees`, `--call-tree`, `--multisect-analyze`, the MCP tools and the GUI's searches. Given with a run in which no command reads it, one line on stderr says it did nothing and names the commands that read it; the run goes on. The claim tools and `--semantic-search` work the other way round: they leave test code out by default and `--include-tests` brings it back.
+- **Changed 2026-11-19**: `--most-called` and the `--hotspots` family used to read `--exclude-tests` as "the path contains the letters `test`", which dropped `latest.js` and kept `examples/`; they now use the rule above. Until then the text searches, `--multisect-search` and the file and function listings accepted both options and ignored them.
+- **Good for**: Hotspot scans and searches where you want only production code, not test fixtures.
+- **Naming**: `--exclude-X` form (parallels `--exclude-path`); `--no-tests` is kept as the second spelling.
+- **Verified against**: `src/core/test-paths.js` (`testPathClass`, `leavesTestsOut`, `withoutTests`, `TEST_OPTION_READERS`, `unreadTestOptionNote`), `src/commands/search.js` (`filterResultsByPath`), `src/core/multisect.js` (`pathOk`), `src/commands/browse.js`, `src/commands/callers.js` (`doMostCalled`), `src/commands/metrics.js` (`applyPathFilters`, `dropTests`), `src/index.js`
 
 #### `--call-inventory [spec]`
 
@@ -395,7 +397,7 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 
 - **Does**: Show call tree (callers up + callees down).
 - **Good for**: Visualizing the full call neighborhood of a function in one view.
-- **Couples with**: `--depth` (default: 3 for trees), `--mermaid`, `--exclude-tests`.
+- **Couples with**: `--depth` (default: 3 for trees), `--mermaid`. `--exclude-tests` is not read by `--call-tree` (this line said it was until 2026-11-19).
 - **Naming**: noun phrase.
 - **Verified against**: `src/argparse.js:257`
 
@@ -526,7 +528,7 @@ Deprecated alias. Use `--functions --sort size` instead. Same fan-out behavior a
 
 #### `--multisect-search <terms>` (alias: `--multisect`)
 
-- **Does**: Multi-term intersection search — finds smallest scope (function / class / file / folder) containing the terms. Terms semicolon-separated; `/regex/` for regex; `NOT` / `!` to negate.
+- **Does**: Multi-term intersection search — finds smallest scope (function / class / file / folder) containing the terms. Terms semicolon-separated; `/regex/` for regex; `NOT` / `!` to negate. Test, benchmark, mock and example files are searched like any other, and when the index holds any the header says how many and that `--exclude-tests` (or `--no-tests`) leaves them out; with either option they are not searched and the header says how many were left out (since 2026-11-19; before that both options were accepted and ignored).
 - **Good for**: "Find the place where all these things happen together" — the headline CodeExam search primitive.
 - **Couples with**: `--match-renames`, `--in` (path filter), `--min-terms`, `--max-results`, `--dedup`, `--filter`.
 - **Naming**: noun-noun. Alias `--multisect` reflects the dominant usage.

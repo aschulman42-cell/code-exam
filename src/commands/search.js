@@ -13,6 +13,7 @@
 import path from 'path';
 import { SearchResult, displayName, quotePathIfNeeded } from '../utils.js';
 import { effectiveMaxResults } from '../argparse.js';
+import { isTestPath, leavesTestsOut } from '../core/test-paths.js';
 
 
 // ========================================================================
@@ -234,10 +235,13 @@ export function printResults(results, { verbose = false, maxResults = null,
  * Apply --include-path and --exclude-path filters to search results.
  */
 export function filterResultsByPath(results, args) {
-  if (!args.include_path && !args.exclude_path && !args.vocab_in) return results;
+  const noTests = leavesTestsOut(args);
+  if (!args.include_path && !args.exclude_path && !args.vocab_in && !noTests) return results;
 
   return results.filter(r => {
     const pathLower = r.filePath.toLowerCase();
+    // --exclude-tests / --no-tests: test, benchmark, mock and example files (test-paths.js)
+    if (noTests && isTestPath(r.filePath)) return false;
 
     // --in filter (universal path filter)
     if (args.vocab_in) {

@@ -19,6 +19,7 @@ import { effectiveCount, effectiveMaxResults, capNotice } from '../argparse.js';
 import { extractConcepts, conceptLabel } from '../core/vocabulary.js';
 import { extractDataStructures } from '../core/data-structs.js';
 import { extractClientServer } from '../core/client-server.js';
+import { isTestPath, leavesTestsOut } from '../core/test-paths.js';
 import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
@@ -50,7 +51,7 @@ function shortPath(fp, maxLen = 42) {
 // Without the flag, verbose renderers append testTag(r) so the tag stays
 // visible in text output (and multi-index diffs can see it).
 function dropTests(rows, args) {
-  if (!args.no_tests) return rows;
+  if (!leavesTestsOut(args)) return rows;   // --no-tests, and since 2026-11-19 --exclude-tests: one meaning, two spellings
   const kept = rows.filter(r => !r.isTest);
   if (rows.unresolved !== undefined) kept.unresolved = rows.unresolved;  // listModelsUsed tail note
   return kept;
@@ -61,7 +62,7 @@ const testTag = (r) => (r.isTest ? ' [test]' : '');
 // #132 discoverability: the default (grouped) views don't tag individual rows,
 // so when test/example records are present, say so and point at --no-tests / -v.
 function noTestsTip(rows, args, what = 'sites') {
-  if (args.no_tests) return;
+  if (leavesTestsOut(args)) return;
   const n = (rows || []).filter(r => r.isTest).length;
   if (n) console.log(`\n  Tip: ${n} of ${rows.length} ${what} are in test/example code — add --no-tests to hide them.`);
 }
@@ -81,8 +82,10 @@ function applyPathFilters(items, args, fpKey = 'filepath') {
     result = result.filter(h =>
       !args.exclude_path.some(p => h[fpKey].toLowerCase().includes(p.toLowerCase())));
   }
-  if (args.exclude_tests) {
-    result = result.filter(h => !h[fpKey].toLowerCase().includes('test'));
+  // --exclude-tests / --no-tests, by the shared rule (test-paths.js). Until 2026-11-19 this was
+  // "the path contains the letters test", which dropped latest.js and kept examples/.
+  if (leavesTestsOut(args)) {
+    result = result.filter(h => !isTestPath(h[fpKey]));
   }
   return result;
 }

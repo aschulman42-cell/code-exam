@@ -52,9 +52,12 @@ Matches are scored by term rarity (**IDF — Inverse Document Frequency**; a dis
 for more than a common one), so the highest-ranked scope is the one where the rarest terms genuinely
 co-occur rather than one that merely mentions common words. One adjustment keeps the ranking honest:
 a term matched in **code** weighs more than one matched only in **comments or documentation**.
-Sites in **test / example / demo** code are not down-weighted by multisect today, and
-`--no-tests` / `--exclude-tests` are not read by it; `--in <path>` keeps the search to a path and
-`--exclude-path <path>` leaves one out (finer comment/doc match controls are proposed in #138).
+Sites in **test / benchmark / mock / example** code are searched like any other and are not
+down-weighted; when the index holds such files the header says how many and that
+`--exclude-tests` leaves them out (`--no-tests` means the same). With either option those files
+are not searched and the header says how many were left out. `--in <path>` keeps the search to a
+path and `--exclude-path <path>` leaves one out (finer comment/doc match controls are proposed
+in #138).
 The result is the tightest scope first, widening only as needed.
 
 ## Searching from prose

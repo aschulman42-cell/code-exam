@@ -47,6 +47,7 @@ import {
 import { findCallersMany, invertedScanStats } from '../core/calls.js';
 import { contentWords, stem } from '../core/claim-terms.js';
 import { isTestAttributedIn } from '../core/test-attribute.js';
+import { testPathClass } from '../core/test-paths.js';
 // The scavenger hunt reuses the local tool-loop's hard-won guards rather than
 // reinventing them: budget-with-synthesize-now-stop, special-token
 // neutralization, Gemma's strict framing, and the zero-tool-call fabrication
@@ -1089,20 +1090,8 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
 // contest, testimony, benchley, mockingbird, exampleless, Testament, Fakespot.
 // `testSymbolClass` returns the class that holds a symbol back — test, bench,
 // mock or example — or null; `isTestSymbol` is the boolean every gate uses.
-const TEST_DIR_RE = {
-  test: /(?:^|[\\/!])(?:test|tests|testing|testdata|androidTest|__tests__|spec|specs)[\\/]/i,
-  bench: /(?:^|[\\/!])(?:bench|benches|benchmark|benchmarks)[\\/]/i,
-  mock: /(?:^|[\\/!])(?:mock|mocks|__mocks__|fakes|stubs)[\\/]/i,
-  example: /(?:^|[\\/!])(?:example|examples|samples)[\\/]/i,
-};
-// On the basename without its extension (`foo.test` for foo.test.js).
-const TEST_STEM_RE = {
-  test: /^(?:tests?|testutils?|testing)(?:$|[_.\-])|[_.\-](?:tests?|spec)$/i,
-  bench: /^bench(?:$|[_.\-]|marks?$)|[_.\-]bench(?:marks?)?$/i,
-  mock: /^(?:mocks?|fakes?|stubs?)(?:$|[_.\-])|[_.\-](?:mocks?|fakes?|stubs?)$/i,
-  example: /^examples?(?:$|[_.\-])/i,
-};
-const TEST_STEM_CASED_RE = /^Tests?[A-Z]|Tests?$/;       // TestToken.sol, FooTest.java
+// The directory and file-name patterns are in src/core/test-paths.js (testPathClass),
+// where --exclude-tests and --no-tests read the same rule for a listing's files.
 // On each `::`-separated segment of the symbol name: a marker at the end
 // (RateChooserTest), at the start followed by a capital (FakeGroup), or as a
 // snake_case word (test_sign, run_test, bench_sign_run).
@@ -1118,14 +1107,7 @@ export function testSymbolClass(s) {
   if (s && s.test === true) return 'test';
   const name = s.name || '';
   for (const c of ['test', 'mock', 'bench']) if (TEST_NAME_RE[c].test(name)) return c;
-  const fp = String(s.filepath || '');
-  if (!fp) return null;
-  for (const c of ['test', 'bench', 'mock', 'example']) if (TEST_DIR_RE[c].test(fp)) return c;
-  const base = fp.split(/[\\/!]/).pop() || '';
-  const stem = base.replace(/\.[A-Za-z0-9]+$/, '');
-  if (TEST_STEM_CASED_RE.test(stem)) return 'test';
-  for (const c of ['test', 'bench', 'mock', 'example']) if (TEST_STEM_RE[c].test(stem)) return c;
-  return null;
+  return testPathClass(s.filepath);
 }
 export function isTestSymbol(s) {
   return testSymbolClass(s) !== null;

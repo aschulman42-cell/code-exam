@@ -72,6 +72,7 @@ import { doMultisect } from './commands/multisect.js';
 import { doClaimSearch } from './commands/claim.js';
 import { doPseudoClaims, doTriage } from './commands/pseudo-claims.js';
 import { doBuildMechanisms, doMechanisms, doToc } from './commands/mechanisms.js';
+import { unreadTestOptionNote } from './core/test-paths.js';
 import {
   doAnalyze, doClaimAnalyze, doMultisectAnalyze, doFileAnalyze,
 } from './commands/analyze.js';
@@ -401,6 +402,13 @@ if (args._unknownFlags.length || args._unknownPositionals.length) {
   }
   process.stderr.write(`Run 'ce --help' for usage.\n`);
   process.exit(2);
+}
+
+// --exclude-tests / --no-tests given to a command that does not read them: say so, once, before
+// the command runs (they were accepted in silence; multisect-test-options-do-nothing, 2026-11-19).
+{
+  const note = unreadTestOptionNote(args, (k) => args._explicit.has(k) || (args[k] != null && args[k] !== false));
+  if (note) process.stderr.write(note + '\n');
 }
 
 

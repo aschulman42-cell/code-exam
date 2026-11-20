@@ -106,9 +106,11 @@ By default CodeExam **shows** them (marked, not hidden) and lets you drop them:
   `[test/example code]`. There is no inline text badge in the GUI — the dimming is the signal.
 - **CLI:** the same row carries an inline **`[test]`** tag, and CodeExam prints a tip, e.g.
   *"Tip: 4 of 12 tool sites are in test/example code — add --no-tests to hide them."*
-- **Drop them:** `--no-tests` removes AI/ML rows whose every site is test/example code;
-  `--exclude-tests` skips test files in caller / metrics results. (In the GUI, **View → Exclude
-  Tests**.)
+- **Drop them:** `--no-tests` or `--exclude-tests` (the same thing since 2026-11-19) removes
+  AI/ML rows whose every site is test/example code, and leaves test files out of the text
+  searches, `--multisect-search` and the listings that read it
+  ([`cli.md`](cli.md), `--exclude-tests`). (In the GUI, **View → Exclude Tests** hides the AI/ML
+  rows only.)
 
 - **`(test)` after a member** in `ce --mechanisms -v`: that function is a test, in a test
   file or under a test attribute in a source file (Rust `#[test]`). The record it is in may

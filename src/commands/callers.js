@@ -13,6 +13,7 @@ import { displayName, parseFuncSpec, quotePathIfNeeded } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 import { effectiveCount, effectiveMaxResults, capNotice } from '../argparse.js';
 import { isIntrinsicName } from '../core/vocabulary.js';
+import { isTestPath, leavesTestsOut } from '../core/test-paths.js';
 
 
 // ========================================================================
@@ -279,14 +280,16 @@ export function doMostCalled(index, args) {
       if (args.exclude_path) {
         defs = defs.filter(d => !args.exclude_path.some(p => d.filepath.toLowerCase().includes(p.toLowerCase())));
       }
-      if (args.exclude_tests) {
-        defs = defs.filter(d => !d.filepath.toLowerCase().includes('test'));
+      // --exclude-tests / --no-tests, by the shared rule (test-paths.js). Until 2026-11-19 this was
+      // "the path contains the letters test", which dropped latest.js and kept examples/.
+      if (leavesTestsOut(args)) {
+        defs = defs.filter(d => !isTestPath(d.filepath));
       }
       item = { ...item, definitions: defs };
       // #252: this used to read item.definitions AFTER the reassignment above
       // — comparing the filtered list to itself, so the drop never fired. The
       // enclosing block already guarantees the original list was non-empty.
-      if (args.exclude_tests && defs.length === 0) continue;
+      if (leavesTestsOut(args) && defs.length === 0) continue;
     }
 
     filteredData.push(item);
@@ -297,7 +300,7 @@ export function doMostCalled(index, args) {
   if (minNameLength > 1) filtersApplied.push(`name length >= ${minNameLength}`);
   if (!includeMacros) filtersApplied.push('excluding ALL_CAPS macros & built-ins');
   if (definedOnly) filtersApplied.push('defined in index only');
-  if (args.exclude_tests) filtersApplied.push('excluding tests');
+  if (leavesTestsOut(args)) filtersApplied.push('excluding tests');
   if (args.include_path) filtersApplied.push(`include paths: ${args.include_path.join(', ')}`);
   if (args.exclude_path) filtersApplied.push(`exclude paths: ${args.exclude_path.join(', ')}`);
 

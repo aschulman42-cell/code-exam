@@ -1563,9 +1563,23 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              --filter "/step.?by.?step|chain.of.thought/"
   --include-path <patterns>  Only include paths containing pattern(s)
   --exclude-path <patterns>  Exclude paths containing pattern(s)
-  --exclude-tests            Exclude test files from callers/metrics results
-  --no-tests                 AI/ML cells: drop records tagged test/example code
-                             (tests, examples, benchmarks, demos dirs; test_* etc.)
+  --exclude-tests            Leave test code out of a search or a listing: files under
+                             a test, benchmark, mock or example directory, or named
+                             like one (test_*, *.test.*, FooTest, bench_*, mock_*).
+                             Read by --search, --regex, --literal, --fast,
+                             --files-search, --folders-search, --multisect-search,
+                             --list-files, --list-functions, --list-classes,
+                             --most-called, --hotspots, --entry-points, --gaps,
+                             --domain-fns, --class-hotspots, --data-structs and the
+                             AI/ML listings (which drop the records their detectors
+                             tagged as test or example code). Off by default: those
+                             commands include test code, and --multisect-search says
+                             so. Given to a command that does not read it, a line on
+                             stderr says it did nothing. The claim tools and
+                             --semantic-search work the other way: they leave test
+                             code out unless --include-tests is given.
+  --no-tests                 The same as --exclude-tests, in every command that reads
+                             it.
   --emit-harness <Class>     Emit a runnable PyTorch forward-hook activation
                              harness .py for a detected model class (file@Class
                              to disambiguate). CE never runs it — you do.

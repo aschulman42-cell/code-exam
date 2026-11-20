@@ -19,6 +19,7 @@ import { displayName, eprint, pasteToken, quotePathIfNeeded } from '../utils.js'
 import { CodeSearchIndex } from '../core/CodeSearchIndex.js';
 import { skippedExtensionCensus } from '../core/extension-census.js';
 import { makeFilterMatcher, filteredEmptyNotice } from '../core/filter-match.js';
+import { withoutTests } from '../core/test-paths.js';
 
 
 // Keep head + tail of a path, eliding the middle with `ell`, rather than the
@@ -629,6 +630,7 @@ export function doListFiles(index, args) {
   if (args.exclude_path) {
     files = files.filter(f => !args.exclude_path.some(p => f.toLowerCase().includes(p.toLowerCase())));
   }
+  files = withoutTests(files, args).kept;   // --exclude-tests / --no-tests
 
   if (files.length === 0) {
     console.log('No files' + (pattern ? ` matching '${pattern}'` : '') + '.');
@@ -1043,6 +1045,7 @@ export function doListFunctions(index, args) {
     functions = functions.filter(f =>
       !args.exclude_path.some(p => f.filepath.toLowerCase().includes(p.toLowerCase())));
   }
+  functions = withoutTests(functions, args, (f) => f.filepath).kept;   // --exclude-tests / --no-tests
 
   if (functions.length === 0) {
     // A filter that matched nothing is not absence (asus-CC, #330).
@@ -1123,6 +1126,7 @@ export function doListFunctionsAlpha(index, args) {
     functions = functions.filter(f =>
       !args.exclude_path.some(p => f.filepath.toLowerCase().includes(p.toLowerCase())));
   }
+  functions = withoutTests(functions, args, (f) => f.filepath).kept;   // --exclude-tests / --no-tests
 
   if (functions.length === 0) {
     // A filter that matched nothing is not absence (asus-CC, #330).
@@ -1175,6 +1179,7 @@ export function doListFunctionsSize(index, args) {
     functions = functions.filter(f =>
       !args.exclude_path.some(p => f.filepath.toLowerCase().includes(p.toLowerCase())));
   }
+  functions = withoutTests(functions, args, (f) => f.filepath).kept;   // --exclude-tests / --no-tests
 
   if (functions.length === 0) {
     // A filter that matched nothing is not absence (asus-CC, #330).
