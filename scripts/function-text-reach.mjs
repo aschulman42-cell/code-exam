@@ -53,6 +53,20 @@
  *                     and rank each job's limitations on an index its chart does not
  *                     accuse (the restate and label arms; blind and as-written are ranked
  *                     there unchanged)
+ *   --rollup          (rollup-by-directory-measurement, 2026-11-19) also roll the groups'
+ *                     ranking (label and best function's text, the --semantic-search
+ *                     ranking) up into units a reader could open: the directory and the
+ *                     file each group mostly sits in. Per unit kind, four rules: how many
+ *                     of the first 100 groups fall in the unit; that count over what the
+ *                     unit's share of all groups would give; the mean of its three best
+ *                     groups; its best group. And two "read by" lines per kind: the groups
+ *                     in the order a reader meets them when units are opened in rank
+ *                     order, ten groups each, to set beside the flat list at the same k.
+ *                     Needs the comments arm. Not read with --reword
+ *   --units <dir>     with --rollup: also the sections and sub-sections of a clustering,
+ *                     from <dir>/<index dir name>.<variant>.units.json,
+ *                     { variant, groups: [{ id, section, sub }] }, ids as mechanisms.json's.
+ *                     A group a file does not name goes in one unit of its own
  *   --force           send past the cloud cost guard
  *   --cache <dir>     where vectors are kept (default %LOCALAPPDATA%\CodeExam\function-text)
  *
@@ -84,7 +98,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { ARMS, buildCorpus, functionText, unitChunks, unitsOf, rollUp, setReading, leafOf, FUSE_ARM, fuseSum } from '../src/core/function-text.js';
+import { ARMS, buildCorpus, functionText, unitChunks, unitsOf, rollUp, setReading, leafOf, FUSE_ARM, fuseSum, FUSE_LABEL_WEIGHT } from '../src/core/function-text.js';
 import { resolveEmbedModel, entryChunks, entryText, embedAll, openEmbedder, median } from '../src/core/embed.js';
 import { foldRecords } from '../src/core/mechanisms-index.js';
 import { parseSidecar, baseName } from '../src/core/hof.js';
@@ -98,7 +112,7 @@ const nf = (x) => Number(x || 0).toLocaleString('en-US');
 export const REWORD_ARMS = ['blind', 'restate', 'label', 'spec'];
 
 export function parseOwnArgs(argv) {
-  const o = { filings: null, only: null, hof: [], index: null, claimsFile: null, arms: [...ARMS], k: [1, 5, 25, 100], pool: 3500, limit: 0, model: 'nomic', cpu: false, cache: null, dry: false, json: null, md: false, reword: null, llm: null, rewordDir: null, specDir: null, wrongMap: null, force: false };
+  const o = { filings: null, only: null, hof: [], index: null, claimsFile: null, arms: [...ARMS], k: [1, 5, 25, 100], pool: 3500, limit: 0, model: 'nomic', cpu: false, cache: null, dry: false, json: null, md: false, reword: null, llm: null, rewordDir: null, specDir: null, wrongMap: null, force: false, rollup: false, units: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const v = () => { if (i + 1 >= argv.length) throw new Error(`${a} takes a value`); return argv[++i]; };
@@ -124,6 +138,8 @@ export function parseOwnArgs(argv) {
     else if (a === '--spec-dir') o.specDir = v();
     else if (a === '--wrong-map') o.wrongMap = v();
     else if (a === '--force') o.force = true;
+    else if (a === '--rollup') o.rollup = true;
+    else if (a === '--units') o.units = v();
     else if (a === '--help' || a === '-h') o.help = true;
     else throw new Error(`unknown argument ${a}`);
   }
@@ -132,6 +148,9 @@ export function parseOwnArgs(argv) {
   if (o.reword && !o.filings) throw new Error('--reword goes with --filings');
   if (o.reword && !o.llm) throw new Error('--reword needs --llm <provider>: the model that writes the rewordings, or whose saved ones are read');
   if (o.reword && o.reword.includes('spec') && !o.specDir) throw new Error('the spec arm needs --spec-dir <dir> holding US<patent>.txt');
+  if (o.units && !o.rollup) throw new Error('--units gives the sections for --rollup to roll groups up into; without --rollup nothing reads it');
+  if (o.rollup && o.reword) throw new Error('--rollup is not read with --reword: the roll-up lines are scored on the limitation as written');
+  if (o.rollup && !o.arms.includes(FUSE_ARM)) throw new Error(`--rollup rolls up the ranking --semantic-search uses, which needs the ${FUSE_ARM} arm: add it to --arms`);
   return o;
 }
 
@@ -272,6 +291,98 @@ export function fusedMethods(kind, K, ownKey, arm) {
   ];
 }
 
+// ---- rolling a ranking of groups up into units (rollup-by-directory-measurement, 2026-11-19) ----
+// A search lists groups; a reader could be shown where the closest ones are instead: a
+// directory, a file, or a section of a clustering made with no directory names. Does the
+// unit holding a cited function come within the first few? Four rules, fixed before any run
+// and all reported. The ranking rolled up is the one --semantic-search uses: a group's label
+// and its best function's text, FUSE_LABEL_WEIGHT on the label.
+export const ROLLUP_RULES = ['count', 'count, size-corrected', 'best three', 'best one'];
+/** `count` reads this many of the first groups: what a listing saying "9 of the first 100 are in …" would print. */
+export const ROLLUP_TOP = 100;
+/** The reading-order lines open this many groups of each unit before moving to the next. */
+export const ROLLUP_OPEN = 10;
+const ROLLUP_TIE = 1e-4;
+
+/**
+ * One score per unit from one score per group. `unitOf[g]` is group g's unit.
+ *   count                  how many of the first `top` groups are in the unit
+ *   count, size-corrected  that count over what the unit's share of all groups would give
+ *   best three             the mean of the unit's three best groups (of what it has)
+ *   best one               the unit's best group
+ * The two counts break ties by the unit's best group, as a listing would; a unit with no
+ * group ranks last under every rule.
+ */
+export function rollupScores(scores, unitOf, nUnits, rule, { top = ROLLUP_TOP } = {}) {
+  if (!ROLLUP_RULES.includes(rule)) throw new Error(`roll-up rule is one of ${ROLLUP_RULES.join('; ')}; got "${rule}"`);
+  const M = scores.length;
+  const per = Array.from({ length: nUnits }, () => []);
+  for (let g = 0; g < M; g++) per[unitOf[g]].push(fin(scores[g], -Infinity));
+  for (const l of per) l.sort((a, b) => b - a);
+  const best = per.map((l) => (l.length ? l[0] : -Infinity));
+  if (rule === 'best one') return best;
+  if (rule === 'best three') return per.map((l) => { const t = l.slice(0, 3).filter(Number.isFinite); return t.length ? t.reduce((s, x) => s + x, 0) / t.length : -Infinity; });
+  const n = Math.min(top, M);
+  const first = scores.map((s, g) => [fin(s, -Infinity), g]).sort((a, b) => b[0] - a[0] || a[1] - b[1]).slice(0, n);
+  const count = new Array(nUnits).fill(0);
+  for (const [, g] of first) count[unitOf[g]]++;
+  const tie = (u) => (Number.isFinite(best[u]) ? ROLLUP_TIE * (1 + Math.max(-1, Math.min(1, best[u]))) / 2 : 0);
+  return per.map((l, u) => {
+    if (!l.length) return -1;
+    return (rule === 'count' ? count[u] : count[u] / (n * l.length / M)) + tie(u);
+  });
+}
+
+/**
+ * The order a reader meets the groups in when the listing is by unit: the units by
+ * `unitScores`, the first `open` groups of each by their own score, then every group not
+ * yet met, by score. Returns one number per group, higher for earlier, so the usual rank
+ * reading gives "the cited function's group within k lines read", the figure to set beside
+ * the flat list's.
+ */
+export function readingOrder(scores, unitOf, unitScores, open = ROLLUP_OPEN) {
+  const M = scores.length;
+  const s = (g) => fin(scores[g], -Infinity);
+  const byUnit = new Map();
+  for (let g = 0; g < M; g++) { if (!byUnit.has(unitOf[g])) byUnit.set(unitOf[g], []); byUnit.get(unitOf[g]).push(g); }
+  const units = [...byUnit.keys()].sort((a, b) => fin(unitScores[b], -Infinity) - fin(unitScores[a], -Infinity) || a - b);
+  const order = [];
+  const met = new Uint8Array(M);
+  for (const u of units) for (const g of byUnit.get(u).sort((a, b) => s(b) - s(a) || a - b).slice(0, open)) { order.push(g); met[g] = 1; }
+  const rest = [];
+  for (let g = 0; g < M; g++) if (!met[g]) rest.push(g);
+  rest.sort((a, b) => s(b) - s(a) || a - b);
+  const pos = new Array(M);
+  [...order, ...rest].forEach((g, i) => { pos[g] = M - i; });
+  return pos;
+}
+
+/** The commonest value of a list, the first seen on a tie; null for an empty list. */
+export function majorityOf(list) {
+  const c = new Map();
+  for (const x of list) c.set(x, (c.get(x) || 0) + 1);
+  let best = null, n = 0;
+  for (const [x, k] of c) if (k > n) { best = x; n = k; }
+  return best;
+}
+
+/**
+ * Units read from a file a clustering wrote: { variant, groups: [{ id, section, sub }] }.
+ * `ids` are the index's group ids in the harness's order; `level` is `section` or `sub`.
+ * A group the file does not name (the clustering leaves test groups out) goes in one unit
+ * of its own kind, counted in `unnamed`. Returns { unitOf, n, unnamed }. Throws when the
+ * file names none of the index's groups: it was made for another index.
+ */
+export function unitsFromFile(file, ids, level) {
+  const by = new Map((file.groups || []).map((g) => [g.id, g[level]]));
+  const index = new Map();
+  let unnamed = 0;
+  const raw = ids.map((id) => { if (!by.has(id)) { unnamed++; return null; } const v = by.get(id); if (!index.has(v)) index.set(v, index.size); return index.get(v); });
+  if (unnamed === ids.length) throw new Error(`the units file names none of the index's ${ids.length} groups; it was made for another index or another mechanisms.json`);
+  const n = index.size + (unnamed ? 1 : 0);
+  return { unitOf: raw.map((u) => (u == null ? index.size : u)), n, unnamed };
+}
+
 /**
  * The command catalog's labels as texts: a CLI option's flags and help line, a GUI
  * control's label, each credited to the one function its handler resolves to in the pool.
@@ -395,6 +506,37 @@ async function prepare(dir, name, answerIds, o, embedder) {
         shared.catalog.forEach((c, i) => { for (const u of entryMechs[i]) if (c > s[u]) s[u] = c; });
         return s;
       } });
+    }
+  }
+  // --rollup: the groups' ranking rolled up into units (see rollupScores). Directory and file
+  // are each group's commonest among its members' files; a section and a sub-section come from
+  // the files under --units, one per clustering variant.
+  if (o.rollup && kinds.mechanism.n && o.arms.includes(FUSE_ARM)) {
+    const M = kinds.mechanism;
+    const fused = (shared) => (shared.rollupBase = shared.rollupBase || fuseSum(shared['own:mechanism'], rollUp(shared[FUSE_ARM], M.groups), FUSE_LABEL_WEIGHT));
+    const dirOf = (f) => { const p = slash(f).split('/'); p.pop(); return p.join('/') || '.'; };
+    const byValue = (values) => { const ix = new Map(); const unitOf = values.map((v) => { if (!ix.has(v)) ix.set(v, ix.size); return ix.get(v); }); return { unitOf, n: ix.size, unnamed: 0 }; };
+    const unitKinds = [
+      ['directory', byValue(mech.map((u) => majorityOf((u.e.members || []).map((m) => dirOf(m.file)))))],
+      ['file of groups', byValue(mech.map((u) => majorityOf((u.e.members || []).map((m) => slash(m.file)))))],
+    ];
+    if (o.units) {
+      const files = fs.existsSync(o.units) ? fs.readdirSync(o.units).filter((f) => f.startsWith(`${name}.`) && f.endsWith('.units.json')).sort() : [];
+      for (const f of files) {
+        const j = JSON.parse(fs.readFileSync(path.join(o.units, f), 'utf8'));
+        const ids = mech.map((u) => u.e.id);
+        unitKinds.push([`section ${j.variant}`, unitsFromFile(j, ids, 'section')], [`sub-section ${j.variant}`, unitsFromFile(j, ids, 'sub')]);
+      }
+      if (!files.length) process.stderr.write(`# ${name}: no <index>.<variant>.units.json under ${o.units}; directory and file only\n`);
+    }
+    info.rollup = {};
+    for (const [kind, U] of unitKinds) {
+      const sizes = new Array(U.n).fill(0); for (const u of U.unitOf) sizes[u]++;
+      info.rollup[kind] = { units: U.n, largest: Math.max(...sizes), unnamed: U.unnamed };
+      const holders = new Map();
+      for (const [id, ms] of M.holders) holders.set(id, [...new Set(ms.map((m) => U.unitOf[m]))]);
+      for (const rule of ROLLUP_RULES) methods.push({ name: `${kind}: groups rolled up, ${rule}`, unit: kind, units: U.n, holders, scoreOf: (q, shared) => (shared[`ru:${kind}:${rule}`] = rollupScores(fused(shared), U.unitOf, U.n, rule)) });
+      for (const rule of ['count', 'best three']) methods.push({ name: `mechanism: read by ${kind} (${rule}), first ${ROLLUP_OPEN} of each`, unit: 'mechanism', units: M.n, holders: M.holders, scoreOf: (q, shared) => readingOrder(fused(shared), U.unitOf, shared[`ru:${kind}:${rule}`], ROLLUP_OPEN) });
     }
   }
   return { methods, info, fns, mechLabels: mech.map((u) => u.e.label) };

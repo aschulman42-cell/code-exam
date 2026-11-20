@@ -676,8 +676,15 @@ outside the repository and the runs are not reproducible from it.
 - **Absence.** Nothing measures "this limitation has no code here".
 - **Search as the claim pipeline's retrieval step**, end to end.
 - **A codebase larger than ExoPlayer 3**, or build time on one.
-- **Levels.** A 10,000-group codebase read directory-first, then file, then function, was
-  probed once and looked promising; it is not built.
+- **Levels.** A 10,000-group codebase read directory-first, then file, then function, is
+  not built. Rolling results up was measured on 2026-11-19 on the twelve filings
+  ([`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md), "Rolling a search's
+  groups up"): the directory holding the cited code is among the first three far more
+  often than chance and hardly more often than for another limitation of the same chart,
+  most of a directory's lead is its size, and reading results directory by directory is
+  not cheaper than the flat list. A section of a clustering made with no directory names
+  did as well as a directory. So a roll-up says which part of the codebase a claim is
+  about, once per claim; it is not a faster way to read one limitation's results.
 - **Ranking on descriptions or pseudo-claims**, beyond the six questions above.
 
 ## The self-test (HOF) and semantic search

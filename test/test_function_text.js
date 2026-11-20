@@ -16,7 +16,7 @@ import {
 } from '../src/core/function-text.js';
 import {
   parseOwnArgs, pickPool, anchorIds, answerRanks, emptyTally, addToTally, mergeTally, scoreIndex,
-  tallyLine, headOf, renderTable,
+  tallyLine, headOf, renderTable, rollupScores, readingOrder, ROLLUP_RULES, majorityOf, unitsFromFile,
 } from '../scripts/function-text-reach.mjs';
 
 const SRC = {
@@ -373,5 +373,66 @@ describe('function-text-reach: --reword, the limitations reworded before they ar
     assert.equal(crowding([[1, 2], [3, 4]]).crowded, 0);
     // one query crowds nothing
     assert.deepEqual(crowding([[1, 2, 3]]), { slots: 0, crowded: 0, units: [] });
+  });
+});
+
+// rollup-by-directory-measurement (2026-11-19): a search's groups rolled up into units a
+// reader could open (a directory, a file, a section of a clustering), by four rules fixed
+// before any run.
+describe('reach script: rolling a ranking of groups up into units', () => {
+  // seven groups in three units: unit 0 is large and middling, unit 1 small and strong, unit 2 holds one weak group
+  const scores = [0.50, 0.52, 0.51, 0.49, 0.90, 0.80, 0.10];
+  const unitOf = [0, 0, 0, 0, 1, 1, 2];
+  it('has the four rules, in the order they are reported', () => {
+    assert.deepEqual(ROLLUP_RULES, ['count', 'count, size-corrected', 'best three', 'best one']);
+  });
+  it('count: how many of the first N groups fall in the unit, ties broken by the unit\'s best group', () => {
+    const c = rollupScores(scores, unitOf, 3, 'count', { top: 4 });   // first four: 0.90, 0.80, 0.52, 0.51
+    assert.deepEqual(c.map(Math.floor), [2, 2, 0]);
+    assert.ok(c[1] > c[0], 'two each: the unit with the better best group is first');
+    assert.deepEqual(rollupScores(scores, unitOf, 3, 'count', { top: 2 }).map(Math.floor), [0, 2, 0]);
+  });
+  it('count, size-corrected: the count over what the unit\'s share of all groups would give', () => {
+    const c = rollupScores(scores, unitOf, 3, 'count, size-corrected', { top: 4 });
+    // unit 0 holds 4 of 7 groups: expected 4 * 4/7 = 2.29, observed 2; unit 1 holds 2 of 7: expected 1.14, observed 2
+    assert.ok(Math.abs(c[0] - 2 / (4 * 4 / 7)) < 1e-3, String(c[0]));
+    assert.ok(Math.abs(c[1] - 2 / (4 * 2 / 7)) < 1e-3, String(c[1]));
+    assert.ok(c[2] < 1e-3, 'none of the first four: nothing over expected');
+    assert.ok(c[1] > c[0], 'the small unit that took two of four is ahead of the large one that took two');
+  });
+  it('best three is the mean of the unit\'s three best groups (of what it has), best one its best', () => {
+    const b3 = rollupScores(scores, unitOf, 3, 'best three');
+    assert.ok(Math.abs(b3[0] - (0.52 + 0.51 + 0.50) / 3) < 1e-9);
+    assert.ok(Math.abs(b3[1] - (0.90 + 0.80) / 2) < 1e-9, 'a unit of two is the mean of two');
+    assert.ok(Math.abs(b3[2] - 0.10) < 1e-9);
+    assert.deepEqual(rollupScores(scores, unitOf, 3, 'best one'), [0.52, 0.90, 0.10]);
+    assert.throws(() => rollupScores(scores, unitOf, 3, 'median'), /rule is one of/);
+  });
+  it('an empty unit ranks last under every rule', () => {
+    for (const r of ROLLUP_RULES) { const s = rollupScores([0.5, 0.4], [0, 0], 2, r, { top: 2 }); assert.ok(s[1] < s[0], r); }
+  });
+  it('reading order: the units in rank order, each one\'s first few groups, then everything else by score', () => {
+    // units ranked 1, 0, 2; open the first 2 of each: 4, 5 | 1, 2 | 6 | then the rest by score: 0, 3
+    const unitScores = [0.52, 0.90, 0.10];
+    const pos = readingOrder(scores, unitOf, unitScores, 2);
+    const order = pos.map((p, g) => [p, g]).sort((a, b) => b[0] - a[0]).map((x) => x[1]);
+    assert.deepEqual(order, [4, 5, 1, 2, 6, 0, 3]);
+    assert.equal(new Set(pos).size, 7, 'every group has one place');
+  });
+  it('majorityOf picks the commonest value, the first seen on a tie, and null for nothing', () => {
+    assert.equal(majorityOf(['a/b', 'a/c', 'a/b']), 'a/b');
+    assert.equal(majorityOf(['x', 'y']), 'x');
+    assert.equal(majorityOf([]), null);
+  });
+  it('unitsFromFile maps group ids to units and puts a group the file does not name in a unit of its own kind', () => {
+    const file = { variant: 'E', groups: [{ id: 'm1', section: 1, sub: '1.1' }, { id: 'm2', section: 1, sub: '1.2' }, { id: 'm3', section: 2, sub: '2.1' }] };
+    const sec = unitsFromFile(file, ['m1', 'm2', 'm3', 'm9'], 'section');
+    assert.deepEqual(sec.unitOf, [0, 0, 1, 2]);
+    assert.equal(sec.n, 3);
+    assert.equal(sec.unnamed, 1, 'm9 is not in the file: one group in the unit for those');
+    const sub = unitsFromFile(file, ['m1', 'm2', 'm3'], 'sub');
+    assert.deepEqual(sub.unitOf, [0, 1, 2]);
+    assert.equal(sub.unnamed, 0);
+    assert.throws(() => unitsFromFile(file, ['x1', 'x2', 'x3'], 'section'), /none of the index's 3 groups/);
   });
 });

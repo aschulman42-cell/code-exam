@@ -1188,6 +1188,170 @@ one rewording per limitation; the label form without the vocabulary was not run;
 rewriting model; the whole claim shown to the model is the chart's limitation texts in
 order, not the patent's claim.
 
+## Rolling a search's groups up into directories, files and sections (2026-11-19)
+
+`--semantic-search` lists groups and functions one by one. A listing could say instead
+where the closest code is: "9 of the first 100 results are in `…/trackselection`". This
+asks whether that would help, with the chart rows and controls of the sections above. It
+also asks the same of a partition CodeExam made itself, with no directory names: the
+sections and sub-sections of a clustering of the groups. No feature was built.
+
+**What was rolled up.** The ranking `--semantic-search` uses: each group scored by its
+label and its best function's text, 0.3 on the label. Each group is put in one unit of each
+kind:
+
+- **directory** and **file**: the one most of the group's functions are in;
+- **section** and **sub-section**: from a clustering kept outside the repository (bottom-up
+  Ward clustering of the groups' function-text vectors, one tree, cut at about
+  0.65 × √groups sections and groups ÷ 8 sub-sections). Variant **E** uses the vectors
+  alone; variant **ECO** adds calls between groups and shared functions.
+
+**Four rules for scoring a unit**, fixed before any run:
+
+- *count*: how many of the first 100 groups fall in it (what a listing would print);
+- *count, size-corrected*: that count over what the unit's share of all groups would give;
+- *best three*: the mean of its three best groups;
+- *best one*: its best group.
+
+**How it was run.** The twelve filings, 35 chart rows with a cited function a group holds,
+129 cited functions; ten of the twelve filings contribute (two have no cited function in a
+group). The limitation as written. Large indexes sampled to 3,500 functions, as in every
+table above, so their groups are those holding a sampled function.
+
+```
+node scripts/function-text-reach.mjs --filings <work folder> --arms comments --embed-model gemma --cache <its folder> --k 3,5,10,25,100 --rollup --units <folder of section files>
+```
+
+Each cell is the share of cited functions whose unit is within the first 3, 5 or 10 units,
+then in parentheses the same for another limitation of the same chart, and chance.
+EmbeddingGemma, all twelve filings:
+
+| unit | units, summed | rule | within 3 | within 5 | within 10 |
+|---|--:|---|--:|--:|--:|
+| directory | 913 | count | 91 (84 / 59) | 93 (86 / 64) | 95 (88 / 74) |
+| directory | 913 | count, size-corrected | 49 (50 / 36) | 54 (53 / 40) | 84 (75 / 60) |
+| directory | 913 | best three | 88 (79 / 57) | 91 (83 / 62) | 95 (86 / 74) |
+| directory | 913 | best one | 79 (78 / 51) | 84 (81 / 59) | 94 (84 / 71) |
+| file | 3,907 | count | 28 (23 / 21) | 38 (33 / 27) | 64 (60 / 39) |
+| file | 3,907 | count, size-corrected | 16 (16 / 7) | 23 (23 / 9) | 40 (39 / 19) |
+| file | 3,907 | best three | 19 (19 / 5) | 31 (27 / 9) | 56 (51 / 22) |
+| file | 3,907 | best one | 15 (16 / 8) | 28 (28 / 12) | 53 (49 / 23) |
+| section, E | 249 | count | 83 (76 / 43) | 92 (85 / 53) | 94 (87 / 74) |
+| section, E | 249 | count, size-corrected | 78 (70 / 32) | 87 (82 / 43) | 94 (85 / 71) |
+| section, E | 249 | best three | 72 (70 / 36) | 91 (84 / 53) | 95 (85 / 73) |
+| section, E | 249 | best one | 73 (69 / 39) | 86 (81 / 53) | 95 (86 / 74) |
+| sub-section, E | 2,160 | count | 55 (47 / 16) | 75 (71 / 22) | 85 (78 / 37) |
+| sub-section, E | 2,160 | count, size-corrected | 32 (36 / 17) | 50 (47 / 29) | 69 (64 / 36) |
+| sub-section, E | 2,160 | best three | 52 (53 / 14) | 68 (63 / 19) | 82 (74 / 38) |
+| sub-section, E | 2,160 | best one | 47 (47 / 15) | 59 (60 / 19) | 75 (68 / 33) |
+| section, ECO | 249 | count | 71 (72 / 50) | 91 (83 / 59) | 94 (85 / 72) |
+| section, ECO | 249 | count, size-corrected | 73 (68 / 42) | 82 (78 / 51) | 94 (85 / 70) |
+| sub-section, ECO | 2,160 | count | 46 (43 / 14) | 60 (56 / 23) | 71 (65 / 40) |
+| sub-section, ECO | 2,160 | count, size-corrected | 33 (34 / 9) | 42 (43 / 17) | 56 (60 / 29) |
+
+**The cost to a reader.** A unit near the top is no use if the reader then has to read all
+of it. These rows put the groups in the order a reader meets them when units are opened in
+rank order and ten groups of each are read, and count cited functions within that many
+lines, beside the flat list:
+
+| lines read in this order | within 5 | within 10 | within 25 | within 100 |
+|---|--:|--:|--:|--:|
+| the flat list of groups | 16 (18 / 5) | 29 (27 / 8) | 50 (47 / 15) | 90 (81 / 44) |
+| by directory, ranked by count | 22 (19 / 5) | 33 (27 / 7) | 36 (30 / 12) | 74 (66 / 40) |
+| by directory, ranked by best three | 18 (19 / 6) | 25 (25 / 7) | 34 (27 / 12) | 74 (66 / 40) |
+| by file, ranked by best three | 12 (12 / 2) | 19 (17 / 3) | 46 (43 / 11) | 86 (79 / 43) |
+| by section E, ranked by count | 11 (12 / 5) | 16 (17 / 8) | 45 (40 / 16) | 81 (73 / 41) |
+| by sub-section E, ranked by count | 14 (11 / 2) | 26 (20 / 2) | 40 (33 / 9) | 75 (67 / 38) |
+| by sub-section E, ranked by best three | 9 (11 / 4) | 22 (19 / 4) | 46 (41 / 11) | 75 (66 / 40) |
+| by sub-section ECO, ranked by best three | 17 (18 / 5) | 26 (22 / 5) | 49 (47 / 14) | 81 (73 / 43) |
+
+What the two tables show:
+
+- **The unit holding the cited code is near the top far more often than chance, and
+  hardly more often than for another limitation of the same chart.** Section E by count:
+  83 within three, 76 for another limitation, 43 by chance. This is the pattern of every
+  measurement on this page: the roll-up finds the part of the codebase the claim is about,
+  not the part one limitation is about.
+- **The directory's lead is mostly its size.** By count the right directory is in the
+  first three 91 times in 100; corrected for size it is 49, level with another limitation
+  (50). One directory often holds most of an index's groups (117 of 169 on secp256k1).
+- **A section does as well as a directory, with about a quarter as many units, and keeps
+  its lead when corrected for size** (78, against 70 and 32). The sections were made with
+  no directory names.
+- **Adding calls to the clustering did not help.** Variant ECO is level with or below E on
+  nearly every row.
+- **Reading by unit is not cheaper than the flat list.** Within 25 lines the flat list
+  reaches 50 in 100 and no unit order beats it (49 at best). Reading by directory is a
+  little ahead in the first ten lines (33 against 29) and well behind by 25 (36 against 50).
+
+**Without the six secp256k1 and bitcoin filings**, whose charts cite the same functions for
+several limitations so that the other-limitation control cannot separate there: four
+filings contribute, 11 chart rows and 27 cited functions, **21 of them from one chart**
+(Spark). The figures are that chart's, and one chart is an example:
+
+| | within 3 | within 5 | within 10 |
+|---|--:|--:|--:|
+| directory, count | 56 (22 / 15) | 67 (33 / 22) | 74 (41 / 30) |
+| directory, count, size-corrected | 11 (7 / 0) | 11 (7 / 0) | 52 (11 / 7) |
+| section E, count | 67 (30 / 19) | 74 (37 / 19) | 74 (44 / 30) |
+| section E, count, size-corrected | 63 (22 / 15) | 74 (33 / 19) | 74 (37 / 22) |
+| sub-section E, count | 56 (19 / 4) | 59 (30 / 7) | 67 (33 / 11) |
+
+Here the section does tell one limitation from another (67 against 30), and reading by
+section reaches more than the flat list within 25 lines (67 against 44; on Spark alone 57
+against 33). It is the first table on this page where a unit separates limitations, and it
+rests on one chart of five rows.
+
+**Under nomic** (the sections are still the ones built from EmbeddingGemma's vectors, so
+this ranks by one model and partitions by another): section E by count 78 (74 / 42) within
+three, size-corrected 71 (64 / 33); directory by count 87 (78 / 63), size-corrected 33
+(36 / 29); the flat list 48 (46 / 17) within 25 lines, by section E 45 (43 / 17). The same
+reading.
+
+**Units per index** (largest unit in parentheses):
+
+| filing | groups ranked | directories | sections | sub-sections |
+|---|--:|--:|--:|--:|
+| databricks, apache/spark (sampled) | 2,067 | 431 (138) | 76 (86) | 912 (10) |
+| veritaseum, solana (sampled) | 1,523 | 188 (257) | 35 (97) | 327 (21) |
+| veritaseum, ethereum/consensus-specs | 209 | 61 (32) | 9 (61) | 26 (18) |
+| foundry 1-11, secp256k1 | 169 | 10 (117) | 8 (45) | 21 (18) |
+| foundry 1-14, secp256k1 | 166 | 10 (111) | 8 (34) | 21 (15) |
+| viabtc, bitcoin (sampled) | 1,707 | 80 (261) | 39 (121) | 401 (19) |
+| mara, bitcoin (sampled) | 1,637 | 74 (267) | 37 (98) | 368 (19) |
+| core-scientific (two charts), secp256k1 | 166 | 10 (111) | 8 (34) | 21 (15) |
+| vm-innovations, coinbase-sdk-nodejs | 114 | 10 (48) | 7 (25) | 14 (16) |
+| friendliai, text-generation-inference | 142 | 16 (23) | 8 (34) | 18 (18) |
+| securitize, dstoken | 82 | 13 (34) | 6 (30) | 10 (16) |
+
+**What it decides.** The outcomes were written before the run. This is the second of them:
+the roll-up beats chance and not the other-limitation control, so a "where the closest
+code is" view is worth having as *the part of the codebase this claim is about*, shown once
+per claim and not per limitation. It is not a cheaper way to read results than the flat
+list. If such a view is built, units should be ranked by a size-corrected count, or the
+largest directory wins every time. That a partition made by CodeExam does as well as the
+directory tree is the new result, and it matters where the tree says little (ten
+directories for secp256k1, 117 of its 169 groups in one of them).
+
+**Limits.**
+
+- **The sections are made from the vectors the search ranks by.** Results near a query
+  fall in few sections by construction, right or wrong. The size-corrected rule, the
+  other-limitation control and the run under a second model are the checks; none removes
+  it.
+- **Test code is in.** The harness ranks every group, and the sections were built with
+  test groups kept, where `--semantic-search` leaves them out. On the consensus-specs
+  index the test rule would have removed 190 of 209 groups, since its code is under a
+  directory named `specs/`.
+- **Not run, though planned**: the same roll-up on an index the chart does not accuse; the
+  `label` rewordings; the '101 claim against ExoPlayer 3 as an example.
+- **One clustering**, at one section count per index, one tree, kept outside the
+  repository. How stable its sections are was not measured on these indexes; on three
+  others, in the same scratch work, building the tree again from 80% of the groups gave
+  agreement of 0.50 to 0.67 (adjusted Rand index), which is moderate.
+- 35 rows; six filings of twelve are secp256k1 and bitcoin; the charts are parties'
+  advocacy and a hit is agreement with a party; sampled indexes rank a sample.
+
 ## Sections to come
 
 The grouper's cover and split measurements, the two describers compared as a
