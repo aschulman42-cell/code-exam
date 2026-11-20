@@ -4,7 +4,7 @@
 // Co-authored with Claude (Claude Code).
 // Licensed under the Apache License, Version 2.0; see LICENSE.
 /**
- * multisect.js — Multi-term intersection search ("scavenger hunt" / #146).
+ * multisect.js — Multi-term intersection search ("scavenger hunt").
  * Pulled out of CodeSearchIndex.js in Issue #18 Phase 2 (theme #25).
  *
  * Main exports, both taking idx as first arg (COMMENT_MATCH_WEIGHT and
@@ -73,7 +73,7 @@ function codeMatchedIndices(details, posMatched) {
 }
 
 // ========================================================================
-// Multi-term intersection search (#146 "scavenger hunt")
+// Multi-term intersection search ("scavenger hunt")
 // ========================================================================
 
 /**

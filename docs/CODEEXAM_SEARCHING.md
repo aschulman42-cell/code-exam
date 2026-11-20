@@ -44,18 +44,18 @@ Each term can be:
 - **hard-required** (the default) — it must be present;
 - **negated** — `!term` or `NOT term` excludes scopes that contain it from the result set. Note
   CodeExam may still *show* where a negated term appears: a term the argument says should be
-  *absent* is often exactly where the dispute lives [[placeholder: issue # — "one place the fight
-  may be"]];
+  *absent* is often exactly where the dispute lives;
 - **soft** — `?term` is optional: it does not gate the result set, but its presence **boosts the
   ranking** of scopes that do contain it.
 
 Matches are scored by term rarity (**IDF — Inverse Document Frequency**; a distinctive term counts
 for more than a common one), so the highest-ranked scope is the one where the rarest terms genuinely
-co-occur rather than one that merely mentions common words. Two adjustments keep the ranking honest:
-a term matched in **code** weighs more than one matched only in **comments or documentation**, and
-sites in **test / example / demo** code can be down-weighted or dropped with `--no-tests` /
-`--exclude-tests` (finer comment/doc match controls are proposed in #138). The result is the
-tightest scope first, widening only as needed.
+co-occur rather than one that merely mentions common words. One adjustment keeps the ranking honest:
+a term matched in **code** weighs more than one matched only in **comments or documentation**.
+Sites in **test / example / demo** code are not down-weighted by multisect today, and
+`--no-tests` / `--exclude-tests` are not read by it; `--in <path>` keeps the search to a path and
+`--exclude-path <path>` leaves one out (finer comment/doc match controls are proposed in #138).
+The result is the tightest scope first, widening only as needed.
 
 ## Searching from prose
 
