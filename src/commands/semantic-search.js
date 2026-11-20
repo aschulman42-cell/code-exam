@@ -394,9 +394,11 @@ export async function doSemanticSearch(args) {
   try { embedder = await openEmbedder(model.path, { cpu: !!args.cpu }); } catch (e) { console.error(`\n--semantic-search: ${e.message}`); process.exitCode = 1; return; }
   const perElement = [];
   try {
-    const whole = await embedAll(embedder.ctx, plan.whole, files[0], { prefix: model.doc, quiet: true });
-    const more = plan.extra.length ? await embedAll(embedder.ctx, plan.extra, files[1], { prefix: model.doc, quiet: true }) : new Map();
-    const fnVecs = await embedAll(embedder.ctx, fnPlan.texts, files[2], { prefix: model.doc, quiet: true, compact: true });
+    // A few texts new since the build (at most TOP_UP_MAX) are embedded here. `notice` says so on
+    // stderr before the wait, not only on the header line after it; nothing when none is missing.
+    const whole = await embedAll(embedder.ctx, plan.whole, files[0], { prefix: model.doc, quiet: true, notice: 'group names new since the build' });
+    const more = plan.extra.length ? await embedAll(embedder.ctx, plan.extra, files[1], { prefix: model.doc, quiet: true, notice: 'group name chunks new since the build' }) : new Map();
+    const fnVecs = await embedAll(embedder.ctx, fnPlan.texts, files[2], { prefix: model.doc, quiet: true, compact: true, notice: 'function texts new since the build' });
     let cands = entryCandidates(all, plan, whole, more);
     // Test functions inside groups that are otherwise the project's own code (a Rust source
     // file with its tests under #[test]): left out function by function, and counted, so the

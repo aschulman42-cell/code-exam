@@ -21,6 +21,7 @@
 //        [--elements @list.txt]   the elements verbatim, one per line, instead of CodeExam's split
 //        [--embed-model nomic|jina|coderank|qwen06|qwen4|<path.gguf>] [--max-results N]
 //        [--filter <s>] [--no-prefix] [--cpu] [--verbose]
+//        [--summary-top <n>]   with @claim.txt: the closing table shows the nearest n entries per element, not one
 //        [--function-text]   on an index: label and best member function's text as one score (functionTexts, rankFused)
 //        [--toward-code restate|label|@saved [--spec <file>]]   on an index: a model rewords each element
 //                            toward the index's names and the ranking is by the rewording (toward-code.js)
@@ -211,15 +212,32 @@ export function rankFused(qv, cands, fnVecs, w = FUSE_LABEL_WEIGHT, short = null
   return scored;
 }
 
-/** One listing row, the shape of the 2026-11-07 script: rank, cosine, distance, the candidate; under `verbose`, a mechanism entry's block (recordBlock) and then the chunk that scored. A row ranked by --function-text says score, the two cosines it is made of, and after the entry the function that scored, as file@name. */
+/** The rank column's width for a listing whose largest rank has `width` digits: room for the rank and its full stop, and never narrower than the word "rank" above it. */
+export const rankWidth = (width) => Math.max(width + 1, 4);
+
+/**
+ * The line above a listing's rows, naming their columns once (embed-distance-output-notes,
+ * 2026-11-19: every row used to say `cosine … distance …`, two numbers for one fact). A
+ * plain listing is rank, cosine, and the entry (`candidate` for a list given with
+ * --against); under --function-text it is rank, score, the label's cosine, the best
+ * function's cosine, and the entry.
+ */
+export function rowHeader(width, { fused = false, entries = true } = {}) {
+  const r = 'rank'.padStart(rankWidth(width));
+  return fused ? `${r}   score   label  function  entry` : `${r}  cosine  ${entries ? 'entry' : 'candidate'}`;
+}
+
+/** One listing row under rowHeader's columns: rank, cosine, the candidate; under `verbose`, a mechanism entry's block (recordBlock) and then the chunk that scored. A row ranked by --function-text is rank, score, the two cosines it is made of (`none` for an entry with no function text), the entry, and after it `via` and the function that scored, as file@name. The distance, 1 − cosine, is not printed: the margin, the median and the band are all in cosine. */
 export function formatRow(x, width, { verbose = false } = {}) {
   const name = x.label != null ? `${x.label}  (${x.members ? x.members.length : 0} fn)` : (x.text.length > 200 ? x.text.slice(0, 200) + '…' : x.text);
   const holds = x.holds && x.holds.length ? `  holds ${x.holds.slice(0, 3).join(', ')}${x.holds.length > 3 ? ` +${x.holds.length - 3}` : ''}` : '';
+  const rank = `${x.rank}.`.padStart(rankWidth(width));
+  const num = (v) => v.toFixed(4).padStart(6);
   const row = x.fused
-    ? `${String(x.rank).padStart(width)}. score ${x.cos.toFixed(4)}  (label ${x.labelCos.toFixed(4)}, function ${x.fnCos == null ? 'none' : x.fnCos.toFixed(4)})  ${name}${x.fn ? `  via ${x.fnShort || x.fn}` : ''}${holds}`
-    : `${String(x.rank).padStart(width)}. cosine ${x.cos.toFixed(4)}  distance ${(1 - x.cos).toFixed(4)}  ${name}${holds}`;
+    ? `${rank}  ${num(x.cos)}  ${num(x.labelCos)}  ${(x.fnCos == null ? 'none' : x.fnCos.toFixed(4)).padStart(8)}  ${name}${x.fn ? `  via ${x.fnShort || x.fn}` : ''}${holds}`
+    : `${rank}  ${num(x.cos)}  ${name}${holds}`;
   if (!verbose || x.label == null) return row;
-  const pad = ' '.repeat(width + 2);
+  const pad = ' '.repeat(rankWidth(width) + 2);
   const block = x.entry ? recordBlock(x.entry, { verbose: true }).map((l) => `${pad}${l}`) : [];
   const chunk = x.chunk.length > 200 ? x.chunk.slice(0, 200) + '…' : x.chunk;
   return [row, ...block, `${pad}chunk: ${chunk}`].join('\n');
@@ -315,7 +333,9 @@ export function renderListing({ query, what, ranked, top, filter, verbose, headi
   }
   L.push('');
   const width = String(ranked.length).length;
-  for (const x of (Number.isFinite(top) ? shown.slice(0, top) : shown)) L.push(formatRow(x, width, { verbose }));
+  const rows = Number.isFinite(top) ? shown.slice(0, top) : shown;
+  if (rows.length) L.push(rowHeader(width, { fused, entries: rows[0].label != null }));
+  for (const x of rows) L.push(formatRow(x, width, { verbose }));
   return L;
 }
 
@@ -325,12 +345,19 @@ export function renderListing({ query, what, ranked, top, filter, verbose, headi
  * cut at 48), its margin over the median (blank when the list was too short for
  * one), the band's word, and under --filter the rank of the first candidate the
  * filter matched (`none` when nothing did): the believed implementer's rank per
- * element, the self-test's reading. Columns are padded to align.
+ * element, the self-test's reading. Columns are padded to align. Under --summary-top <n>
+ * a row carries `next`, the candidates ranked 2 to n as { nearest, margin }, and each
+ * prints on its own line under the element with its own margin: the entry wanted is
+ * often second or third, and the listing above is long.
  */
 export function renderSummary(rows, { filter = null } = {}) {
   const cutAt = (s, n) => { const t = String(s || '').replace(/\s+/g, ' '); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
   const head = ['#', 'element', 'nearest', 'margin', 'note', ...(filter ? [`--filter "${filter}" rank`] : [])];
-  const body = rows.map((r) => [String(r.n), cutAt(r.element, 60), cutAt(r.nearest, 48), r.margin == null ? '' : r.margin.toFixed(3), r.word || '', ...(filter ? [r.filterRank == null ? 'none' : String(r.filterRank)] : [])]);
+  const margin = (m) => (m == null ? '' : m.toFixed(3));
+  const body = rows.flatMap((r) => [
+    [String(r.n), cutAt(r.element, 60), cutAt(r.nearest, 48), margin(r.margin), r.word || '', ...(filter ? [r.filterRank == null ? 'none' : String(r.filterRank)] : [])],
+    ...(r.next || []).map((x) => ['', '', cutAt(x.nearest, 48), margin(x.margin), '', ...(filter ? [''] : [])]),
+  ]);
   const widths = head.map((h, i) => Math.max(h.length, ...body.map((b) => b[i].length)));
   const right = new Set([0, 3, 5]);
   const line = (cells) => cells.map((c, i) => (right.has(i) ? c.padStart(widths[i]) : c.padEnd(widths[i]))).join('  ').trimEnd();
@@ -384,6 +411,16 @@ export async function doEmbedDistance(args) {
   const noPrefix = !!args.no_prefix;
   const top = effectiveCount(args, args.max_results, 20);
   const filter = args.filter ? String(args.filter) : null;
+  // --summary-top <n>: the closing table of an @file run shows the nearest n per element, not one.
+  const summaryTop = args.summary_top == null ? 1 : Number(args.summary_top);
+  if (!Number.isInteger(summaryTop) || summaryTop < 1) { console.error(`--summary-top takes a whole number of 1 or more, the nearest entries the closing table shows per element; got "${args.summary_top}"`); process.exitCode = 2; return; }
+  if (summaryTop > 1) {
+    const why = !multi ? 'one text has no closing table (give @<claim file> for one row per element); the rows above it are the ranking'
+      : against != null && !against.startsWith('@') ? 'against one text there is no ranking and no closing table'
+        : models.length > 1 ? `under several models the closing table compares their margins and has no nearest column; run one model for the nearest ${summaryTop} per element`
+          : null;
+    if (why) process.stderr.write(`# --summary-top ${summaryTop} does nothing here: ${why}\n`);
+  }
 
   const fused = !!args.function_text;
   if (fused && against != null) { console.error('--function-text scores an index\'s mechanism entries by their member functions, and --against gives texts that have none: use it with --ndx <index> and no --against'); process.exitCode = 2; return; }
@@ -466,8 +503,11 @@ export async function doEmbedDistance(args) {
         // the index's entries, as describe-reach scores them; whole texts and the chunks beyond them cached beside mechanisms.json
         const plan = entryEmbedPlan(entries);
         const stats = { whole: {}, chunks: {} };
-        const whole = await embedAll(embedder.ctx, plan.whole, embedCacheFile(indexPath, model.base, 'label+members'), { prefix: dp, label: 'entries', stats: stats.whole, quiet: !args.verbose });
-        const more = plan.extra.length ? await embedAll(embedder.ctx, plan.extra, embedCacheFile(indexPath, model.base, `label+members_chunks${CHUNK}`), { prefix: dp, label: 'chunks', stats: stats.chunks, quiet: !args.verbose }) : new Map();
+        // `notice`: a first run under a model was silent for ten minutes on ExoPlayer 3 (2026-11-15).
+        // It now says on stderr how many texts it will embed and where they are saved, then reports
+        // about once a minute; nothing when every vector comes from the cache.
+        const whole = await embedAll(embedder.ctx, plan.whole, embedCacheFile(indexPath, model.base, 'label+members'), { prefix: dp, label: 'entries', stats: stats.whole, quiet: !args.verbose, notice: `mechanism entries under ${model.name}` });
+        const more = plan.extra.length ? await embedAll(embedder.ctx, plan.extra, embedCacheFile(indexPath, model.base, `label+members_chunks${CHUNK}`), { prefix: dp, label: 'chunks', stats: stats.chunks, quiet: !args.verbose, notice: `chunks of long entries under ${model.name}` }) : new Map();
         cands = entryCandidates(entries, plan, whole, more);
         const fresh = (stats.whole.fresh || 0) + (stats.chunks.fresh || 0), cached = (stats.whole.cached || 0) + (stats.chunks.cached || 0);
         what = `${nf(entries.length)} mechanism entries of ${indexPath} (label + member names, best chunk of ${CHUNK}; ${nf(cached)} vectors from cache, ${nf(fresh)} embedded)`;
@@ -487,10 +527,12 @@ export async function doEmbedDistance(args) {
         if (multi) console.log('');
         const row = reworded ? reworded.rows[i] : null;
         for (const line of renderListing({ query, what: multi ? null : what, ranked, top, filter, verbose: !!args.verbose, heading: multi ? `element ${i + 1} of ${queries.length}` : null, calibrated, modelName: model.name, fused: !!fnVecs, searchedAs: row ? row.rewritten : null, notReworded: row ? row.error : null })) console.log(line);
-        const { margin, word } = listingStats(ranked, { calibrated: calibrated && !fnVecs && !reworded });
+        const { med, margin, word } = listingStats(ranked, { calibrated: calibrated && !fnVecs && !reworded });
         const first = ranked[0];
         const hit = filter ? filterRanked(ranked, filter)[0] : null;
-        rows.push({ n: i + 1, element: query, nearest: first ? (first.label != null ? first.label : first.text) : '', margin: ranked.length >= MEDIAN_MIN ? margin : null, word, filterRank: hit ? hit.rank : null });
+        const nameOf = (x) => (x.label != null ? x.label : x.text);
+        const next = ranked.slice(1, summaryTop).map((x) => ({ nearest: nameOf(x), margin: ranked.length >= MEDIAN_MIN ? x.cos - med : null }));
+        rows.push({ n: i + 1, element: query, nearest: first ? nameOf(first) : '', margin: ranked.length >= MEDIAN_MIN ? margin : null, word, filterRank: hit ? hit.rank : null, next });
       });
       perModel.push({ model, rows });
     } finally {

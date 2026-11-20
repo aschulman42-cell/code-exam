@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from '../src/argparse.js';
 import { EMBED_MODELS, DEFAULT_EMBED_MODEL, resolveEmbedModel, entryChunks, embedAll, COMPACT_ABOVE_DIMS, readCache } from '../src/core/embed.js';
-import { readCandidateList, embedCacheFile, rankCandidates, filterRanked, formatRow, renderListing, CHUNK, resolveQueries, bandWord, listingStats, renderSummary, resolveEmbedModels, bandCalibrated, renderComparison, SMALL_INDEX } from '../src/commands/embed-distance.js';
+import { readCandidateList, embedCacheFile, rankCandidates, filterRanked, formatRow, rowHeader, renderListing, CHUNK, resolveQueries, bandWord, listingStats, renderSummary, resolveEmbedModels, bandCalibrated, renderComparison, SMALL_INDEX } from '../src/commands/embed-distance.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -73,7 +73,7 @@ describe('embed-distance', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('ranks by the best chunk, keeps ranks under --filter and names the member that matched, and formats the row as rank, cosine, distance, candidate', () => {
+  it('ranks by the best chunk, keeps ranks under --filter and names the member that matched, and formats the row as rank, cosine, candidate under one header line', () => {
     const q = [1, 0, 0];
     const cands = [
       { text: 'far', label: '[class] Receiver', members: [{ name: 'Receiver::onReceive' }], chunks: ['[class] Receiver: Receiver on Receive'], vectors: [[0, 1, 0]] },
@@ -85,8 +85,9 @@ describe('embed-distance', () => {
     assert.equal(ranked[0].chunk, 'chunk two', 'the scoring chunk is the second');
     assert.deepEqual(ranked.map((x) => x.rank), [1, 2, 3]);
     const row = formatRow(ranked[1], 2);
-    assert.match(row, /^ 2\. cosine 0\.5000  distance 0\.5000  \[file\] Builder \/ rate  \(1 fn\)$/);
-    assert.match(formatRow(ranked[0], 2, { verbose: true }), /\n    chunk: chunk two$/);
+    assert.equal(row, '  2.  0.5000  [file] Builder / rate  (1 fn)');
+    assert.doesNotMatch(row, /cosine|distance/, 'the words are in the header line, once (Andrew, 2026-11-15)');
+    assert.match(formatRow(ranked[0], 2, { verbose: true }), /\n      chunk: chunk two$/);
     const kept = filterRanked(ranked, 'determineideal');
     assert.equal(kept.length, 1);
     assert.equal(kept[0].rank, 1, 'the overall rank is kept');
@@ -95,7 +96,15 @@ describe('embed-distance', () => {
     const lines = renderListing({ query: 'q', what: '3 candidates', ranked, top: 2, filter: null, verbose: false });
     assert.equal(lines[0], 'query: q');
     assert.match(lines[1], /^3 candidates; median cosine 0\.5000$/);
-    assert.equal(lines.length, 5, 'header, median, blank, two rows');
+    assert.equal(lines.length, 6, 'query, median, blank, the column header, two rows');
+    assert.equal(lines[3], 'rank  cosine  entry');
+    assert.equal(lines[4], '  1.  0.9000  [class] AdaptiveTrackSelection / other  (2 fn)', 'the cosine sits under its header word');
+    assert.equal(rowHeader(5), '  rank  cosine  entry', 'a 10,000-entry index: the header widens with the rank column');
+    assert.equal(formatRow({ ...ranked[1], rank: 10828 }, 5), '10828.  0.5000  [file] Builder / rate  (1 fn)');
+    assert.equal(rowHeader(2, { entries: false }), 'rank  cosine  candidate', 'a list given with --against has candidates, not entries');
+    assert.equal(rowHeader(2, { fused: true }), 'rank   score   label  function  entry');
+    const none = renderListing({ query: 'q', what: '3 candidates', ranked, top: Infinity, filter: 'no such thing', verbose: false });
+    assert.ok(!none.some((l) => l.startsWith('rank')), 'no header over no rows');
     const filtered = renderListing({ query: 'q', what: '3 candidates', ranked, top: Infinity, filter: 'rate', verbose: false });
     assert.match(filtered[2], /^--filter "rate": 1 of 3 match$/);
   });
@@ -110,14 +119,14 @@ describe('embed-distance', () => {
       { text: 'a plain candidate', vectors: [[0, 1, 0]] },
     ]);
     const lines = formatRow(ranked[0], 2, { verbose: true }).split('\n');
-    assert.match(lines[0], /^ 1\. cosine 1\.0000  distance 0\.0000  \[class\] AdaptiveTrackSelection \/ other  \(2 fn\)$/);
-    assert.equal(lines[1], '    m9    Picks the track.');
-    assert.equal(lines[2], '          [class] AdaptiveTrackSelection / other  (2 fns, 1 file)  [giant]');
-    assert.equal(lines[3], '          a/Adaptive.java@AdaptiveTrackSelection::determineIdealSelectedIndex  (L10–48)', 'a member with a range');
-    assert.equal(lines[4], '          a/Adaptive.java@AdaptiveTrackSelection::updateSelectedTrack', 'a member without one prints as before');
-    assert.equal(lines[5], '    chunk: chunk two', 'the chunk line closes the block');
+    assert.equal(lines[0], '  1.  1.0000  [class] AdaptiveTrackSelection / other  (2 fn)');
+    assert.equal(lines[1], '      m9    Picks the track.');
+    assert.equal(lines[2], '            [class] AdaptiveTrackSelection / other  (2 fns, 1 file)  [giant]');
+    assert.equal(lines[3], '            a/Adaptive.java@AdaptiveTrackSelection::determineIdealSelectedIndex  (L10–48)', 'a member with a range');
+    assert.equal(lines[4], '            a/Adaptive.java@AdaptiveTrackSelection::updateSelectedTrack', 'a member without one prints as before');
+    assert.equal(lines[5], '      chunk: chunk two', 'the chunk line closes the block');
     assert.equal(lines.length, 6);
-    assert.equal(formatRow(ranked[1], 2, { verbose: true }), ' 2. cosine 0.0000  distance 1.0000  a plain candidate', 'no block for a text candidate');
+    assert.equal(formatRow(ranked[1], 2, { verbose: true }), '  2.  0.0000  a plain candidate', 'no block for a text candidate');
   });
 
   it('says "no clear match" under the band, "borderline" inside it, and only the margin above it', () => {
@@ -231,7 +240,8 @@ describe('embed-distance', () => {
     const other = renderListing({ query: 'q', what: '12 candidates', ranked: rankCandidates(q, [...field(11), top]), top: 3, filter: null, verbose: false, calibrated: false, modelName: 'jina' });
     assert.match(other[1], /\(the nearest is 0\.02\d\d above it; the band is calibrated on nomic and not read under jina\)$/, other[1]);
     assert.equal(other[2], '', 'no note under another model');
-    assert.match(other[3], /^\s*1\. cosine/, 'the rows follow the blank line directly');
+    assert.equal(other[3], 'rank  cosine  candidate', 'the column header follows the blank line directly');
+    assert.match(other[4], /^\s*1\.  0\.5300  top$/, 'then the rows');
     assert.equal(listingStats(rankCandidates(q, [...field(11), top]), { calibrated: false }).word, '');
   });
 
@@ -388,8 +398,9 @@ describe('--function-text: an entry scored by its label and its best member func
       { label: 'beta', members: [], vectors: [[0.5, 0.866]], chunks: ['c'], fnIds: [] },
     ];
     const r = rankFused([1, 0], cands, new Map([['src/a.js@run', [1, 0]]]));
-    assert.equal(formatRow(r[0], 1), '1. score 0.8800  (label 0.6000, function 1.0000)  alpha  (1 fn)  via src/a.js@run');
-    assert.equal(formatRow(r[1], 1), '2. score 0.5000  (label 0.5000, function none)  beta  (0 fn)');
+    assert.equal(rowHeader(1, { fused: true }), 'rank   score   label  function  entry');
+    assert.equal(formatRow(r[0], 1),            '  1.  0.8800  0.6000    1.0000  alpha  (1 fn)  via src/a.js@run');
+    assert.equal(formatRow(r[1], 1),            '  2.  0.5000  0.5000      none  beta  (0 fn)', 'an entry with no function text says none under function');
     const long = 'media.zip!media/libraries/exoplayer/src/main/java/androidx/AdaptiveTrackSelection.java@AdaptiveTrackSelection::enable';
     const s = rankFused([1, 0], [{ label: 'gamma', members: [], vectors: [[0.6, 0.8]], chunks: ['c'], fnIds: [long] }], new Map([[long, [1, 0]]]), 0.3, new Map([[long, 'AdaptiveTrackSelection.java@AdaptiveTrackSelection::enable']]));
     assert.equal(s[0].fn, long, 'the full id is kept on the row');
@@ -399,8 +410,36 @@ describe('--function-text: an entry scored by its label and its best member func
     assert.ok(L[1].includes('median score'), L[1]);
     assert.ok(L[1].includes('not read under --function-text'), L[1]);
     assert.ok(!L.some((l) => l.startsWith('no clear match') || l.startsWith('borderline')), 'no band note under the fused score');
+    assert.equal(L[3], 'rank   score   label  function  entry', 'the fused listing names its four columns once');
     const plain = renderListing({ query: 'q', what: 'w', ranked: rankCandidates([1, 0], cands), top: 3, filter: null, verbose: false });
     assert.ok(plain[1].includes('median cosine'));
+    assert.equal(plain[3], 'rank  cosine  entry');
+  });
+
+  // embed-distance-output-notes (2026-11-19)
+  it('--summary-top: the closing table shows the runners-up on their own lines under the element, each with its margin, and the filter column only on the first', () => {
+    const rows = [
+      { n: 1, element: 'a first part', nearest: '[class] Top', margin: 0.295, word: '', filterRank: 2, next: [{ nearest: '[file] second.js', margin: 0.21 }, { nearest: '[cmd] --third', margin: 0.1834 }] },
+      { n: 2, element: 'a second part', nearest: 'c3', margin: 0.02, word: 'no clear match', filterRank: null, next: [{ nearest: 'c4', margin: null }] },
+    ];
+    const t = renderSummary(rows, { filter: 'go' });
+    assert.equal(t.length, 6, 'header, element 1 and two more, element 2 and one more');
+    assert.match(t[1], /^1  a first part\s+\[class\] Top\s+0\.295\s+2$/, t[1]);
+    assert.match(t[2], /^\s+\[file\] second\.js\s+0\.210$/, t[2]);
+    assert.match(t[3], /^\s+\[cmd\] --third\s+0\.183$/, t[3]);
+    assert.equal(t[2].indexOf('[file] second.js'), t[1].indexOf('[class] Top'), 'a runner-up sits in the nearest column');
+    assert.match(t[4], /^2  a second part\s+c3\s+0\.020  no clear match\s+none$/, t[4]);
+    assert.match(t[5], /^\s+c4$/, 'a blank margin for a list too short for a median');
+    assert.equal(renderSummary(rows.map(({ next, ...r }) => r), { filter: 'go' }).length, 3, 'without next, one row per element as before');
+  });
+
+  it('parses --summary-top as a number, absent by default, and refuses 0 in one line, exit 2, before any model loads', () => {
+    assert.equal(withArgv(['--embed-distance', '@claim.txt', '--summary-top', '3'], () => parseArgs()).summary_top, 3);
+    assert.equal(withArgv(['--embed-distance', 'x'], () => parseArgs()).summary_top, null);
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'src', 'index.js'), '--embed-distance', 'x', '--against', 'y', '--summary-top', '0'], { encoding: 'utf8' });
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /--summary-top takes a whole number of 1 or more/);
+    assert.equal(r.stdout.trim(), '');
   });
 
   it('refuses --function-text with --against, in one line, exit 2', () => {

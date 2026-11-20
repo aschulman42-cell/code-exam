@@ -151,7 +151,8 @@ export function parseArgs() {
     against: null,           // one text, or @file with one candidate per line; none = the index's mechanism entries
     embed_model: null,       // nomic (default) | jina | coderank | qwen06 | qwen4 | gemma | gemma-search | gemma2 | <path.gguf> | list
     no_prefix: false,        // embed the texts without the model's retrieval prefixes
-    function_text: false,    // --embed-distance on an index: score each entry by its label and its best member function's text together
+    summary_top: null,       // --embed-distance @claim: how many nearest entries the closing table shows per element (1 when not given)
+    function_text: false,   // --embed-distance on an index: score each entry by its label and its best member function's text together
     toward_code: null,       // --embed-distance on an index: restate | label (a model rewords each element toward the index's names) | @file (saved rewrites)
     spec: null,              // --toward-code: a file holding the patent's specification, given to the rewriting model
     use_tree_sitter: true,     // tree-sitter wherever a grammar ships; --regex-parser opts out
@@ -756,6 +757,8 @@ export function parseArgs() {
     ['against',              'value',          ['--against']],
     ['embed_model',          'value',          ['--embed-model']],
     ['no_prefix',            'flag',           ['--no-prefix']],
+    // embed-distance-output-notes (2026-11-19): the closing table's nearest n per element
+    ['summary_top',          'int',            ['--summary-top']],
     // embed-distance-function-text-option (2026-11-15): rank entries by label and best member function together
     ['function_text',        'flag',           ['--function-text']],
     // vocab-rewrite-to-embed-distance (2026-11-16): reword each element toward the index's names, rank by the rewording
@@ -1319,8 +1322,13 @@ SEARCH:
                              to --against "<text>" (one pair), to --against @file (one
                              candidate per line), or with no --against to every mechanism
                              entry of the index (label + member names in chunks of 8,
-                             best chunk; vectors cached beside mechanisms.json). Rows are
-                             rank, cosine, distance, the candidate; the median says what
+                             best chunk; vectors cached beside mechanisms.json). A first
+                             run under a model says on stderr how many texts it will
+                             embed and where they are saved, then reports about once a
+                             minute; a later run reads them and says nothing. Rows are
+                             rank, cosine and the candidate, under one line naming the
+                             columns (distance is 1 - cosine and is printed only for one
+                             pair); the median says what
                              an unrelated candidate scores; a top row under 0.12 above
                              it is reported as no clear match, 0.12 to 0.16 as borderline
                              (nomic only, the model the band was calibrated on; under
@@ -1329,11 +1337,14 @@ SEARCH:
                              process (CodeExam's split; --elements @list supplies the
                              elements verbatim, one per line), one listing per element
                              and a closing table: nearest, margin, note, and under
-                             --filter the rank of the first match.
+                             --filter <s> a column with the rank of the first entry
+                             matching <s>. --summary-top <n> shows the nearest n per
+                             element in that table, not one.
                              --max-results N (0 = all); --filter <s> keeps ranks and names
                              the member that matched; --verbose shows the chunk that scored.
                              Its own options, each below: --against, --embed-model,
-                             --no-prefix, --function-text, --toward-code, --spec.
+                             --no-prefix, --summary-top,
+                             --function-text, --toward-code, --spec.
   --against <text|@file>     With --embed-distance: what to measure to. One text, or
                              @file with one candidate per line ('#' lines skipped).
                              Without it, the candidates are the index's mechanism entries.
@@ -1353,13 +1364,20 @@ SEARCH:
   --no-prefix                With --embed-distance: embed the texts without the model's
                              retrieval prefixes (nomic's search_query: / search_document:,
                              the instruction line of coderank and qwen).
+  --summary-top <n>          With --embed-distance @<claim file> under one model: the
+                             closing table shows the nearest <n> entries per element,
+                             each on its own line with its margin over the median, and
+                             not only the nearest (default 1). For when the entry wanted
+                             is second or third. To see where one named entry ranks for
+                             each element, --filter <s> adds a rank column instead.
   --function-text            With --embed-distance on an index (not with --against), for
                              testing: score each mechanism entry by two texts together,
                              0.3 on its label and member names and 0.7 on the best of its
                              member functions' own texts (name, ranked vocabulary and
-                             comments, built from the code with no model). Rows read
-                             score, the two cosines, the entry, and "via file@function",
-                             the function that scored. The first run embeds one text per
+                             comments, built from the code with no model). Rows are
+                             rank, score, the label's cosine, the function's cosine
+                             ("none" for an entry with no function text), the entry,
+                             and "via file@function", the function that scored. The first run embeds one text per
                              function and saves them beside mechanisms.json (about a
                              minute for CodeExam's own 2,100 functions and about 45
                              for ExoPlayer 3's 45,000 functions on a laptop's

@@ -93,6 +93,16 @@ describe('the embed options each have a help entry, and --embed-model list', () 
     assert.match(r.stdout, /--function-text[\s\S]*Off by default/);
     assert.match(r.stdout, /--function-text[\s\S]*45,000 functions/);
   });
+  it('--summary-top has an entry, shown under --help embed, and --embed-distance says what its rows are, that a first run reports, and that --filter adds a rank column', () => {
+    const r = run('--help', 'embed');
+    assert.ok(entry(r.stdout, '--summary-top'), 'no entry headed --summary-top');
+    assert.match(r.stdout, /--summary-top <n>[\s\S]*nearest <n> entries per element[\s\S]*default 1/);
+    assert.match(r.stdout, /--embed-distance[\s\S]*Rows are\s+rank, cosine and the candidate/);
+    assert.doesNotMatch(r.stdout, /rank, cosine, distance/, 'the old row shape is not described');
+    assert.match(r.stdout, /--embed-distance[\s\S]*reports about once a\s+minute/);
+    assert.match(r.stdout, /--filter <s> a column with the rank of the first entry/);
+    assert.match(r.stdout, /--embed-distance[\s\S]*--no-prefix, --summary-top,/, '--embed-distance lists it among its own options');
+  });
   it('--toward-code and --spec have entries, shown under --help embed, that say what the model is shown and what a rank under it does not show', () => {
     const r = run('--help', 'embed');
     assert.ok(entry(r.stdout, '--toward-code'), 'no entry headed --toward-code');
