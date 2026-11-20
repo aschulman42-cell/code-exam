@@ -93,6 +93,13 @@ export const TEST_OPTION_READERS = {
 export const AIML_LISTING_KEYS = ['list_models', 'list_artifacts', 'list_kernels', 'list_multimodal', 'list_post_training', 'list_reasoning', 'list_datasets', 'list_training', 'list_inference', 'list_llm_calls', 'list_tools', 'list_chains', 'list_embeddings', 'list_structured_output', 'list_models_used', 'list_pipelines', 'list_explainability'];
 
 /**
+ * The listings that leave test rows out unless --include-tests is given (--mechanisms,
+ * --toc). Given --exclude-tests or --no-tests they do what was asked already, so the
+ * note below, which says no test code was left out, would be false for them.
+ */
+export const TESTS_OUT_BY_DEFAULT_KEYS = ['mechanisms', 'toc'];
+
+/**
  * When --exclude-tests or --no-tests was given and no command in the run reads it, one
  * line saying so and naming what does; '' otherwise. `isSet(key)` says whether the
  * command with that argument key is being run (some are set by presence, some by value,
@@ -101,6 +108,6 @@ export const AIML_LISTING_KEYS = ['list_models', 'list_artifacts', 'list_kernels
  */
 export function unreadTestOptionNote(args, isSet) {
   if (!leavesTestsOut(args)) return '';
-  if ([...Object.keys(TEST_OPTION_READERS), ...AIML_LISTING_KEYS].some((k) => isSet(k))) return '';
-  return `# ${testOptionGiven(args)} does nothing here: no command in this run reads it, and no test code was left out. It is read by the text searches (--search, --regex, --literal, --fast, --files-search, --folders-search), --multisect-search, the listings (--list-files, --list-functions, --list-classes, --most-called, --hotspots, --entry-points, --gaps, --domain-fns, --class-hotspots, --data-structs) and the AI/ML listings. --exclude-path <text> leaves out any path. The claim tools and --semantic-search leave test code out unless --include-tests is given.`;
+  if ([...Object.keys(TEST_OPTION_READERS), ...AIML_LISTING_KEYS, ...TESTS_OUT_BY_DEFAULT_KEYS].some((k) => isSet(k))) return '';
+  return `# ${testOptionGiven(args)} does nothing here: no command in this run reads it, and no test code was left out. It is read by the text searches (--search, --regex, --literal, --fast, --files-search, --folders-search), --multisect-search, the listings (--list-files, --list-functions, --list-classes, --most-called, --hotspots, --entry-points, --gaps, --domain-fns, --class-hotspots, --data-structs) and the AI/ML listings. --exclude-path <text> leaves out any path. The claim tools, --semantic-search, --mechanisms and --toc leave test code out unless --include-tests is given.`;
 }

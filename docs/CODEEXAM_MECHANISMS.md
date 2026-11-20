@@ -152,10 +152,37 @@ tags, purpose or description, and its member names; `-v` lists every member as
 ordinal, not a rank), the header first:
 
 ```
-367 mechanisms (376 records, 9 folded as the same functions under another label)
+363 mechanisms (372 records, 9 folded as the same functions under another label)
   (showing 100): a cover of 1,754 of 1,754 functions (100%), 149 of 149 files;
   built 2026-11-06 by --build-mechanisms, described by Claude API
+  4 test rows left out (--include-tests lists them). Largest first; --sort-by path groups the
+  rows by source directory.
 ```
+
+**Order.** Both listings print the largest row first, the order of the mechanisms file.
+That puts the leftovers on the first page of a large codebase: on ExoPlayer 3 and ffmpeg
+every one of the first 100 rows is an `/ other` piece or a row tagged `giant` or
+`indivisible`. `--sort-by path` (since 2026-11-20) groups the rows by source directory
+instead, the directories in path
+order, each under a heading line with its count (`--- src/core/  (123 rows) ---`). A row is
+under the directory holding more than half of its functions; within a directory a row over
+several files comes first, then the rows of each file, a file's named pieces by line and
+its `/ other` piece last. A row no one directory holds more than half of (a name-token
+group or a command gathered from across the source) is under `across directories`, after
+the directories; rows tagged `noise` or `vendored` are last. A command row (`[cmd] --flag`)
+is placed like any other. The ids in `--mechanisms` therefore do not run in sequence.
+`--toc` leaves a blank line between rows.
+Directory order was the default for a few hours and was put back: it does not make the
+first page a summary either, only the first directory by path (on ExoPlayer 3 the Cast demo
+app; on CodeExam `public/` and `scripts/` ahead of `src/`), and it reads as a directory
+listing, not as a list of what the code does. The measurements are on
+[`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md).
+
+**Test rows.** A row whose every function is test code (tagged `test`) is left out of both
+listings unless `--include-tests` is given; the line under the header counts them. On an
+index that keeps its code under a `tests/` directory this hides most of the listing (190 of
+the 209 rows of ethereum/consensus-specs), and the line is how a reader finds out. A row
+that mixes tests with the code they test is listed.
 
 Both listings cap at 100 rows; `--max-results N` sets the cap and `--all-results` lifts it.
 The filter is a substring or a `/regex/` matched against a row's label, text, files and
@@ -180,19 +207,19 @@ projected against the $2 claims cost guard first; `--force` proceeds past it.
 What a described row looks like, x264 by Claude:
 
 ```
-1. MIPS MSA implementations of x264 pixel metric functions — SAD, SATD, SSD, variance,
-   and mean absolute deviation — for all standard block sizes used in motion estimation
-   and mode decision.  ([file] mips/pixel-c.c / x264; 58 fns, 1 file)  [giant, indivisible]
+178. MIPS MSA implementations of x264 pixel metric functions — SAD, SATD, SSD, variance,
+     and mean absolute deviation — for all standard block sizes used in motion estimation
+     and mode decision.  ([file] mips/pixel-c.c / x264; 58 fns, 1 file)  [giant, indivisible]
 ```
 
 and undescribed rows, as ffmpeg's read before any model, the quote being the harvested
 purpose:
 
 ```
-1. packet (AVPacket) / read  (276 fns, 248 files) — "pkt size is repeated at end. Check
-   for FLV1 streaming found 1 to avoid clash with video s…"  [giant, indivisible]
-4. packet (AVPacket) / data / side  (23 fns, 5 files) — "Add a new frame side data entry
-   to an array based on existing packet side data, if a matc…"  [giant]
+ 229. packet (AVPacket) / data / side  (23 fns, 5 files) — "Add a new frame side data entry
+      to an array based on existing packet side data, if a matc…"  [giant]
+4059. packet (AVPacket) / read  (276 fns, 248 files) — "pkt size is repeated at end. Check
+      for FLV1 streaming found 1 to avoid clash with video s…"  [giant, indivisible]
 ```
 
 The sentence is for the reader: a table of contents of what the codebase is made of, one

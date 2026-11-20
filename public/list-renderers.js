@@ -800,6 +800,49 @@ export async function loadClassMethods(className, container) {
 // their size and tag so they read as files, not mechanisms.
 // ============================================================================
 
+// mechanisms-listing-order-and-test-rows: what the Mechanisms list asks the
+// route for. Rows that are wholly test code are left out and the rows come
+// largest first unless the reader
+// clicks the links on the line under the Describe bar; the choice lasts for
+// the page's life, across filters and re-fetches.
+const mechView = { includeTests: false, sort: 'size' };
+/** The query for /api/list-mechanisms under the reader's current choices. */
+export function mechanismListParams(filter) {
+  return { filter, max: 300, include_tests: mechView.includeTests ? '1' : '', sort: mechView.sort };
+}
+
+function renderMechanismViewBar(container, data) {
+  const refetch = async () => {
+    const filterBox = $('#left-filter');
+    const filter = (filterBox && filterBox.value.trim()) || '';
+    const fresh = await api.listMechanisms(mechanismListParams(filter));
+    if (state.sectionData) state.sectionData.mechanisms = fresh.records;
+    renderMechanismList(container, fresh);
+    const section = container.closest('.accordion-section');
+    const badge = section && section.querySelector('.accordion-badge');
+    if (badge) badge.textContent = fresh.built ? fresh.total : '';
+  };
+  const link = (text, title, onClick) => {
+    const a = h('a', { text, title, href: '#', style: 'margin-left:6px' });
+    a.addEventListener('click', (e) => { e.preventDefault(); onClick(); refetch(); });
+    return a;
+  };
+  const n = Number(data.tests_left || 0);
+  const bar = h('div', { className: 'muted mechanism-view-bar', style: 'font-size:10px;padding:2px 8px' });
+  if (mechView.includeTests) {
+    bar.appendChild(h('span', { text: 'Test rows shown.' }));
+    bar.appendChild(link('leave out', 'Leave out the rows that are wholly test code (the default; the CLI lists them with --include-tests)', () => { mechView.includeTests = false; }));
+  } else if (n) {
+    bar.appendChild(h('span', { text: `${n.toLocaleString()} test row${n === 1 ? '' : 's'} left out.` }));
+    bar.appendChild(link('show', 'Also list the rows that are wholly test code (the CLI: --include-tests)', () => { mechView.includeTests = true; }));
+  }
+  bar.appendChild(h('span', { text: `${bar.childNodes.length ? '  ' : ''}${mechView.sort === 'size' ? 'Largest first.' : 'Grouped by source directory.'}` }));
+  bar.appendChild(mechView.sort === 'size'
+    ? link('source order', 'Grouped by source directory, then by file (the CLI: --sort-by path)', () => { mechView.sort = 'path'; })
+    : link('largest first', 'The order of the mechanisms file (the default; the CLI: --sort-by size)', () => { mechView.sort = 'size'; }));
+  return bar;
+}
+
 export function renderMechanismList(container, data) {
   container.innerHTML = '';
   if (!data || !data.built) {
@@ -807,9 +850,23 @@ export function renderMechanismList(container, data) {
     return;
   }
   const records = data.records || [];
-  if (!records.length) { container.innerHTML = '<div class="list-placeholder">No mechanisms match</div>'; return; }
+  if (!records.length) {
+    container.innerHTML = '<div class="list-placeholder">No mechanisms match</div>';
+    // A filter that matched only test rows, or an index that is all test code: the bar says so and offers them.
+    if (data.tests_left || mechView.includeTests || mechView.sort !== 'size') container.appendChild(renderMechanismViewBar(container, data));
+    return;
+  }
   container.appendChild(renderDescribeBar(container, data));
+  container.appendChild(renderMechanismViewBar(container, data));
+  let lastGroup = null;
   for (const r of records) {
+    // In source order the route names each row's group (a directory, or
+    // "across directories"); a muted line marks where the group changes, as
+    // the CLI's `--- src/core/  (41 rows) ---` does.
+    if (r.group && r.group !== lastGroup) {
+      lastGroup = r.group;
+      container.appendChild(h('div', { className: 'muted', text: `${r.group}  (${r.group_count} row${r.group_count === 1 ? '' : 's'})`, title: 'Rows are grouped by the source directory holding most of their functions; rows spread over several directories come last', style: 'padding:6px 8px 2px;font-size:11px;letter-spacing:.03em' }));
+    }
     const subContent = h('div', { className: 'sub-accordion-content' });
     const tags = (r.tags || []).join(', ');
     const nFn = r.members_total || (r.members || []).length;
@@ -903,7 +960,7 @@ function renderBuildBar(container, data) {
           return;
         }
         if (s.status !== 'done') { say(`Build failed: ${s.error}`); btn.disabled = false; return; }
-        const fresh = await api.listMechanisms({ filter, max: 300 });
+        const fresh = await api.listMechanisms(mechanismListParams(filter));
         if (state.sectionData) state.sectionData.mechanisms = fresh.records;
         renderMechanismList(container, fresh);
         const section = container.closest('.accordion-section');
@@ -975,7 +1032,7 @@ function renderDescribeBar(container, data) {
         note.textContent = s.status === 'done' ? s.outcome : `No descriptions written: ${s.error}`;
         note.title = note.textContent;
         if (s.status !== 'done') { btn.disabled = false; return; }
-        const fresh = await api.listMechanisms({ filter, max: 300 });
+        const fresh = await api.listMechanisms(mechanismListParams(filter));
         if (state.sectionData) state.sectionData.mechanisms = fresh.records;
         renderMechanismList(container, fresh);
         const bar = container.querySelector('.describe-bar .muted');

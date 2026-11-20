@@ -136,6 +136,9 @@ export function parseArgs() {
     redescribe: false,
     mechanisms: null,
     toc: null,
+    // mechanisms-listing-order-and-test-rows: the order of --toc and
+    // --mechanisms; null is the default, `path`. The other is `size`.
+    sort_by: null,
     rename_min_lines: 0,
     file_bookends: null,
     bundle_seams: null,
@@ -605,6 +608,7 @@ export function parseArgs() {
     ['list_classes',         'flag',           ['--classes'], ['--list-classes']],
     ['mechanisms',           'optional_value', ['--mechanisms']],
     ['toc',                  'optional_value', ['--toc']],
+    ['sort_by',              'value',          ['--sort-by']],
     ['data_structs',         'flag',           ['--data-structs'], ['--structs']],
     ['client_server',        'flag',           ['--client-server'], ['--routes']],
     ['referenced_resources', 'optional_value', ['--referenced-resources', '--resources']],
@@ -1575,9 +1579,10 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              tagged as test or example code). Off by default: those
                              commands include test code, and --multisect-search says
                              so. Given to a command that does not read it, a line on
-                             stderr says it did nothing. The claim tools and
-                             --semantic-search work the other way: they leave test
-                             code out unless --include-tests is given.
+                             stderr says it did nothing. The claim tools,
+                             --semantic-search, --mechanisms and --toc work the
+                             other way: they leave test code out unless
+                             --include-tests is given.
   --no-tests                 The same as --exclude-tests, in every command that reads
                              it.
   --emit-harness <Class>     Emit a runnable PyTorch forward-hook activation
@@ -1794,8 +1799,17 @@ METRICS / DISCOVERY:
                              matches label, purpose, member and file names;
                              --max-results caps the list (default 100, 0 =
                              all); -v lists every member as file@name.
+                             Rows that are wholly test code are left out
+                             unless --include-tests is given; the line under
+                             the header says how many. Order: --sort-by.
+  --sort-by <order>          The order of --mechanisms and --toc. size (the
+                             default): largest row first, the order of the
+                             mechanisms file. path: grouped by source
+                             directory under a heading line, then by file; a
+                             row no one directory holds more than half of is
+                             under "across directories", after them.
   --toc [filter]             Table of contents of the same mechanisms, one
-                             numbered line each in the file's order: the
+                             numbered line each in the same order: the
                              model's sentence when --describe wrote one, else
                              the label and a short quote of the purpose; same
                              filter, cap and fold as --mechanisms; -v adds
@@ -2416,6 +2430,8 @@ LLM ANALYSIS:
                               an element is not the code implementing it). On an
                               index that is nearly all such code, a samples
                               corpus, the gate turns itself off and says so.
+                              --mechanisms, --toc: also list the rows that are
+                              wholly test code, which they leave out by default.
   --claim-analyze <claim>    End-to-end patent claim analysis: extract terms, search,
                               analyze top matches. Takes @file.txt or inline text.
                               Direct-target mode: pass a FUNCTION (or FILE@FUNCTION)

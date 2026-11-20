@@ -17,7 +17,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
-import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, formatMechanismsList, notBuiltLine, kindOf, estimateBuildMinutes, carryDescriptions, MECHANISMS_FORMAT, foldRecords, foldGroups, pickRepresentative, foldNote, formatMechanismsToc, recordBlock, purposeSnippet, sentenceNamesSubject, filterMatches, matchNote } from '../src/core/mechanisms-index.js';
+import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, DEFAULT_LISTING_ORDER, isSpread, listingGroup, headingsOver, formatMechanismsList, notBuiltLine, kindOf, estimateBuildMinutes, carryDescriptions, MECHANISMS_FORMAT, foldRecords, foldGroups, pickRepresentative, foldNote, formatMechanismsToc, recordBlock, purposeSnippet, sentenceNamesSubject, filterMatches, matchNote, orderEntries, homeDirectory, withoutTestEntries, isTestEntry, listingNote, onlyTestsNotice, LISTING_ORDERS } from '../src/core/mechanisms-index.js';
 import { harvestPurpose, firstSentence } from '../src/commands/pseudo-claims.js';
 import { describeMechanisms, describeProjection, describePack, cleanDescription } from '../src/commands/mechanisms.js';
 import { handleTool, TOOLS, setIndex } from '../src/mcp-server.js';
@@ -482,7 +482,13 @@ describe('the mechanisms index', () => {
       assert.equal(t.total, entries.length);
       assert.match(t.lines[0], /^\d+ mechanisms \(\d+ records, 1 folded as the same functions under another label\): a cover of \d+ of \d+ functions \(100%\)/, t.lines[0]);
       assert.equal(t.lines[1], '');
-      const body = t.lines.slice(2, 2 + entries.length);
+      // A blank line between entries (Andrew, 2026-11-20: a line wraps, and without the gap
+      // a reader cannot see where one entry ends), none doubled before the footer.
+      const rest = t.lines.slice(2, 2 + 2 * entries.length - 1);
+      rest.forEach((l, i) => { if (i % 2) assert.equal(l, '', `a blank line after entry ${(i + 1) / 2}`); });
+      assert.doesNotMatch(t.lines.join('\n'), /\n\n\n/, 'never two blank lines together');
+      const body = rest.filter((l, i) => i % 2 === 0);
+      assert.equal(body.length, entries.length);
       body.forEach((l, i) => assert.match(l, new RegExp(`^\\s*${i + 1}\\. `), l));
       assert.match(body[0], /^ 1\. /, 'numbers right-align to the width of the count shown');
       const vaultLine = body.find((l) => / \[class\] Vault  \(/.test(l));
@@ -627,10 +633,66 @@ describe('the mechanisms index', () => {
       assert.match(handleTool('list_mechanisms', { filter: 'zzz-nothing' }), /No mechanisms match filter "zzz-nothing"/);
     });
 
-    it('--toc through the CLI: the numbered contents in the file\'s order, the folded pair as one line with "also", -v with the block, the cap, an empty filter, and the footer naming --toc', () => {
+    it('list_mechanisms leaves the test row out and lists largest first; include_tests and sort_by change each, in the tool\'s own words', () => {
+      const tool = TOOLS.find((t) => t.name === 'list_mechanisms');
+      assert.deepEqual(Object.keys(tool.inputSchema.properties), ['filter', 'max', 'include_tests', 'sort_by']);
+      const out = handleTool('list_mechanisms', {});
+      assert.match(out, /^  1 test row left out \(include_tests: true lists it\)\. Largest first; sort_by path groups the rows by source directory\.$/m, out);
+      const byPath = handleTool('list_mechanisms', { sort_by: 'path' });
+      assert.match(byPath, /^  1 test row left out \(include_tests: true lists it\)\. Grouped by source directory, then by file; rows spread over several directories come last\. sort_by size lists the largest first\.$/m, byPath);
+      assert.doesNotMatch(out, /test_parser\.py/);
+      assert.match(handleTool('list_mechanisms', { include_tests: true }), /\[file\] test_parser\.py/);
+      const first = (s) => s.split('\n').find((l) => /^\[|^m\d+/.test(l.trim()) || /\(\d+ fns?, \d+ files?\)/.test(l));
+      assert.match(first(out), /jobs\.js \/ queue/, 'the largest first by default');
+      assert.match(first(handleTool('list_mechanisms', { sort_by: 'size' })), /jobs\.js \/ queue/);
+      assert.doesNotMatch(first(byPath.replace(/^  --- .*$/gm, '')), /jobs\.js \/ queue/, 'path: the largest row no longer leads');
+      assert.equal(handleTool('list_mechanisms', { sort_by: 'nearest' }), "sort_by: 'nearest' is not an order; use path or size.");
+      assert.equal(handleTool('list_mechanisms', { filter: 'test_parser' }), "No mechanisms match 'test_parser' outside test code; 1 test row does: include_tests: true lists it.");
+    });
+
+    it('--toc and --mechanisms leave the test row out and list largest first; --include-tests lists it; --sort-by path groups by directory under headings; --exclude-tests draws no note', () => {
+      // mechanisms-listing-order-and-test-rows. Red before it: [file] test_parser.py was listed and there was one order.
+      // Directory order was the default for a few hours on 2026-11-20 and is now --sort-by path.
+      const dflt = runCLI(IDX2, ['--toc']);
+      assert.match(dflt.out, /^  1 test row left out \(--include-tests lists it\)\. Largest first; --sort-by path groups the rows by source directory\.$/m, dflt.out);
+      assert.match(dflt.out, /^ ?1\. \[file\] jobs\.js \/ queue  \(7 fns, 1 file\)/m, 'the largest row leads by default');
+      assert.doesNotMatch(dflt.out, /^--- /m, 'no headings largest first');
+      assert.doesNotMatch(dflt.out, /test_parser\.py/, 'the test row is not listed');
+      const t = runCLI(IDX2, ['--toc', '--sort-by', 'path']);
+      assert.match(t.out, /^  1 test row left out \(--include-tests lists it\)\. Grouped by source directory, then by file; rows spread over several directories come last. --sort-by size lists the largest first\.$/m, t.out);
+      assert.doesNotMatch(t.out, /test_parser\.py/, 'the test row is not listed');
+      assert.match(t.out, /^--- \S+.*  \(\d+ rows?\) ---$/m, 'a heading where the directory changes');
+      assert.doesNotMatch(t.out, /^ ?1\. \[file\] jobs\.js \/ queue/m, 'the largest row no longer leads');
+      const rows = (s) => [...s.matchAll(/^\s*\d+\. (\[(?:file|class)\] [^(]+?)  \(/gm)].map((x) => x[1]);
+      const inOrder = rows(t.out);
+      const at = (label) => inOrder.indexOf(label);
+      assert.ok(at('[file] jobs.js / queue') >= 0 && at('[file] jobs.js / run') === at('[file] jobs.js / queue') + 1 && at('[file] jobs.js / retire') === at('[file] jobs.js / run') + 1, `a file's pieces are neighbours, by line: ${inOrder.join(' | ')}`);
+      assert.ok(Math.abs(at('[class] Tokenizer') - at('[file] parser.py')) === 1, 'a class sits beside its file');
+      const m = runCLI(IDX2, ['--mechanisms', '--sort-by', 'path']);
+      assert.match(m.out, /^  1 test row left out \(--include-tests lists it\)\. Grouped by source directory/m, m.out);
+      assert.match(m.out, /^--- \S+.*  \(\d+ rows?\) ---$/m, m.out);
+      assert.match(handleTool('list_mechanisms', { sort_by: 'path' }), /^  --- \S+.*  \(\d+ rows?\) ---$/m, 'the tool prints the same headings');
+      assert.doesNotMatch(handleTool('list_mechanisms', {}), /^  --- /m);
+      const withTests = runCLI(IDX2, ['--toc', '--include-tests', '--sort-by', 'path']);
+      assert.match(withTests.out, /^\s*\d+\. \[file\] test_parser\.py  \(2 fns, 1 file\)/m, withTests.out);
+      assert.match(withTests.out, /^  Grouped by source directory, then by file; rows spread over several directories come last. /m, 'nothing left out, so the line gives the order only');
+      assert.equal(rows(withTests.out).length, inOrder.length + 1);
+      const bySize = runCLI(IDX2, ['--toc', '--sort-by', 'size']);
+      assert.match(bySize.out, /^ ?1\. \[file\] jobs\.js \/ queue  \(7 fns, 1 file\)/m, bySize.out);
+      assert.doesNotMatch(bySize.out, /^--- /m, 'no headings largest first');
+      assert.match(bySize.out, /^  1 test row left out \(--include-tests lists it\)\. Largest first; --sort-by path groups the rows by source directory\.$/m);
+      const bad = runCLI(IDX2, ['--toc', '--sort-by', 'nearest']);
+      assert.match(bad.out, /--sort-by: 'nearest' is not an order; use path or size\./);
+      assert.equal(bad.code, 1);
+      assert.match(runCLI(IDX2, ['--toc', 'test_parser']).out, /^No mechanisms match 'test_parser' outside test code; 1 test row does: --include-tests lists it\.$/m, 'a filter that matched only the test row says so');
+      assert.match(runCLI(IDX2, ['--toc', 'test_parser', '--include-tests']).out, /^1\. \[file\] test_parser\.py/m);
+      for (const o of ['--exclude-tests', '--no-tests']) assert.doesNotMatch(runCLI(IDX2, ['--toc', o]).out, /does nothing here/, `${o} is what the listing does already`);
+    });
+
+    it('--toc through the CLI: the numbered contents, the folded pair as one line with "also", -v with the block, the cap, an empty filter, and the footer naming --toc', () => {
       const t = runCLI(IDX2, ['--toc']);
       assert.match(t.out, /^\d+ mechanisms \(\d+ records, 1 folded as the same functions under another label\): a cover of/m, t.out);
-      assert.match(t.out, /^ ?1\. \[file\] jobs\.js \/ queue  \(7 fns, 1 file\) — "jobs\.js — the worklist of jobs: queues, runs and retires each job in turn\."$/m, t.out);
+      assert.match(t.out, /^ ?\d+\. \[file\] jobs\.js \/ queue  \(7 fns, 1 file\) — "jobs\.js — the worklist of jobs: queues, runs and retires each job in turn\."$/m, t.out);
       assert.match(t.out, /^ ?\d+\. \[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py$/m, t.out);
       assert.doesNotMatch(t.out, /^\s*\d+\. \[file\] vault\.py/m, 'the file record of the pair is not its own line');
       assert.match(t.out, /^\d+ of \d+ without a model description: .* --toc --describe --llm claude writes one sentence per listed mechanism/m, t.out);
@@ -889,5 +951,84 @@ describe('tests inside a source file (Rust #[test]) are known to every surface',
     const v = formatMechanismsList(dataR, recs, { verbose: true }).lines.join('\n');
     assert.match(v, /posting_does_not_settle_when_ledger_is_empty[^\n]*\(test\)/);
     assert.doesNotMatch(v, /@post_entry[^\n]*\(test\)/);
+  });
+});
+
+// mechanisms-listing-order-and-test-rows (2026-11-20): the listings' own order and the test rows.
+describe('a listing orders the entries by place in the source and leaves test rows out', () => {
+  const mem = (file, name, start) => ({ file, name, start, end: start + 5 });
+  const E = (id, label, members, tags = [], kind = undefined) => ({ id, label, kind, members, files: [...new Set(members.map((m) => m.file))], tags });
+  // In the file's order: largest first.
+  const big = E('m1', '[file] zeta.c / other', [mem('src/z/zeta.c', 'z1', 400), mem('src/z/zeta.c', 'z2', 500), mem('src/z/zeta.c', 'z3', 600), mem('src/z/zeta.c', 'z4', 700)]);
+  const tests = E('m2', '[file] alpha_test.c', [mem('test/alpha_test.c', 't1', 1), mem('test/alpha_test.c', 't2', 9), mem('test/alpha_test.c', 't3', 20)], ['test']);
+  const token = E('m3', 'packet (read_packet)', [mem('src/a/alpha.c', 'read_packet', 50), mem('src/a/beta.c', 'write_packet', 10), mem('src/z/zeta.c', 'z_packet', 90)]);
+  const cmdB = E('m4', '[cmd] --scan', [mem('src/a/alpha.c', 'do_scan', 5), mem('src/z/zeta.c', 'z1', 400)], [], 'cmd');
+  const zRead = E('m5', '[file] zeta.c / read', [mem('src/z/zeta.c', 'z_read', 120), mem('src/z/zeta.c', 'z_read2', 150)]);
+  const zOpen = E('m6', '[file] zeta.c / open', [mem('src/z/zeta.c', 'z_open', 20), mem('src/z/zeta.c', 'z_open2', 40)]);
+  const alpha = E('m7', '[file] alpha.c', [mem('src/a/alpha.c', 'a1', 1), mem('src/a/alpha.c', 'a2', 30)]);
+  const vend = E('m8', '[file] lib.c', [mem('aaa/lib.c', 'v1', 1), mem('aaa/lib.c', 'v2', 9)], ['vendored']);
+  const cmdA = E('m9', '[cmd] --build', [mem('src/a/alpha.c', 'do_build', 70)], [], 'cmd');
+  const sub = E('m10', '[file] deep.c', [mem('src/a/sub/deep.c', 'd1', 1)]);
+  const dash = E('m11', '[file] dash.c', [mem('src/a-b/dash.c', 'x1', 1)]);
+  const all = [big, tests, token, cmdB, zRead, zOpen, alpha, vend, cmdA, sub, dash];
+  const ids = (list) => list.map((r) => r.id).join(' ');
+
+  it('size is the order given; path is by directory, a command placed like any other row, a file\'s named pieces by line with its / other piece last, vendored after everything', () => {
+    assert.deepEqual(LISTING_ORDERS, ['path', 'size']);
+    assert.equal(ids(orderEntries(all, 'size')), ids(all));
+    assert.equal(ids(orderEntries(all)), ids(all), 'size is the default');
+    assert.equal(DEFAULT_LISTING_ORDER, 'size');
+    assert.equal(ids(orderEntries(all, 'path')), 'm3 m7 m9 m10 m11 m6 m5 m1 m2 m4 m8');
+    //   m3              the token group, over three files, heads src/a (two of its three members)
+    //   m7, m9          src/a/alpha.c: the file's row (line 1), then the one-file command (line 70).
+    //                   The commands are not a tier of their own at the top (Andrew, 2026-11-20:
+    //                   on CodeExam the first page was all [cmd] rows)
+    //   m10             src/a/sub, a subdirectory, after its parent's rows and before src/a-b
+    //   m11             src/a-b
+    //   m6, m5, m1      src/z/zeta.c: open (line 20), read (line 120), then the / other piece
+    //   m2              test/
+    //   m4              one function in src/a and one in src/z: no directory holds more than half,
+    //                   so it is not filed under whichever wins the tie but after the directories
+    //   m8              vendored, last though its directory sorts first
+    assert.equal(all[0].id, 'm1', 'the entries given are not reordered in place');
+  });
+
+  it('a listing in source order has a heading where the group changes, counted over the whole listing; none by size', () => {
+    // Red before it: CodeExam's --toc opened with callees (findCallees), four functions in four
+    // directories, filed under public/ on a tie, with nothing saying what the order was.
+    assert.equal(isSpread(cmdB), true);
+    assert.equal(isSpread(token), false, 'two of three in one directory');
+    assert.equal(isSpread(alpha), false);
+    assert.deepEqual(orderEntries(all, 'path').map(listingGroup), ['src/a/', 'src/a/', 'src/a/', 'src/a/sub/', 'src/a-b/', 'src/z/', 'src/z/', 'src/z/', 'test/', 'across directories', 'vendored or noise']);
+    assert.equal(listingGroup(E('x', 'r', [mem('main.c', 'f', 1)])), '(top directory)');
+    const head = headingsOver(orderEntries(all, 'path'));
+    assert.deepEqual(orderEntries(all, 'path').map(head), ['src/a/  (3 rows)', null, null, 'src/a/sub/  (1 row)', 'src/a-b/  (1 row)', 'src/z/  (3 rows)', null, null, 'test/  (1 row)', 'across directories  (1 row)', 'vendored or noise  (1 row)']);
+    assert.deepEqual(all.map(headingsOver(all, false)), all.map(() => null));
+  });
+
+  it('the home directory is where most members are, the first by path on a tie', () => {
+    assert.equal(homeDirectory(token), 'src/a');
+    assert.equal(homeDirectory(cmdB), 'src/a');
+    assert.equal(homeDirectory(E('x', 'r', [mem('main.c', 'f', 1)])), '');
+    assert.equal(homeDirectory(E('x', 'r', [mem('src\\w\\a.c', 'f', 1)])), 'src/w', 'a Windows path reads the same');
+  });
+
+  it('test entries are left out unless asked for, and counted', () => {
+    assert.equal(isTestEntry(tests), true);
+    assert.equal(isTestEntry(big), false);
+    const d = withoutTestEntries(all);
+    assert.equal(d.left, 1);
+    assert.equal(d.kept.includes(tests), false);
+    const k = withoutTestEntries(all, true);
+    assert.equal(k.left, 0);
+    assert.equal(k.kept, all);
+  });
+
+  it('the note under the header says what was left out, the order, and the option that changes each', () => {
+    assert.equal(listingNote({ testsLeft: 2432, order: 'path' }), '2,432 test rows left out (--include-tests lists them). Grouped by source directory, then by file; rows spread over several directories come last. --sort-by size lists the largest first.');
+    assert.equal(listingNote({ testsLeft: 1, order: 'size' }), '1 test row left out (--include-tests lists it). Largest first; --sort-by path groups the rows by source directory.');
+    assert.equal(listingNote({}), 'Largest first; --sort-by path groups the rows by source directory.');
+    assert.match(listingNote({ testsLeft: 3, includeOption: 'include_tests: true', orderOption: 'sort_by' }), /^3 test rows left out \(include_tests: true lists them\)\. Largest first; sort_by path groups/);
+    assert.equal(onlyTestsNotice('alpha_test', 1), "No mechanisms match 'alpha_test' outside test code; 1 test row does: --include-tests lists it.");
   });
 });

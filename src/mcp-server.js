@@ -32,7 +32,7 @@ import { extractReferencedResources } from './core/referenced-resources.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { modelsUsedNegative } from './commands/metrics.js';
 import { filteredEmptyNotice } from './core/filter-match.js';
-import { loadMechanismsIndex, filterRecords, foldRecords, foldNote, notBuiltLine, coverageLine, filterMatches, matchNote } from './core/mechanisms-index.js';
+import { loadMechanismsIndex, filterRecords, foldRecords, foldNote, notBuiltLine, coverageLine, filterMatches, matchNote, orderEntries, headingsOver, withoutTestEntries, listingNote, onlyTestsNotice, LISTING_ORDERS, DEFAULT_LISTING_ORDER } from './core/mechanisms-index.js';
 import { maskCredentials } from './core/credential-mask.js';
 import { displayName, parseFuncSpec } from './utils.js';
 import { doCallTree } from './commands/graph.js';
@@ -291,6 +291,8 @@ const TOOLS = [
       properties: {
         filter: { type: 'string', description: 'Filter by label, purpose, member or file name substring (or /regex/)' },
         max: { type: 'number', description: 'Max records (default 50)' },
+        include_tests: { type: 'boolean', description: 'Also list the entries that are wholly test code (default false: they are left out, and the line under the header says how many)' },
+        sort_by: { type: 'string', enum: ['path', 'size'], description: 'Order of the entries. size (default): largest entry first. path: grouped by source directory under a heading line, then by file; entries spread over several directories come last' },
       },
     },
   },
@@ -1109,12 +1111,28 @@ function handleToolRaw(name, args) {
       const max = args.max || 50;
       // mechanisms-toc-one-row-per-mechanism: entries, records with identical
       // member sets folded into one, the other label after "also".
-      const all = foldRecords(data.records);
-      const filtered = args.filter ? filterRecords(all, args.filter) : all;
-      if (!filtered.length) return (args.filter && all.length) ? filteredEmptyNotice('mechanisms', all.length, args.filter) : 'No mechanisms recorded';
-      const lines = [`${filtered.length} mechanism(s)${foldNote(filtered)}${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, filtered.length)}): ${coverageLine(data)}`];
+      // mechanisms-listing-order-and-test-rows: rows that are wholly test code
+      // are left out unless include_tests is true, and the rows come in the
+      // listing's order (sort_by: size, the default, or path), as in the CLI.
+      const order = args.sort_by == null ? DEFAULT_LISTING_ORDER : String(args.sort_by).toLowerCase();
+      if (!LISTING_ORDERS.includes(order)) return `sort_by: '${args.sort_by}' is not an order; use ${LISTING_ORDERS.join(' or ')}.`;
+      const folded = foldRecords(data.records);
+      const { kept: all, left: testsLeft } = withoutTestEntries(folded, !!args.include_tests);
+      const matched = args.filter ? filterRecords(all, args.filter) : all;
+      const testsMatched = !testsLeft ? 0 : args.filter ? filterRecords(folded, args.filter).length - matched.length : testsLeft;
+      if (!matched.length) {
+        if (args.filter && testsMatched) return onlyTestsNotice(args.filter, testsMatched, 'include_tests: true');
+        if (args.filter && all.length) return filteredEmptyNotice('mechanisms', all.length, args.filter);
+        return testsLeft ? `No mechanisms outside test code: ${testsLeft} test row(s) left out (include_tests: true lists them).` : 'No mechanisms recorded';
+      }
+      const filtered = orderEntries(matched, order);
+      const lines = [`${filtered.length} mechanism(s)${foldNote(filtered)}${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, filtered.length)}): ${coverageLine(data)}`,
+        `  ${listingNote({ testsLeft: testsMatched, order, includeOption: 'include_tests: true', orderOption: 'sort_by' })}`];
       const dn = (n) => (typeof index.getDisplayName === 'function' ? index.getDisplayName(n) : n);
+      const heading = headingsOver(filtered, order === 'path');
       for (const r of filtered.slice(0, max)) {
+        const hd = heading(r);
+        if (hd) lines.push(`  --- ${hd} ---`);
         const tags = r.tags && r.tags.length ? `  [${r.tags.join(', ')}]` : '';
         const also = r.aliases && r.aliases.length ? `  also ${r.aliases.map((a) => a.label).join(', ')}` : '';
         const text = r.description || r.purpose || '';

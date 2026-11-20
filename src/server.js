@@ -35,7 +35,7 @@ import { makeFilterMatcher } from './core/filter-match.js';
 import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud, getLlamaShared, isNoBinaryError, NO_BINARY_MESSAGE } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
 import { extractImports, bomReport } from './core/imports.js';
-import { loadMechanismsIndex, saveMechanismsIndex, filterRecords, foldRecords, notBuiltLine, candidateCount, estimateBuildMinutes, sentenceNamesSubject, filterMatches, matchNote } from './core/mechanisms-index.js';
+import { loadMechanismsIndex, saveMechanismsIndex, filterRecords, foldRecords, notBuiltLine, candidateCount, estimateBuildMinutes, sentenceNamesSubject, filterMatches, matchNote, orderEntries, listingGroup, withoutTestEntries, LISTING_ORDERS, DEFAULT_LISTING_ORDER } from './core/mechanisms-index.js';
 import { describeMechanisms, describeProjection } from './core/mechanisms-describe.js';
 import { copyrightNotices } from './core/copyrights.js';
 import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
@@ -3203,8 +3203,22 @@ routes['/api/list-mechanisms'] = (req, res) => {
   // with identical member sets folded into one, each with its `aliases`
   // and `record_count`; `total` and `total_all` count entries, `records_all`
   // the file's records.
-  const entries = foldRecords(data.records);
-  const records = q.filter ? filterRecords(entries, q.filter) : entries;
+  // mechanisms-listing-order-and-test-rows: as in the CLI, rows that are
+  // wholly test code are left out unless include_tests is set, and the rows
+  // come in the listing's order (sort: size, the default, or path).
+  // `tests_left` counts the test rows left out (of those the filter matched,
+  // under a filter); `order` is the order applied.
+  const order = LISTING_ORDERS.includes(String(q.sort || '').toLowerCase()) ? String(q.sort).toLowerCase() : DEFAULT_LISTING_ORDER;
+  const folded = foldRecords(data.records);
+  const { kept: entries, left: testsLeft } = withoutTestEntries(folded, q.include_tests === '1' || q.include_tests === 'true');
+  const matched = q.filter ? filterRecords(entries, q.filter) : entries;
+  const testsMatched = !testsLeft ? 0 : q.filter ? filterRecords(folded, q.filter).length - matched.length : testsLeft;
+  const records = orderEntries(matched, order);
+  // In source order each record carries its `group` (the heading the CLI
+  // prints: a directory, `across directories`, `vendored or noise`) and
+  // `group_count`, the rows of that group in the whole listing; null by size.
+  const groupCount = new Map();
+  if (order === 'path') for (const r of records) { const g = listingGroup(r); groupCount.set(g, (groupCount.get(g) || 0) + 1); }
   const max = safeMax(q.max, 300);
   const dn = (n) => (typeof index.getDisplayName === 'function' ? index.getDisplayName(n) : n);
   jsonResponse(res, {
@@ -3215,8 +3229,11 @@ routes['/api/list-mechanisms'] = (req, res) => {
     total: records.length,
     total_all: entries.length,
     records_all: data.records.length,
+    tests_left: testsMatched,
+    order,
     records: records.slice(0, max).map((r) => ({
       id: r.id, label: r.label, kind: r.kind, purpose: r.purpose || '', description: r.description || null,
+      group: order === 'path' ? listingGroup(r) : null, group_count: order === 'path' ? groupCount.get(listingGroup(r)) : null,
       // mechanisms-descriptions-name-the-subject: core's rule, sent per
       // record so the pane applies it rather than carrying a copy; null
       // when there is no sentence to judge.

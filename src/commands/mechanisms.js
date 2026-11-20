@@ -10,7 +10,7 @@
 // listing reads the file through the same loader the GUI route and the MCP
 // list_mechanisms tool use, so the three surfaces cannot disagree.
 
-import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, foldRecords, formatMechanismsList, formatMechanismsToc, notBuiltLine, candidateCount, estimateBuildMinutes, carryDescriptions } from '../core/mechanisms-index.js';
+import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, foldRecords, formatMechanismsList, formatMechanismsToc, notBuiltLine, candidateCount, estimateBuildMinutes, carryDescriptions, orderEntries, withoutTestEntries, listingNote, onlyTestsNotice, LISTING_ORDERS, DEFAULT_LISTING_ORDER } from '../core/mechanisms-index.js';
 import { harvestPurpose } from './pseudo-claims.js';
 import { describeMechanisms } from '../core/mechanisms-describe.js';
 import { effectiveMaxResults } from '../argparse.js';
@@ -146,13 +146,23 @@ function listedEntries(index, args, flag, exe) {
   if (!data) { console.log(notBuiltLine(index, { exe, indexPath: args.index_path })); return null; }
   const own = args[flag];
   const filter = typeof own === 'string' && own ? own : (args.filter || null);
-  const entries = foldRecords(data.records);
-  const kept = filter ? filterRecords(entries, filter) : entries;
-  if (!kept.length) {
-    console.log(filter && entries.length ? filteredEmptyNotice('mechanisms', entries.length, filter) : 'No mechanisms recorded.');
+  // mechanisms-listing-order-and-test-rows: test rows are left out unless
+  // --include-tests is given, and the rows are put in the listing's order
+  // (--sort-by size, the default, or path) after the fold and the filter.
+  const order = args.sort_by == null ? DEFAULT_LISTING_ORDER : String(args.sort_by).toLowerCase();
+  if (!LISTING_ORDERS.includes(order)) { console.error(`--sort-by: '${args.sort_by}' is not an order; use ${LISTING_ORDERS.join(' or ')}.`); process.exitCode = 1; return null; }
+  const folded = foldRecords(data.records);
+  const { kept: entries, left: testsLeft } = withoutTestEntries(folded, !!args.include_tests);
+  const matched = filter ? filterRecords(entries, filter) : entries;
+  // With a filter, the count of test rows left out is of those the filter matched.
+  const testsMatched = !testsLeft ? 0 : filter ? filterRecords(folded, filter).length - matched.length : testsLeft;
+  if (!matched.length) {
+    console.log(filter && testsMatched ? onlyTestsNotice(filter, testsMatched)
+      : filter && entries.length ? filteredEmptyNotice('mechanisms', entries.length, filter)
+        : testsLeft ? `No mechanisms outside test code: ${testsLeft.toLocaleString('en-US')} test row${testsLeft === 1 ? '' : 's'} left out (--include-tests lists ${testsLeft === 1 ? 'it' : 'them'}).` : 'No mechanisms recorded.');
     return null;
   }
-  return { data, entries, kept, filter };
+  return { data, entries, kept: orderEntries(matched, order), filter, order, note: listingNote({ testsLeft: testsMatched, order }) };
 }
 
 /**
@@ -168,7 +178,7 @@ export function doMechanisms(index, args, { exe = 'ce', describe = null } = {}) 
   // --all-results or --max-results 0 for every record.
   const max = effectiveMaxResults(args, 100);
   const { lines } = formatMechanismsList(l.data, l.kept, {
-    filter: l.filter, max, verbose: !!args.verbose, exe,
+    filter: l.filter, max, verbose: !!args.verbose, exe, note: l.note, headings: l.order === 'path',
     displayName: typeof index.getDisplayName === 'function' ? (n) => index.getDisplayName(n) : null,
     describeHint: !describe,
   });
@@ -186,7 +196,7 @@ export function doToc(index, args, { exe = 'ce', describe = null } = {}) {
   if (!l) return;
   const max = effectiveMaxResults(args, 100);
   const { lines } = formatMechanismsToc(l.data, l.kept, {
-    filter: l.filter, max, verbose: !!args.verbose, exe,
+    filter: l.filter, max, verbose: !!args.verbose, exe, note: l.note, headings: l.order === 'path',
     displayName: typeof index.getDisplayName === 'function' ? (n) => index.getDisplayName(n) : null,
     describeHint: !describe,
   });

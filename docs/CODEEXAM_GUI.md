@@ -68,7 +68,11 @@ the index (one per file, class, command or shared name token, every function in 
 records overlapping; what a mechanism is and how its label reads: [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md)). The list has one row per function set: records that are the same functions
 under two labels (a one-class file as `[class] Foo` and `[file] foo.py`) are one row, the other
 label after `also` in the muted line and a `×2` beside the counts, so the badge counts rows, not
-records (383 on CodeExam's 390 records). A row leads with the
+records (383 on CodeExam's 390 records). Rows that are wholly test code are left out, and the
+rows come largest first; the line under the
+**Describe** bar says how many test rows were left out and carries two links, **show** and
+**source order**, that change each for as long as the page is open (the CLI's `--include-tests`
+and `--sort-by path`, which groups the rows by source directory under a muted line with the directory and its row count; **View → Exclude Tests** does not act on this list). A row leads with the
 model's one-sentence description when `--describe` wrote one and the sentence names its subject,
 the label then sitting beneath it with the record id; when the sentence opens with This, These or
 The functions the headline is `label — sentence`, so the name reads before the pronoun (the route

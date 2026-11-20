@@ -242,6 +242,157 @@ export function foldNote(entries) {
   return folded ? ` (${nf(records)} records, ${nf(folded)} folded as the same functions under another label)` : '';
 }
 
+// mechanisms-listing-order-and-test-rows (2026-11-20). The file's order is the
+// grouper's, largest group first, and every listing printed it: on ExoPlayer 3
+// and ffmpeg all of the first 100 rows were `/ other` pieces or rows tagged
+// giant or indivisible, 36 of ExoPlayer's were test code, and neighbouring rows
+// had nothing to do with each other. A listing now puts the entries in an order
+// of its own and leaves the test rows out unless asked. Neither touches the
+// file, the record ids or the entries' positions: the embedding caches key an
+// entry by its position in foldRecords' result, so the order is applied by the
+// listings, after the fold and the filter, never inside them.
+
+/** The orders a listing takes (`--sort-by`): `size`, the file's own order, largest first, the default; `path`, grouped by source directory. Directory order was the default for a few hours on 2026-11-20: on CodeExam it put public/ and scripts/ ahead of src/, and Andrew, reading it, saw minor rows first and a directory listing where he wanted what the code does. An order by similarity is mechanisms-listing-by-similarity's. */
+export const LISTING_ORDERS = ['path', 'size'];
+export const DEFAULT_LISTING_ORDER = 'size';
+
+const slashed = (file) => String(file || '').replace(/\\/g, '/');
+const dirOfFile = (file) => { const p = slashed(file); const i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); };
+const cmpText = (a, b) => { const x = a.toLowerCase(), y = b.toLowerCase(); return x < y ? -1 : x > y ? 1 : a < b ? -1 : a > b ? 1 : 0; };
+/** Paths compared segment by segment, so a directory's own rows come before its subdirectories' and `a-b/` does not fall between `a/` and `a/c/`. */
+const cmpPath = (a, b) => {
+  const x = a ? a.split('/') : [], y = b ? b.split('/') : [];
+  for (let i = 0; i < Math.min(x.length, y.length); i++) { const c = cmpText(x[i], y[i]); if (c) return c; }
+  return x.length - y.length;
+};
+
+/** The directory holding most of an entry's members (the first by path on a tie); '' for the root. */
+export function homeDirectory(r) {
+  const n = new Map();
+  for (const m of (r && r.members) || []) { const d = dirOfFile(m.file); n.set(d, (n.get(d) || 0) + 1); }
+  let best = '', top = -1;
+  for (const [d, c] of n) if (c > top || (c === top && cmpPath(d, best) < 0)) { best = d; top = c; }
+  return best;
+}
+
+/** True when no one directory holds more than half of an entry's members: a name-token group or a command gathered from across the source. */
+export function isSpread(r) {
+  const n = new Map();
+  const members = (r && r.members) || [];
+  for (const m of members) { const d = dirOfFile(m.file); n.set(d, (n.get(d) || 0) + 1); }
+  return n.size > 1 && Math.max(...n.values()) * 2 <= members.length;
+}
+
+// 0: under a directory; 1: spread across directories; 2: noise or vendored.
+const groupTier = (r) => { const tags = (r && r.tags) || []; return (tags.includes('noise') || tags.includes('vendored')) ? 2 : isSpread(r) ? 1 : 0; };
+
+/** The group a listing in source order files an entry under, as the words of its heading: a directory (`src/core/`), `(top directory)`, `across directories`, or `vendored or noise`. */
+export function listingGroup(r) {
+  const tier = groupTier(r);
+  if (tier === 2) return 'vendored or noise';
+  if (tier === 1) return 'across directories';
+  const d = homeDirectory(r);
+  return d ? `${d}/` : '(top directory)';
+}
+
+/**
+ * The headings of a listing in source order: returns a function that, called
+ * with each entry in turn, gives the heading line to print before it when its
+ * group differs from the last entry's (`src/core/  (41 rows)`, the count over
+ * all of `entries`, not only those shown), else null. With `on` false it
+ * always gives null (`--sort-by size` has no groups).
+ */
+export function headingsOver(entries, on = true) {
+  const count = new Map();
+  if (on) for (const r of entries || []) { const g = listingGroup(r); count.set(g, (count.get(g) || 0) + 1); }
+  let last = null;
+  return (r) => {
+    if (!on) return null;
+    const g = listingGroup(r);
+    if (g === last) return null;
+    last = g;
+    const n = count.get(g) || 0;
+    return `${g}  (${nf(n)} row${n === 1 ? '' : 's'})`;
+  };
+}
+
+/**
+ * The entries in a listing's order. `size` is the order given (the file's:
+ * largest first). `path` is by place in the source:
+ *   1. every entry under the directory holding most of its members,
+ *      directories in path order; within a directory the entries over two or
+ *      more files first, by label (a command, a name-token group, a class in
+ *      a header and a source), then the one-file entries by file, a file's
+ *      named pieces by the line of their first member and its `/ other`
+ *      piece last;
+ *   2. entries tagged noise or vendored, in the same order among themselves.
+ * A command entry (`[cmd] --flag`) is placed like any other. As first applied
+ * the commands were a tier of their own at the top; Andrew, testing it the
+ * same day: on a command-heavy codebase the first page was all `[cmd]` rows
+ * and read as if that were all the listing does.
+ * Between 1 and 2 come the entries no one directory holds more than half of
+ * (isSpread), by label. They were filed under the directory that won a tie:
+ * CodeExam's listing opened with `callees (findCallees)`, four functions in
+ * four directories, under `public` because p sorts before s (Andrew,
+ * 2026-11-20: "I'm stumped as to why these are here at the top").
+ * Returns a new array; the entries are not changed.
+ */
+export function orderEntries(entries, order = DEFAULT_LISTING_ORDER) {
+  const list = entries || [];
+  if (order === 'size') return list;
+  const keyed = list.map((r, i) => {
+    const files = r.files && r.files.length ? r.files : [...new Set((r.members || []).map((m) => m.file))];
+    const starts = (r.members || []).map((m) => m.start).filter(Number.isFinite);
+    const tier = groupTier(r);
+    return {
+      r, i, tier,
+      dir: tier === 0 ? homeDirectory(r) : '',
+      single: files.length === 1 ? 1 : 0,
+      file: files.length === 1 ? slashed(files[0]) : '',
+      other: /\/ other$/.test(r.label || '') ? 1 : 0,
+      start: starts.length ? Math.min(...starts) : 0,
+      label: String(r.label || ''),
+    };
+  });
+  keyed.sort((a, b) => a.tier - b.tier
+    || cmpPath(a.dir, b.dir)
+    || a.single - b.single
+    || cmpPath(a.file, b.file)
+    || a.other - b.other
+    || (a.single ? a.start - b.start : 0)
+    || cmpText(a.label, b.label)
+    || a.i - b.i);
+  return keyed.map((k) => k.r);
+}
+
+/** True for an entry every member of which is test code (the grouper's `test` tag). An entry that mixes tests with the code they test is not one. */
+export const isTestEntry = (r) => !!(r && (r.tags || []).includes('test'));
+
+/** The entries a listing shows by default: those that are not test entries. Returns { kept, left }; with `includeTests`, everything and 0. */
+export function withoutTestEntries(entries, includeTests = false) {
+  const list = entries || [];
+  if (includeTests) return { kept: list, left: 0 };
+  const kept = list.filter((r) => !isTestEntry(r));
+  return { kept, left: list.length - kept.length };
+}
+
+/**
+ * The line a listing prints under its header: how many test entries were left
+ * out and how to see them, and the order with the option that changes it.
+ * `includeOption` and `orderOption` are the words of the surface (the CLI's
+ * flags by default; the MCP tool passes its argument names).
+ */
+export function listingNote({ testsLeft = 0, order = DEFAULT_LISTING_ORDER, includeOption = '--include-tests', orderOption = '--sort-by' } = {}) {
+  const tests = testsLeft ? `${nf(testsLeft)} test row${testsLeft === 1 ? '' : 's'} left out (${includeOption} lists ${testsLeft === 1 ? 'it' : 'them'}). ` : '';
+  const by = order === 'size' ? `Largest first; ${orderOption} path groups the rows by source directory.` : `Grouped by source directory, then by file; rows spread over several directories come last. ${orderOption} size lists the largest first.`;
+  return `${tests}${by}`;
+}
+
+/** The notice for a filter that matched only test entries, which the listing leaves out: says how many and how to see them. */
+export function onlyTestsNotice(filter, testsMatched, includeOption = '--include-tests') {
+  return `No mechanisms match '${filter}' outside test code; ${nf(testsMatched)} test row${testsMatched === 1 ? ' does' : 's do'}: ${includeOption} lists ${testsMatched === 1 ? 'it' : 'them'}.`;
+}
+
 /** CE's shared filter contract (substring, `/regex/`) over a record's id, label, purpose, description, tags, files, member names and, on an entry, its aliases' ids and labels. */
 export function filterRecords(records, filter) {
   if (!filter) return records || [];
@@ -391,14 +542,20 @@ export function recordBlock(r, { verbose = false, dn = (n) => n, cut = (t) => t,
  * coverage line, then each entry's block (`verbose` also lifts the
  * 240-character cut on the text). Returns { lines, shown, total }.
  */
-export function formatMechanismsList(data, records, { filter = null, max = 100, verbose = false, displayName = null, exe = process.env.CODEEXAM_INVOKED_AS || 'ce', describeHint = true } = {}) {
+export function formatMechanismsList(data, records, { filter = null, max = 100, verbose = false, displayName = null, exe = process.env.CODEEXAM_INVOKED_AS || 'ce', describeHint = true, note = '', headings = false } = {}) {
   const dn = typeof displayName === 'function' ? displayName : (n) => n;
   const total = records.length;
   const shown = Math.min(total, Number.isFinite(max) ? max : total);
   const cut = (text) => (!verbose && text.length > 240) ? text.slice(0, 239) + '…' : text;
   const lines = [];
   lines.push(`${nf(total)} mechanism${total === 1 ? '' : 's'}${foldNote(records)}${filter ? ` matching '${filter}'` : ''}${shown < total ? ` (showing ${nf(shown)})` : ''}: ${coverageLine(data)}`);
-  for (const r of records.slice(0, shown)) lines.push('', ...recordBlock(r, { verbose, dn, cut, filter }));
+  if (note) lines.push(`  ${note}`);
+  const heading = headingsOver(records, headings);
+  for (const r of records.slice(0, shown)) {
+    const hd = heading(r);
+    if (hd) lines.push('', `--- ${hd} ---`);
+    lines.push('', ...recordBlock(r, { verbose, dn, cut, filter }));
+  }
   if (shown < total) lines.push('', `${nf(shown)} of ${nf(total)} shown; --all-results or --max-results 0 shows all, --mechanisms <filter> narrows.`);
   // A file nobody has described yet ends by saying how to get descriptions,
   // with the active filter in the command because describing the listed
@@ -422,7 +579,7 @@ export function purposeSnippet(text, max = 90) {
 
 /**
  * `--toc [filter]` (#296): the table of contents, one numbered line per
- * entry in the file's order (the order --mechanisms prints, so the two
+ * entry in the order given (the caller's: orderEntries, the order --mechanisms prints, so the two
  * agree; no rank, since `priority` is null until a ranker exists, so the
  * number is an ordinal). A described entry leads with its sentence and
  * carries the label in the parenthesis when the sentence names its subject;
@@ -438,26 +595,31 @@ export function purposeSnippet(text, max = 90) {
  * footer counts the entries without a sentence and says how to get them,
  * with the filter in the command. Returns { lines, shown, total }.
  */
-export function formatMechanismsToc(data, entries, { filter = null, max = 100, verbose = false, displayName = null, exe = process.env.CODEEXAM_INVOKED_AS || 'ce', describeHint = true } = {}) {
+export function formatMechanismsToc(data, entries, { filter = null, max = 100, verbose = false, displayName = null, exe = process.env.CODEEXAM_INVOKED_AS || 'ce', describeHint = true, note = '', headings = false } = {}) {
   const dn = typeof displayName === 'function' ? displayName : (n) => n;
   const total = entries.length;
   const shown = Math.min(total, Number.isFinite(max) ? max : total);
   const width = String(shown).length;
-  const lines = [`${nf(total)} mechanism${total === 1 ? '' : 's'}${foldNote(entries)}${filter ? ` matching '${filter}'` : ''}${shown < total ? ` (showing ${nf(shown)})` : ''}: ${coverageLine(data)}`, ''];
+  const lines = [`${nf(total)} mechanism${total === 1 ? '' : 's'}${foldNote(entries)}${filter ? ` matching '${filter}'` : ''}${shown < total ? ` (showing ${nf(shown)})` : ''}: ${coverageLine(data)}`, ...(note ? [`  ${note}`] : []), ''];
   let n = 0;
+  const heading = headingsOver(entries, headings);
   for (const r of entries.slice(0, shown)) {
     n++;
-    const num = `${String(n).padStart(width)}. `;
+    const hd = heading(r);
+    if (hd) lines.push(`--- ${hd} ---`, '');
+    const num =`${String(n).padStart(width)}. `;
     const note = filter ? matchNote(filterMatches(r, filter, { printed: [], purposeShown: !r.description }), r, { dn }) : '';
     const also = `${alsoOf(r) ? `  ${alsoOf(r)}` : ''}${note ? `  ${note}` : ''}`;
     if (r.description && sentenceNamesSubject(r.description)) lines.push(`${num}${r.description}  (${r.label}; ${countsOf(r)})${tagsOf(r)}${also}`);
     else if (r.description) lines.push(`${num}${r.label}  (${countsOf(r)}) — ${r.description}${tagsOf(r)}${also}`);
     else lines.push(`${num}${r.label}  (${countsOf(r)})${r.purpose ? ` — "${purposeSnippet(r.purpose)}"` : ''}${tagsOf(r)}${also}`);
-    if (verbose) {
-      for (const l of recordBlock(r, { verbose: true, dn, sentence: false })) lines.push(`${' '.repeat(width + 2)}${l}`);
-      lines.push('');
-    }
+    if (verbose) for (const l of recordBlock(r, { verbose: true, dn, sentence: false })) lines.push(`${' '.repeat(width + 2)}${l}`);
+    // A blank line after every entry (Andrew, 2026-11-20): an entry is one
+    // long line that wraps, and without the gap a reader cannot see where
+    // one ends and the next begins.
+    lines.push('');
   }
+  if (lines[lines.length - 1] === '') lines.pop();
   if (shown < total) lines.push('', `${nf(shown)} of ${nf(total)} shown; --all-results or --max-results 0 shows all, --toc <filter> narrows.`);
   const undescribed = entries.filter((r) => !r.description).length;
   if (describeHint && undescribed) {

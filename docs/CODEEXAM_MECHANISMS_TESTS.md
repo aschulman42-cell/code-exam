@@ -1341,8 +1341,10 @@ directories for secp256k1, 117 of its 169 groups in one of them).
   it.
 - **Test code is in.** The harness ranks every group, and the sections were built with
   test groups kept, where `--semantic-search` leaves them out. On the consensus-specs
-  index the test rule would have removed 190 of 209 groups, since its code is under a
-  directory named `specs/`.
+  index the test rule would have removed 190 of 209 groups, since its Python code is under
+  `tests/core/pyspec/eth2spec`. (Corrected 2026-11-20: this line first gave the cause as a
+  directory named `specs/`. No row of the 24 indexes checked is test code only because of a
+  `spec` or `specs` directory.)
 - **Not run, though planned**: the same roll-up on an index the chart does not accuse; the
   `label` rewordings; the '101 claim against ExoPlayer 3 as an example.
 - **One clustering**, at one section count per index, one tree, kept outside the
@@ -1351,6 +1353,89 @@ directories for secp256k1, 117 of its 169 groups in one of them).
   agreement of 0.50 to 0.67 (adjusted Rand index), which is moderate.
 - 35 rows; six filings of twelve are secp256k1 and bitcoin; the charts are parties'
   advocacy and a hit is agreement with a party; sampled indexes rank a sample.
+
+## The order of `--toc` and `--mechanisms`, and their test rows (2026-11-20)
+
+Until this date both listings, the GUI's Mechanisms list and the `list_mechanisms` tool
+printed the rows in the mechanisms file's order, which is the grouper's: largest group
+first. They now leave out the rows that are wholly test code (`--include-tests` lists
+them) and take an order: `--sort-by size`, still the default, or `--sort-by path`, grouped
+by source directory under a heading line and by file within a directory.
+
+**Directory order was built as the new default and was not kept as one.** It met the rule
+set in advance (below) and was the default for a few hours. Andrew, reading CodeExam's own
+listing: what matters is in `src/`, which comes after `public/` and `scripts/`; `--max-results
+10` shows minor rows; "I don't think we've gained anything here". The measure the rule used,
+how close neighbouring rows are, says nothing about whether the first rows are the ones a
+reader wants. Largest first is the default again, with its known fault on large indexes
+(first table). The directory order was changed twice that day on his reading, and the
+"after" and "source order" figures below are of `--sort-by path` as committed:
+
+- As first applied, command rows (`[cmd] --flag`) came before everything else. The first
+  page was then all command rows and read as if that were all the listing does. A command
+  row is now placed like any other.
+- A row was filed under the directory holding the most of its functions, the first by path
+  on a tie. The listing opened with `callees (findCallees)`, four functions in four
+  directories, under `public/` because p sorts before s, and nothing said why. A row no
+  one directory holds more than half of now goes under "across directories", after the
+  directories (24 of CodeExam's 363 rows, 306 of ExoPlayer 3's 8,396), and each group has
+  a heading with its count.
+
+The figures of the first form, for the record: first 100 rows leftover or oversized, x264
+22, CodeExam 23, ffmpeg 15, ExoPlayer 3 11; neighbour closeness CodeExam 0.713 (88%), the
+Bram snapshot 0.656 (94%), ExoPlayer 3 0.769 (98%). Two counts were taken, the second before the order was adopted, with
+a rule set in advance: if source order's neighbours were not clearly closer than size
+order's on all three indexes, stop.
+
+**What the first 100 rows hold**, the default page, before and after. "Leftover or
+oversized" is a row that is an `/ other` piece or is tagged `giant`, `indivisible` or
+`noise`.
+
+| index | rows | test rows | leftover or oversized, before | after | test rows shown, before | after | directories on the page, before | after |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| x264 | 367 | 4 | 33 | 19 | 1 | 0 | 16 | 2 |
+| CodeExam | 426 | 63 | 61 | 23 | 1 | 0 | 6 | 4 |
+| a Bram snapshot | 104 | 5 | 32 | 32 | 5 | 0 | 7 | 7 |
+| ffmpeg | 5,844 | 222 | 100 | 15 | 2 | 0 | 17 | 13 |
+| ExoPlayer 3 | 10,828 | 2,432 | 100 | 11 | 36 | 0 | 37 | 14 |
+
+The Bram snapshot has 104 rows, so its page is the whole listing either way. The first page
+also holds far fewer functions than before (ExoPlayer 3: 439 of 46,318, against 3,909),
+because it no longer collects the largest rows.
+
+**How close neighbouring rows are.** Each row as the mean of its functions' text vectors
+under EmbeddingGemma, test rows left out, rows with no vector left out; the figure is the
+mean cosine between a row and the next, then the share of neighbours in the same directory.
+
+| index | rows | size order | source order | shuffled | the scratch clustering's order |
+|---|--:|--:|--:|--:|--:|
+| CodeExam | 363 | 0.669 (64%) | 0.721 (93%) | 0.636 (28%) | 0.805 (67%) |
+| a Bram snapshot | 99 | 0.583 (63%) | 0.651 (90%) | 0.566 (54%) | not saved |
+| ExoPlayer 3 | 8,394 | 0.589 (60%) | 0.769 (95%) | 0.452 (3%) | 0.845 (80%) |
+
+Source order is above size order on all three, by a little on CodeExam and by a great deal
+on ExoPlayer 3, so the rule was met. The last column is from the scratch probe's reports of
+2026-11-19 (Ward clustering of the same vectors, its leaves in tree order), on the same
+count of CodeExam rows and on 7,495 of ExoPlayer's; it was not rerun for this table.
+
+**What this shows and does not.**
+
+- **An order by similarity does better than source order** on the measure used, on both
+  indexes where it was run: neighbours are closer though fewer of them share a directory.
+  The measure is the one the clustering optimises, so the comparison favours it; no
+  measure of a person finding something exists for either order.
+- **Source order does not make the first page a summary.** On ExoPlayer 3 the page is the
+  Cast demo app, the first directory by path.
+- **The default hides real code on one index.** ethereum/consensus-specs keeps its Python
+  under `tests/`; 190 of its 209 rows are left out, and the line under the header is what
+  says so.
+- **Where command rows and spread rows go** rests on one reader of one index. On
+  CodeExam the first page is now the GUI's files (`public/`), the first directory by
+  path, which is no more a summary than ExoPlayer's Cast demo app.
+- **A listing grouped by directory can read as a directory listing**, not as a list of
+  what the code does (Andrew, before seeing it). Nothing here measures that.
+- Three indexes for the second table, five for the first. The scratch script is
+  `order-adjacency.mjs`, outside the repository.
 
 ## Sections to come
 
