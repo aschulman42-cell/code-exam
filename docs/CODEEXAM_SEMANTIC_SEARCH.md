@@ -58,6 +58,7 @@ as with pseudo-claims, a GUI control is planned and not built.
 - [Working with no network: every step on your machine](#working-with-no-network-every-step-on-your-machine)
 - [What to expect, and what a non-match looks like](#what-to-expect-and-what-a-non-match-looks-like)
 - [When you expected something and it is not there](#when-you-expected-something-and-it-is-not-there)
+- [Searching from a mechanism: `id:m70`](#searching-from-a-mechanism-idm70)
 - [What your text is compared to](#what-your-text-is-compared-to)
 - [Embedding models: local, one set of data per model](#embedding-models-local-one-set-of-data-per-model)
 - [Why this works when "embeddings won't work here" was the earlier answer](#why-this-works-when-embeddings-wont-work-here-was-the-earlier-answer)
@@ -101,14 +102,14 @@ refuse to send code to a cloud model
 
   HITS
   1. 0.433  resolveModel   src/core/llm-runner.js:63-87
-            in [file] llm-runner.js / other (17 fn); also in [cmd] --build-mechanisms, [cmd] --pseudo-claims, [cmd] --claim-chart, +1 more
+            in m44 [file] llm-runner.js / other (17 fn); also in m18 [cmd] --build-mechanisms, m1 [cmd] --pseudo-claims, m3 [cmd] --claim-chart, +1 more
             next best in these groups: claimsCostGate (lines 440-451), _recordUsage (lines 293-298)
             llm-runner.js holds the shared utilities — model resolution, prompt display, cost/truncation recording, …
   2. 0.432  assertLocalOnly   src/core/air-gapped.js:37-45
-            in [file] air-gapped.js (6 fn); also in [cmd] --synonymize, [cmd] --claim-search, [cmd] --claim-analyze
+            in m185 [file] air-gapped.js (6 fn); also in m12 [cmd] --synonymize, m7 [cmd] --claim-search, m2 [cmd] --claim-analyze
             air-gapped.js enforces the `--air-gapped` flag by setting mode state, throwing on blocked cloud `feature` calls, …
   3. 0.424  ServerLLM::callClaude   src/server.js:398-459
-            in [file] server.js / call (3 fn); also in [class] ServerLLM
+            in m301 [file] server.js / call (3 fn); also in m129 [class] ServerLLM
 ```
 
 (CodeExam's own index, EmbeddingGemma, 2026-11-17, cut for width.) The query does not contain
@@ -252,7 +253,7 @@ choose a video bitrate from the amount of buffered media
 
   HITS
   1. 0.401  getSize   src/json-stream.js:138-141
-            in [file] json-stream.js (14 fn)
+            in m60 [file] json-stream.js (14 fn)
 ```
 
 One clean hit, well above typical, for code that does not exist there: presumably "size" sits
@@ -381,6 +382,47 @@ back empty. See [Working with no network](#working-with-no-network-every-step-on
 The output ends by suggesting `--describe` when an index has no descriptions, and
 `--toward-code` when the text reads like a claim or when nothing stood out.
 
+## Searching from a mechanism: `id:m70`
+
+Give a mechanism's id in place of the text and the search starts from that mechanism, not
+from words (since 2026-11-21):
+
+```
+ce --ndx .CE --semantic-search id:m70
+ce --ndx .CE --embed-distance id:m70 --all-results
+```
+
+The id is the one `--mechanisms`, `--toc`, `--embed-distance` and the results above show
+(`m70`). The ranking is the usual one with the query's vectors replaced by the mechanism's
+own, already saved in the index, so nothing is embedded for the query:
+
+- each group's name is compared with the mechanism's name (its label and member names);
+- each group's best function is compared with the mean of the mechanism's functions'
+  vectors. Each function counts once in that mean, so a mechanism of a few functions is
+  pulled toward whatever small shared helpers it holds.
+
+`--embed-distance id:m70` uses the first of these only, and both with `--function-text`.
+
+What is printed first is the mechanism itself, in full, as `--mechanisms -v` prints it, with
+the date its mechanisms file was built. **Read it.** An id names a record of one build of
+that file; after `--build-mechanisms` runs again the same id can name other code. The
+mechanism is left out of its own results. Groups that hold some of its functions come first,
+because a function is closest to itself.
+
+Two cautions. This compares one piece of code text with another, where everything measured
+on this page compared a person's words with code: the scores sit higher (on CodeExam the
+typical score from `id:m70` is 0.54, against 0.33 for the word "multisect"), and the HITS and
+NEAR HITS tiers and `--embed-distance`'s no-match band were set on written queries. The band
+is not read here and the tiers are untested for this use; the output says so. And nothing
+has been measured about whether the nearest mechanisms are related in a way a reader would
+agree with: on CodeExam, sixteen commands on unrelated subjects had an average closeness of
+0.88 to one another by the mean of their functions' vectors (0.64 for any two rows), because
+each is a short handler plus the same few option-reading helpers (a scratch measurement of
+2026-11-21, not a committed test).
+
+It is not read with `--against` or `--toward-code`, and an id the index does not have stops
+the command with a line saying so; `id:m70` is never searched for as text.
+
 ## What your text is compared to
 
 Not the source code. An embedding model compares text with text, and the models that run
@@ -389,7 +431,7 @@ texts made of its **names, split into words, and its comments**, and your text i
 with those. Two kinds are embedded for every index:
 
 **1. One text per group of functions**: the group's label and its members' names as words.
-For the group shown above as `in [file] air-gapped.js (6 fn)`, the text embedded is:
+For the group shown above as `in m185 [file] air-gapped.js (6 fn)`, the text embedded is:
 
 ```
 [file] air-gapped.js: set Air Gapped, assert Local Only, scrub Api Key, is Local Api Url, check Connectivity, air Gapped Startup Check

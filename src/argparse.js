@@ -1290,13 +1290,18 @@ SEARCH:
                              Search the index for text by meaning, under a local
                              embedding model (no network call). Results are places in
                              the code: the function that scored, its file and lines,
-                             the groups of functions (mechanisms) holding it and, when
+                             the groups of functions (mechanisms) holding it, each by
+                             its id (m12) and label, and, when
                              the index has descriptions, the group's sentence. HITS are
                              the closest code found, NEAR HITS the next; both are
                              relative to this index and this text, places to read and
                              not findings. @file reads a claim and searches for every
                              element (--elements @list gives them verbatim): a list per
                              element, then the places found for the most elements.
+                             id:<mechanism> in place of the text (id:m70) searches
+                             from that mechanism of the index and not from a text:
+                             its full entry is printed first, it is left out of the
+                             results, and the tiers are untested for this use.
                              Needs --build-embeddings once per index; a search builds
                              nothing and says what to run. The model is the index's own:
                              gemma when it has gemma embeddings, else what it has;
@@ -1330,9 +1335,11 @@ SEARCH:
                              run under a model says on stderr how many texts it will
                              embed and where they are saved, then reports about once a
                              minute; a later run reads them and says nothing. Rows are
-                             rank, cosine and the candidate, under one line naming the
-                             columns (distance is 1 - cosine and is printed only for one
-                             pair); the median says what
+                             rank, cosine, the entry's mechanism id (m12, as --mechanisms
+                             shows it; no id for candidates given with --against) and the
+                             entry, under one line naming the columns (distance is
+                             1 - cosine and is printed only for one pair); the median
+                             says what
                              an unrelated candidate scores; a top row under 0.12 above
                              it is reported as no clear match, 0.12 to 0.16 as borderline
                              (nomic only, the model the band was calibrated on; under
@@ -1344,6 +1351,14 @@ SEARCH:
                              --filter <s> a column with the rank of the first entry
                              matching <s>. --summary-top <n> shows the nearest n per
                              element in that table, not one.
+                             id:<mechanism> in place of the text (id:m70, an id as
+                             --mechanisms and --toc show it) measures from that
+                             mechanism of the index to every other one, by the vectors
+                             already saved for it. Its full entry is printed first, so
+                             you can check it is the one you meant; it is left out of
+                             the rows; the no-match band is not read. With
+                             --function-text its function part is the mean of its
+                             functions' vectors. Not with --against or --toward-code.
                              --max-results N (0 = all); --filter <s> keeps ranks and names
                              the member that matched; --verbose shows the chunk that scored.
                              Its own options, each below: --against, --embed-model,
@@ -1380,7 +1395,8 @@ SEARCH:
                              member functions' own texts (name, ranked vocabulary and
                              comments, built from the code with no model). Rows are
                              rank, score, the label's cosine, the function's cosine
-                             ("none" for an entry with no function text), the entry,
+                             ("none" for an entry with no function text), the entry's
+                             mechanism id, the entry,
                              and "via file@function", the function that scored. The first run embeds one text per
                              function and saves them beside mechanisms.json (about a
                              minute for CodeExam's own 2,100 functions and about 45
@@ -1809,8 +1825,10 @@ METRICS / DISCOVERY:
                              row no one directory holds more than half of is
                              under "across directories", after them.
   --toc [filter]             Table of contents of the same mechanisms, one
-                             numbered line each in the same order: the
-                             model's sentence when --describe wrote one, else
+                             numbered line each in the same order: the row's
+                             number in this list, the mechanism's id (m12, as
+                             --mechanisms shows it), then the model's sentence
+                             when --describe wrote one, else
                              the label and a short quote of the purpose; same
                              filter, cap and fold as --mechanisms; -v adds
                              each row's block with its members.

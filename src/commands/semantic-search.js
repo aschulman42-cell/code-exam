@@ -35,7 +35,7 @@ import { resolveEmbedModel, openEmbedder, embedAll, missingInCache, median, cosi
 import { loadMechanismsIndex, foldRecords } from '../core/mechanisms-index.js';
 import { FUSE_ARM, FUSE_LABEL_WEIGHT } from '../core/function-text.js';
 import { effectiveCount } from '../argparse.js';
-import { resolveQueries, embedCacheFile, entryEmbedPlan, entryCandidates, loadFunctionPlan, rankFused, CHUNK } from './embed-distance.js';
+import { resolveQueries, embedCacheFile, entryEmbedPlan, entryCandidates, loadFunctionPlan, rankFused, CHUNK, mechanismQueryId, entryIndexById, meanVector, mechanismQueryBlock } from './embed-distance.js';
 import { isTestSymbol } from './claim-locate.js';
 
 const nf = (n) => Number(n).toLocaleString('en-US');
@@ -205,18 +205,21 @@ export function filterRows(rows, s) {
 }
 
 /** One result, two or three lines: the place, the groups holding it, the smallest group's description. */
+/** A group as a result names it: its mechanism record id (`m70`), then its label (embed-distance-rows-show-mechanism-id, 2026-11-21: labels repeat, the id does not, and it is what --mechanisms and --toc print). */
+export const groupName = (g) => `${g && g.id ? `${g.id} ` : ''}${g.label}`;
+
 export function formatSearchRow(r, { verbose = false, width = 3 } = {}) {
   const home = r.groups[0];
   const fnCount = (g) => `${nf((g.members || []).length)} fn`;
   const head = r.fn
     ? `${r.fn.name}   ${verbose ? sourcePath(r.fn.file) : shortPath(r.fn.file)}:${r.fn.start}-${r.fn.end}`
-    : `${home.label}   (a group of ${plural((home.members || []).length, 'function')}; no single function scored)`;
+    : `${groupName(home)}   (a group of ${plural((home.members || []).length, 'function')}; no single function scored)`;
   const L = [`${String(r.rank).padStart(width)}. ${r.score.toFixed(3)}  ${head}`];
   const pad = ' '.repeat(width + 9);
   if (r.fn) {
     const others = r.groups.slice(1);
     const shown = verbose ? others : others.slice(0, 3);
-    L.push(`${pad}in ${home.label} (${fnCount(home)})${others.length ? `; also in ${shown.map((g) => g.label).join(', ')}${others.length > shown.length ? `, +${others.length - shown.length} more` : ''}` : ''}`);
+    L.push(`${pad}in ${groupName(home)} (${fnCount(home)})${others.length ? `; also in ${shown.map(groupName).join(', ')}${others.length > shown.length ? `, +${others.length - shown.length} more` : ''}` : ''}`);
   }
   if (r.fn && r.next && r.next.length) L.push(`${pad}next best in ${r.groups.length > 1 ? "these groups" : "this group"}: ${r.next.map((x) => `${leafOf(x.fn.name)} (lines ${x.fn.start}-${x.fn.end}${x.fn.file !== r.fn.file ? ` of ${sourcePath(x.fn.file).split('/').pop()}` : ''})`).join(', ')}`);
   const d = String(home.description || '').replace(/\s+/g, ' ').trim();
@@ -291,7 +294,7 @@ export function renderAcross(perElement, { top = 15, verbose = false, depth = AC
   L.push(`       elements ${Array.from({ length: n }, (_, i) => String(i + 1).padStart(w)).join(' ')}`);
   several.slice(0, top).forEach((a, i) => {
     const r = a.row;
-    const place = r.fn ? `${r.fn.name}   ${verbose ? sourcePath(r.fn.file) : shortPath(r.fn.file)}:${r.fn.start}-${r.fn.end}` : r.groups[0].label;
+    const place = r.fn ? `${r.fn.name}   ${verbose ? sourcePath(r.fn.file) : shortPath(r.fn.file)}:${r.fn.start}-${r.fn.end}` : groupName(r.groups[0]);
     L.push(`${String(i + 1).padStart(3)}. ${String(a.els.length).padStart(2)} of ${n}  ${Array.from({ length: n }, (_, qi) => (a.els.includes(qi + 1) ? '#' : '.').padStart(w)).join(' ')}   ${place}`);
   });
   if (several.length > top) L.push(`     … ${nf(several.length - top)} more places found for two or more elements`);
@@ -348,6 +351,17 @@ export async function doSemanticSearch(args) {
   const multi = source != null;
   const all = loadEntries(ndx);
   if (!all) { console.error(`${ndx} has no mechanisms.json, the groups of functions a semantic search ranks. Build it (no model needed), then the embeddings, then search:\n  ce --ndx ${ndx} --build-mechanisms\n  ce --ndx ${ndx} --build-embeddings`); process.exitCode = 2; return; }
+  // id:m70 (embed-distance-rows-show-mechanism-id, 2026-11-21): search from a mechanism of
+  // the index, by its saved vectors, and not from a text. The same ranking with the query's
+  // two vectors replaced: the mechanism's label vector, and the mean of its functions'.
+  const fromId = mechanismQueryId(raw);
+  const fromAt = fromId ? entryIndexById(all, fromId) : -1;
+  let fromData = null;
+  if (fromId) {
+    try { fromData = loadMechanismsIndex({ indexPath: ndx }, { cache: false }); } catch { fromData = null; }
+    if (fromAt < 0) { console.error(`--semantic-search: ${ndx} has no mechanism ${fromId}. Its mechanisms file, built ${String((fromData && fromData.generated) || '').slice(0, 10) || 'at an unknown date'}, holds ${nf(all.length)} entries; --mechanisms <filter> and --toc <filter> show each row's id.`); process.exitCode = 2; return; }
+    if (args.toward_code != null) { console.error(`--toward-code has a model reword a text toward the index's names, and id:${fromId} is a mechanism of the index, not a text: give one or the other`); process.exitCode = 2; return; }
+  }
   const chosen = chooseSearchModel(ndx, args.embed_model || null);
   if (chosen.problem) { console.error(`--semantic-search: ${chosen.problem}`); process.exitCode = 2; return; }
   const { model } = chosen;
@@ -400,6 +414,9 @@ export async function doSemanticSearch(args) {
     const more = plan.extra.length ? await embedAll(embedder.ctx, plan.extra, files[1], { prefix: model.doc, quiet: true, notice: 'group name chunks new since the build' }) : new Map();
     const fnVecs = await embedAll(embedder.ctx, fnPlan.texts, files[2], { prefix: model.doc, quiet: true, compact: true, notice: 'function texts new since the build' });
     let cands = entryCandidates(all, plan, whole, more);
+    const fromEntry = fromId ? all[fromAt] : null;
+    const fromLabel = fromId ? whole.get(`${fromEntry.id}:${fromAt}`) : null;
+    const fromFn = fromId ? meanVector(fnPlan.ids[fromAt], fnVecs) : null;
     // Test functions inside groups that are otherwise the project's own code (a Rust source
     // file with its tests under #[test]): left out function by function, and counted, so the
     // header does not report five groups while a quarter of a codebase's functions went.
@@ -408,11 +425,17 @@ export async function doSemanticSearch(args) {
       if (!isTestEntry(c.entry)) for (const id of fnPlan.ids[i]) if (isTestFn(id)) testFnsInKept.add(id);
       c.fnIds = includeTests ? fnPlan.ids[i] : fnPlan.ids[i].filter((id) => !isTestFn(id));
     });
+    if (fromId) cands = cands.filter((c) => c.entry !== fromEntry);   // the mechanism is not a result of a search from itself
     const testN = cands.filter((c) => isTestEntry(c.entry)).length;
     if (!includeTests) cands = cands.filter((c) => !isTestEntry(c.entry));
-    const qvs = await embedAll(embedder.ctx, searched.map((t, i) => ({ key: `q${i}`, text: t })), null, { prefix: model.query, quiet: true });
+    const qvs = fromId ? new Map() : await embedAll(embedder.ctx, searched.map((t, i) => ({ key: `q${i}`, text: t })), null, { prefix: model.query, quiet: true });
 
-    console.log(`Semantic search of ${ndx}${multi ? '' : ` for: ${queries[0]}`}`);
+    console.log(`Semantic search of ${ndx}${fromId ? ` from mechanism ${fromId}` : multi ? '' : ` for: ${queries[0]}`}`);
+    if (fromId) {
+      for (const line of mechanismQueryBlock(fromEntry, plan.texts[fromAt], fromData, fromId)) console.log(line);
+      console.log(`\n${fromEntry.id} itself is left out of the results. Groups that hold some of its functions come first, since a function is closest to itself. Each group is scored by its name against this mechanism's name, and by its best function against the mean of this mechanism's ${fromFn ? `${nf(fnPlan.ids[fromAt].length)} functions' vectors` : 'functions (it has none the index holds, so its name stands for both)'}.`);
+      console.log('HITS and NEAR HITS were set on written queries; for one mechanism compared with the others they are untested, so read the scores, not the tier.');
+    }
     if (multi) console.log(source);
     console.log(`${chosen.note}${missing ? ` (${plural(missing, 'text')} new since the build embedded now)` : ''}`);
     console.log(`${plural(cands.length, 'group')} of functions ranked, each by its name and its best function's text${testLeftOutNote(testN, testFnsInKept.size, includeTests)}`);
@@ -421,9 +444,10 @@ export async function doSemanticSearch(args) {
     for (const line of unusedOptionNotes(args)) console.log(line);
     let plateau = 0;
     queries.forEach((query, i) => {
-      const ranked = rankFused(qvs.get(`q${i}`), cands, fnVecs, FUSE_LABEL_WEIGHT);
+      const ranked = fromId ? rankFused(fromLabel, cands, fnVecs, FUSE_LABEL_WEIGHT, null, fromFn) : rankFused(qvs.get(`q${i}`), cands, fnVecs, FUSE_LABEL_WEIGHT);
+      if (fromId) query = `mechanism ${fromEntry.id} ${fromEntry.label}`;
       const rows = searchRows(ranked, (id) => fnById.get(id));
-      const qv = qvs.get(`q${i}`);
+      const qv = fromId ? (fromFn || fromLabel) : qvs.get(`q${i}`);
       const scoreOf = (id) => { const v = fnVecs.get(id); return v ? cosine(qv, v) : null; };
       for (const r of rows.slice(0, NEXT_FOR_ROWS)) r.next = nextFunctions(r, scoreOf, (id) => fnById.get(id));
       perElement.push(rows);

@@ -191,12 +191,17 @@ export function doMechanisms(index, args, { exe = 'ce', describe = null } = {}) 
  * same entries in the same order as --mechanisms; -v adds each entry's
  * block. The outcome of a --describe in the same command follows it.
  */
+/** What a --toc row leads with, said once under the header: its place in this listing, then the mechanism's record id. */
+export const TOC_ROW_NOTE = "Each row: its number in this list, then the mechanism's id (the name --mechanisms shows).";
+
 export function doToc(index, args, { exe = 'ce', describe = null } = {}) {
   const l = listedEntries(index, args, 'toc', exe);
   if (!l) return;
   const max = effectiveMaxResults(args, 100);
   const { lines } = formatMechanismsToc(l.data, l.kept, {
-    filter: l.filter, max, verbose: !!args.verbose, exe, note: l.note, headings: l.order === 'path',
+    // The note says once what the two things at the left of a row are: a reader took the
+    // number for the record id (Andrew, 2026-11-21); they agree only near the top.
+    filter: l.filter, max, verbose: !!args.verbose, exe, note: `${l.note ? `${l.note} ` : ''}${TOC_ROW_NOTE}`, headings: l.order === 'path',
     displayName: typeof index.getDisplayName === 'function' ? (n) => index.getDisplayName(n) : null,
     describeHint: !describe,
   });

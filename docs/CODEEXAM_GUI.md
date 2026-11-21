@@ -77,7 +77,8 @@ model's one-sentence description when `--describe` wrote one and the sentence na
 the label then sitting beneath it with the record id; when the sentence opens with This, These or
 The functions the headline is `label — sentence`, so the name reads before the pronoun (the route
 sends `names_subject`, judged by the one rule the CLI listings apply); otherwise it leads with the
-label, over the purpose read from the code's own doc text. Under a filter, a row matched on
+label, over the record id and the purpose read from the code's own doc text (the id on an
+undescribed row since 2026-11-21, so every row shows it). Under a filter, a row matched on
 something it does not show (a member past the names, a file, a purpose a sentence replaced) opens
 its muted line with what matched, `holds <member>`, `in <file>` or `purpose "…"`, the CLI
 listings' words, so the reason is visible before the row is expanded. Beside either sit its

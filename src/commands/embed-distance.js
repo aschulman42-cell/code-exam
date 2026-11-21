@@ -199,12 +199,15 @@ export async function loadFunctionPlan(indexPath, entries) {
  * cosine. Each row carries cos (the fused score, what it is ranked by), labelCos,
  * fnCos and fn (the function that scored; null when there is none).
  */
-export function rankFused(qv, cands, fnVecs, w = FUSE_LABEL_WEIGHT, short = null) {
+export function rankFused(qv, cands, fnVecs, w = FUSE_LABEL_WEIGHT, short = null, qFn = null) {
+  // `qFn`: a second query vector for the function part. A text has one vector for both parts;
+  // a mechanism as the query (id:m70) has its label's vector and the mean of its functions'.
+  const qf = qFn || qv;
   const scored = cands.map((c) => {
     let best = -2, bi = 0;
     c.vectors.forEach((v, i) => { const x = cosine(qv, v); if (x > best) { best = x; bi = i; } });
     let fnCos = -Infinity, fn = null;
-    for (const id of c.fnIds || []) { const v = fnVecs.get(id); if (!v) continue; const x = cosine(qv, v); if (x > fnCos) { fnCos = x; fn = id; } }
+    for (const id of c.fnIds || []) { const v = fnVecs.get(id); if (!v) continue; const x = cosine(qf, v); if (x > fnCos) { fnCos = x; fn = id; } }
     return { ...c, cos: fuseSum([best], [fnCos], w)[0], labelCos: best, fnCos: fn ? fnCos : null, fn, fnShort: fn && short ? short.get(fn) || fn : fn, fused: true, chunk: c.chunks ? c.chunks[bi] : c.text };
   });
   scored.sort((a, b) => b.cos - a.cos);
@@ -222,14 +225,29 @@ export const rankWidth = (width) => Math.max(width + 1, 4);
  * --against); under --function-text it is rank, score, the label's cosine, the best
  * function's cosine, and the entry.
  */
-export function rowHeader(width, { fused = false, entries = true } = {}) {
+export function rowHeader(width, { fused = false, entries = true, idWidth = 0 } = {}) {
   const r = 'rank'.padStart(rankWidth(width));
-  return fused ? `${r}   score   label  function  entry` : `${r}  cosine  ${entries ? 'entry' : 'candidate'}`;
+  const id = entries && idWidth ? `${'id'.padEnd(idWidth)}  ` : '';
+  return fused ? `${r}   score   label  function  ${id}entry` : `${r}  cosine  ${id}${entries ? 'entry' : 'candidate'}`;
 }
 
+/** A ranked row's mechanism record id (`m70`), the name --mechanisms prints for the entry; empty for a candidate given with --against, which is a text and no entry. */
+export const rowId = (x) => (x && x.label != null && x.entry && x.entry.id ? String(x.entry.id) : '');
+
+/** The id column's width for a listing's rows: the widest id, never narrower than the word `id` above it; 0 when no row is a mechanism entry (no column). */
+export const idWidthOf = (rows) => { const w = Math.max(0, ...rows.map((x) => rowId(x).length)); return w ? Math.max(w, 2) : 0; };
+
+/** An entry as the closing tables name it: its record id, then its label; a candidate text as it is. */
+export const nameWithId = (x) => (x.label != null ? `${rowId(x) ? `${rowId(x)} ` : ''}${x.label}` : x.text);
+
 /** One listing row under rowHeader's columns: rank, cosine, the candidate; under `verbose`, a mechanism entry's block (recordBlock) and then the chunk that scored. A row ranked by --function-text is rank, score, the two cosines it is made of (`none` for an entry with no function text), the entry, and after it `via` and the function that scored, as file@name. The distance, 1 − cosine, is not printed: the margin, the median and the band are all in cosine. */
-export function formatRow(x, width, { verbose = false } = {}) {
-  const name = x.label != null ? `${x.label}  (${x.members ? x.members.length : 0} fn)` : (x.text.length > 200 ? x.text.slice(0, 200) + '…' : x.text);
+export function formatRow(x, width, { verbose = false, idWidth = 0 } = {}) {
+  // The entry's record id in its own column (embed-distance-rows-show-mechanism-id,
+  // 2026-11-21): a label can repeat and the rank is a place in this listing, so
+  // the id is the one name that says which mechanism the row is.
+  const id = rowId(x);
+  const idCol = id || (idWidth && x.label != null) ? `${id.padEnd(Math.max(idWidth, id.length))}  ` : '';
+  const name = x.label != null ? `${idCol}${x.label}  (${x.members ? x.members.length : 0} fn)` : (x.text.length > 200 ? x.text.slice(0, 200) + '…' : x.text);
   const holds = x.holds && x.holds.length ? `  holds ${x.holds.slice(0, 3).join(', ')}${x.holds.length > 3 ? ` +${x.holds.length - 3}` : ''}` : '';
   const rank = `${x.rank}.`.padStart(rankWidth(width));
   const num = (v) => v.toFixed(4).padStart(6);
@@ -241,6 +259,58 @@ export function formatRow(x, width, { verbose = false } = {}) {
   const block = x.entry ? recordBlock(x.entry, { verbose: true }).map((l) => `${pad}${l}`) : [];
   const chunk = x.chunk.length > 200 ? x.chunk.slice(0, 200) + '…' : x.chunk;
   return [row, ...block, `${pad}chunk: ${chunk}`].join('\n');
+}
+
+/**
+ * `id:m70` given as the text of --embed-distance or --semantic-search
+ * (embed-distance-rows-show-mechanism-id, 2026-11-21): measure from that mechanism of the
+ * index, by the vectors already saved for it, and not from a text. Returns the record id
+ * (`m70`), or null for an ordinary text.
+ */
+export function mechanismQueryId(raw) {
+  const m = /^id:(m[0-9]+)$/i.exec(String(raw == null ? '' : raw).trim());
+  return m ? m[1].toLowerCase() : null;
+}
+
+/** The position in `entries` (folded) of the entry with record id `id`, by its own id or by the id of a record folded into it; -1 when the index has none. */
+export function entryIndexById(entries, id) {
+  return entries.findIndex((e) => e.id === id || (e.aliases || []).some((a) => a.id === id));
+}
+
+/** The mean of the unit vectors of `ids` in `vecs`, as a unit vector; null when none has a vector. What stands for a mechanism's functions when the mechanism is the query, and the row vector the scratch clustering of 2026-11-19 used. */
+export function meanVector(ids, vecs) {
+  let sum = null;
+  for (const id of ids || []) {
+    const v = vecs.get(id);
+    if (!v) continue;
+    let len = 0;
+    for (let i = 0; i < v.length; i++) len += v[i] * v[i];
+    len = Math.sqrt(len) || 1;
+    if (!sum) sum = new Float64Array(v.length);
+    for (let i = 0; i < v.length; i++) sum[i] += v[i] / len;
+  }
+  if (!sum) return null;
+  let len = 0;
+  for (let i = 0; i < sum.length; i++) len += sum[i] * sum[i];
+  len = Math.sqrt(len) || 1;
+  return Array.from(sum, (x) => x / len);
+}
+
+/**
+ * The lines that show which mechanism is being measured from, so the reader can check it is
+ * the one meant: an id names a record of one build of the mechanisms file. The entry's block
+ * as --mechanisms -v prints it, then the text that stands for it, under a line giving the
+ * build's date. `asked` is the id as given; it differs from the entry's when the record
+ * asked for is folded into another.
+ */
+export function mechanismQueryBlock(entry, text, data, asked) {
+  const when = String((data && data.generated) || '').slice(0, 10) || 'an unknown date';
+  const folded = asked !== entry.id ? ` (folded into ${entry.id}: the same functions under another label)` : '';
+  const L = [`Measured from mechanism ${asked}${folded}, as recorded in the mechanisms file built ${when}. An id names a record of that build, and a rebuild can give it to other code. This is the mechanism:`, ''];
+  for (const l of recordBlock(entry, { verbose: true })) L.push(`  ${l}`);
+  const t = String(text || '');
+  L.push('', `  its label and member names, the text it is compared by: ${t.length > 600 ? `${t.slice(0, 599)}…` : t}`);
+  return L;
 }
 
 /**
@@ -312,14 +382,16 @@ export function listingStats(ranked, { calibrated = true } = {}) {
 }
 
 /** The listing as lines: the query (under `heading`, as `heading: query`, the per-element form), what was ranked (omitted when null: the caller printed it once), the median and the top row's margin over it (with a word that the band is not read under `modelName` when `calibrated` is false), a note (set apart by a blank line, so a reader sees it) when that margin says no match, with the small-index clause under SMALL_INDEX candidates, then the rows. */
-export function renderListing({ query, what, ranked, top, filter, verbose, heading = null, calibrated = true, modelName = null, fused = false, searchedAs = null, notReworded = null }) {
+export function renderListing({ query, what, ranked, top, filter, verbose, heading = null, calibrated = true, modelName = null, fused = false, searchedAs = null, notReworded = null, fromMechanism = false }) {
   const reworded = searchedAs != null;
-  const { med, margin, word } = listingStats(ranked, { calibrated: calibrated && !fused && !reworded });
+  // `fromMechanism` (id:m70): two saved code texts are compared, where the band was set on a
+  // person's query against code. The scores are on another scale and the band is not read.
+  const { med, margin, word } = listingStats(ranked, { calibrated: calibrated && !fused && !reworded && !fromMechanism });
   // The band was calibrated on the label text's cosine; a fused score is on another scale.
   // It was also calibrated on queries as a person wrote them: a rewording made with the
   // codebase's own words sits nearer every entry, and what margin it earns is not measured.
-  const unread = fused ? '; the band is calibrated on the label text alone and not read under --function-text' : reworded ? '; the band is calibrated on text as written and not read under --toward-code' : calibrated ? '' : `; the band is calibrated on nomic and not read under ${modelName || 'this model'}`;
-  const L = [`${heading ? `${heading}: ` : 'query: '}${query}`];
+  const unread = fromMechanism ? '; the no-match band is calibrated on written queries and not read when a mechanism is measured against mechanisms' : fused ? '; the band is calibrated on the label text alone and not read under --function-text' : reworded ? '; the band is calibrated on text as written and not read under --toward-code' : calibrated ? '' : `; the band is calibrated on nomic and not read under ${modelName || 'this model'}`;
+  const L = [`${heading ? `${heading}: ` : fromMechanism ? 'from mechanism: ' : 'query: '}${query}`];
   // --toward-code: the element as written stays the heading; the line under it is what was embedded.
   if (reworded) L.push(notReworded ? `searched as written: not reworded (${notReworded})` : `searched as: ${searchedAs}`);
   L.push(`${what ? `${what}; ` : ''}median ${fused ? 'score' : 'cosine'} ${med.toFixed(4)}${ranked.length >= MEDIAN_MIN ? ` (the nearest is ${margin.toFixed(4)} above it${unread})` : ''}`);
@@ -334,8 +406,9 @@ export function renderListing({ query, what, ranked, top, filter, verbose, headi
   L.push('');
   const width = String(ranked.length).length;
   const rows = Number.isFinite(top) ? shown.slice(0, top) : shown;
-  if (rows.length) L.push(rowHeader(width, { fused, entries: rows[0].label != null }));
-  for (const x of rows) L.push(formatRow(x, width, { verbose }));
+  const idWidth = idWidthOf(rows);
+  if (rows.length) L.push(rowHeader(width, { fused, entries: rows[0].label != null, idWidth }));
+  for (const x of rows) L.push(formatRow(x, width, { verbose, idWidth }));
   return L;
 }
 
@@ -432,11 +505,20 @@ export async function doEmbedDistance(args) {
   if (toward && against != null) { console.error('--toward-code rewords a claim element toward the names of an index, and --against gives texts with no index behind them: use it with --ndx <index> and no --against'); process.exitCode = 2; return; }
   if (args.spec != null && !toward) { console.error('--spec gives the patent\'s specification to the model that --toward-code restate|label asks for rewrites; without --toward-code nothing reads it'); process.exitCode = 2; return; }
 
-  let entries = null, data = null, fnPlan = null;
+  // id:m70: measure from a mechanism of the index (mechanismQueryId). It needs the index's
+  // entries on both sides, so it is not read with --against, and it is not a text to reword.
+  const fromId = mechanismQueryId(args.embed_distance);
+  if (fromId && against != null) { console.error(`--embed-distance id:${fromId} measures from one mechanism of an index to the index's other mechanisms, and --against gives texts with no index behind them: use it with --ndx <index> and no --against`); process.exitCode = 2; return; }
+  if (fromId && toward) { console.error(`--toward-code has a model reword a text toward the index's names, and id:${fromId} is a mechanism of the index, not a text: give one or the other`); process.exitCode = 2; return; }
+  let entries = null, data = null, fnPlan = null, fromAt = -1, fromLabel = null, fromFn = null, fromText = '', fromShown = false;
   if (indexPath) {
     data = loadMechanismsIndex({ indexPath }, { cache: false });
     if (!data || !data.records.length) { console.error(`${indexPath} has no mechanisms.json; build it with --build-mechanisms (no model needed)`); process.exitCode = 2; return; }
     entries = foldRecords(data.records);
+    if (fromId) {
+      fromAt = entryIndexById(entries, fromId);
+      if (fromAt < 0) { console.error(`--embed-distance: ${indexPath} has no mechanism ${fromId}. Its mechanisms file, built ${String(data.generated || '').slice(0, 10) || 'at an unknown date'}, holds ${nf(data.records.length)} records; --mechanisms <filter> and --toc <filter> show each row's id.`); process.exitCode = 2; return; }
+    }
     if (fused) {
       // The function texts are built from the index's source lines, with no model.
       process.stderr.write('# reading the index for --function-text…\n');
@@ -477,7 +559,8 @@ export async function doEmbedDistance(args) {
     try {
       if (models.length > 1) console.log('');
       console.log(`model ${path.basename(model.path)}${noPrefix ? ', no prefixes' : (qp || dp) ? `, prefixes: query ${JSON.stringify(qp)}, document ${JSON.stringify(dp)}` : ''}`);
-      const qvs = await embedAll(embedder.ctx, searched.map((t, i) => ({ key: `q${i}`, text: t })), null, { prefix: qp, quiet: true });
+      // A mechanism as the query has its vectors in the index's cache; nothing is embedded for it.
+      const qvs = fromId ? new Map() : await embedAll(embedder.ctx, searched.map((t, i) => ({ key: `q${i}`, text: t })), null, { prefix: qp, quiet: true });
 
       if (against != null && !against.startsWith('@')) {
         const bv = (await embedAll(embedder.ctx, [{ key: 'b', text: cut(against) }], null, { prefix: dp, quiet: true })).get('b');
@@ -509,6 +592,7 @@ export async function doEmbedDistance(args) {
         const whole = await embedAll(embedder.ctx, plan.whole, embedCacheFile(indexPath, model.base, 'label+members'), { prefix: dp, label: 'entries', stats: stats.whole, quiet: !args.verbose, notice: `mechanism entries under ${model.name}` });
         const more = plan.extra.length ? await embedAll(embedder.ctx, plan.extra, embedCacheFile(indexPath, model.base, `label+members_chunks${CHUNK}`), { prefix: dp, label: 'chunks', stats: stats.chunks, quiet: !args.verbose, notice: `chunks of long entries under ${model.name}` }) : new Map();
         cands = entryCandidates(entries, plan, whole, more);
+        if (fromId) { fromLabel = whole.get(`${entries[fromAt].id}:${fromAt}`); fromText = plan.texts[fromAt]; }
         const fresh = (stats.whole.fresh || 0) + (stats.chunks.fresh || 0), cached = (stats.whole.cached || 0) + (stats.chunks.cached || 0);
         what = `${nf(entries.length)} mechanism entries of ${indexPath} (label + member names, best chunk of ${CHUNK}; ${nf(cached)} vectors from cache, ${nf(fresh)} embedded)`;
         if (fused) {
@@ -520,17 +604,28 @@ export async function doEmbedDistance(args) {
           what = `${nf(entries.length)} mechanism entries of ${indexPath}, each scored by its label and its best member function's text together (${FUSE_LABEL_WEIGHT} on the label + member names, ${Number((1 - FUSE_LABEL_WEIGHT).toFixed(2))} on the function's name, vocabulary and comments; ${nf(fnPlan.texts.length)} functions, ${nf(fs2.cached || 0)} from cache, ${nf(fs2.fresh || 0)} embedded${none ? `; ${nf(none)} entries have no function text and keep their label cosine` : ''})`;
         }
       }
+      if (fromId) {
+        // The function part of a mechanism as the query: the mean of its functions' vectors.
+        if (fnVecs) fromFn = meanVector(fnPlan.ids[fromAt], fnVecs);
+        const me = entries[fromAt];
+        if (!fromShown) { for (const line of mechanismQueryBlock(me, fromText, data, fromId)) console.log(line); console.log(''); fromShown = true; }
+        cands = cands.filter((c) => c.entry !== me);
+        what += `; ${me.id} itself is left out${fnVecs ? (fromFn ? `, and its function part is the mean of its ${nf(fnPlan.ids[fromAt].length)} functions' vectors` : ', and it has no function the index holds, so its label stands for both parts') : ''}`;
+      }
       if (multi) console.log(what);
       const rows = [];
       queries.forEach((query, i) => {
-        const ranked = fnVecs ? rankFused(qvs.get(`q${i}`), cands, fnVecs, FUSE_LABEL_WEIGHT, fnPlan.short) : rankCandidates(qvs.get(`q${i}`), cands);
+        const ranked = fromId
+          ? (fnVecs ? rankFused(fromLabel, cands, fnVecs, FUSE_LABEL_WEIGHT, fnPlan.short, fromFn) : rankCandidates(fromLabel, cands))
+          : fnVecs ? rankFused(qvs.get(`q${i}`), cands, fnVecs, FUSE_LABEL_WEIGHT, fnPlan.short) : rankCandidates(qvs.get(`q${i}`), cands);
+        if (fromId) query = `${entries[fromAt].id} ${entries[fromAt].label}`;
         if (multi) console.log('');
         const row = reworded ? reworded.rows[i] : null;
-        for (const line of renderListing({ query, what: multi ? null : what, ranked, top, filter, verbose: !!args.verbose, heading: multi ? `element ${i + 1} of ${queries.length}` : null, calibrated, modelName: model.name, fused: !!fnVecs, searchedAs: row ? row.rewritten : null, notReworded: row ? row.error : null })) console.log(line);
+        for (const line of renderListing({ query, fromMechanism: !!fromId, what: multi ? null : what, ranked, top, filter, verbose: !!args.verbose, heading: multi ? `element ${i + 1} of ${queries.length}` : null, calibrated, modelName: model.name, fused: !!fnVecs, searchedAs: row ? row.rewritten : null, notReworded: row ? row.error : null })) console.log(line);
         const { med, margin, word } = listingStats(ranked, { calibrated: calibrated && !fnVecs && !reworded });
         const first = ranked[0];
         const hit = filter ? filterRanked(ranked, filter)[0] : null;
-        const nameOf = (x) => (x.label != null ? x.label : x.text);
+        const nameOf = nameWithId;
         const next = ranked.slice(1, summaryTop).map((x) => ({ nearest: nameOf(x), margin: ranked.length >= MEDIAN_MIN ? x.cos - med : null }));
         rows.push({ n: i + 1, element: query, nearest: first ? nameOf(first) : '', margin: ranked.length >= MEDIAN_MIN ? margin : null, word, filterRank: hit ? hit.rank : null, next });
       });

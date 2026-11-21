@@ -149,14 +149,17 @@ record in the file, the one that names the row when two are folded), its label, 
 tags, purpose or description, and its member names; `-v` lists every member as
 `file@name  (L12–48)`, the function's line range in the index after its anchor.
 `--toc [filter]` prints the same rows one line each, numbered from 1 in the same order (an
-ordinal, not a rank), the header first:
+ordinal, not a rank), the record id after the number (`12. m5  …`, since 2026-11-21: the
+number is a place in this listing, the id is the row's name in every listing), the header
+first:
 
 ```
 363 mechanisms (372 records, 9 folded as the same functions under another label)
   (showing 100): a cover of 1,754 of 1,754 functions (100%), 149 of 149 files;
   built 2026-11-06 by --build-mechanisms, described by Claude API
   4 test rows left out (--include-tests lists them). Largest first; --sort-by path groups the
-  rows by source directory.
+  rows by source directory. Each row: its number in this list, then the mechanism's id (the
+  name --mechanisms shows).
 ```
 
 **Order.** Both listings print the largest row first, the order of the mechanisms file.
@@ -263,6 +266,12 @@ the one-line version.
   and member names, and `--embed-distance @<claim file>` does it for every element of a claim
   in one run, with a table of each element's nearest row ([`cli.md`](cli.md));
   `scripts/describe-reach.mjs` scores the same rows against claims whose answers are known.
+- **Measuring from one mechanism to the others.** `--embed-distance id:m70` and
+  `--semantic-search id:m70` (since 2026-11-21) take a row's id in place of a text and rank
+  the other rows by closeness to that row, printing the row in full first
+  ([`CODEEXAM_SEMANTIC_SEARCH.md`](CODEEXAM_SEMANTIC_SEARCH.md#searching-from-a-mechanism-idm70)).
+  It shows which rows the embedding puts beside a given row; whether those are related in
+  a way a reader would agree with is not measured.
 - **Anchoring claim work.** A mechanism's members are `file@func` references, the grammar
   every claim flag takes ([`CODEEXAM_NOTATION.md`](CODEEXAM_NOTATION.md)), so a mechanism
   found by any of the above is a list of places to open.

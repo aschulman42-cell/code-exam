@@ -891,7 +891,7 @@ export function renderMechanismList(container, data) {
     const desc = r.description || '';
     const note = r.match_note || '';
     const headline = desc ? (r.names_subject === false ? `${r.label} — ${desc}` : desc) : r.label;
-    const subline = `${note ? `${note} · ` : ''}${desc ? `${r.id}  ${r.label}${also ? ` · ${also}` : ''}` : (r.purpose || '')}`.replace(/ · $/, '');
+    const subline = `${note ? `${note} · ` : ''}${desc ? `${r.id}  ${r.label}${also ? ` · ${also}` : ''}` : `${r.id || ''}${r.purpose ? `  ${r.purpose}` : ''}`}`.replace(/ · $/, '');
     const subHeader = h('div', {
       className: 'sub-accordion-header',
       title: `${desc ? `${r.names_subject === false ? `${r.label}\n${desc}` : `${desc}\n${r.label}`}${also ? `\n${also}` : ''}\n${counts}` : `${r.label}${also ? `\n${also}` : ''}\n${counts}${r.purpose ? `\n${r.purpose}` : ''}`}${note ? `\n${note}` : ''}`,

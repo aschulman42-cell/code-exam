@@ -489,10 +489,13 @@ describe('the mechanisms index', () => {
       assert.doesNotMatch(t.lines.join('\n'), /\n\n\n/, 'never two blank lines together');
       const body = rest.filter((l, i) => i % 2 === 0);
       assert.equal(body.length, entries.length);
-      body.forEach((l, i) => assert.match(l, new RegExp(`^\\s*${i + 1}\\. `), l));
+      body.forEach((l, i) => assert.match(l, new RegExp(`^\\s*${i + 1}\\. ${entries[i].id}\\s+\\S`), l));
+      // embed-distance-rows-show-mechanism-id (2026-11-21): the record id follows the number,
+      // padded so the text of every row starts in one column. Red before it: no id on a row.
+      assert.equal(new Set(body.map((l) => l.search(/(?<=\. m\d+\s+)\S/))).size, 1, 'ids of different widths are padded to one column');
       assert.match(body[0], /^ 1\. /, 'numbers right-align to the width of the count shown');
       const vaultLine = body.find((l) => / \[class\] Vault  \(/.test(l));
-      assert.match(vaultLine, /^\s*\d+\. \[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py$/, vaultLine);
+      assert.match(vaultLine, /^\s*\d+\. m\d+\s+\[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py$/, vaultLine);
       assert.ok(!body.some((l) => /\[file\] vault\.py  \(/.test(l)), 'the file record of the pair is not its own line');
       assert.match(t.lines[t.lines.length - 1], new RegExp(`^${entries.length} of ${entries.length} without a model description: ce --index-path \\S+ --toc --describe --llm claude writes one sentence per listed mechanism \\(about \\$0\\.003 each on Claude; above the \\$2 claims guard add --force\\)\\.$`), t.lines[t.lines.length - 1]);
       const rec = byLabel(data, '[file] parser.py');
@@ -500,14 +503,14 @@ describe('the mechanisms index', () => {
       try {
         rec.purpose = 'Keeps secrets under a key and hands them back on demand, ' + 'y'.repeat(100);
         const cutLine = formatMechanismsToc(data, [rec], {}).lines[2];
-        assert.match(cutLine, /^1\. \[file\] parser\.py  \(5 fns, 1 file\) — "Keeps secrets under a key and hands them back on demand, y+…"$/, cutLine);
+        assert.match(cutLine, /^1\. m\d+  \[file\] parser\.py  \(5 fns, 1 file\) — "Keeps secrets under a key and hands them back on demand, y+…"$/, cutLine);
         assert.equal(cutLine.split('"')[1].length, 90, 'the quote is cut at 90 characters');
       } finally { rec.purpose = orig; }
       assert.equal(purposeSnippet('a  b\n c'), 'a b c');
       assert.equal(purposeSnippet('x'.repeat(100)).length, 90);
       const vault = { ...entries.find((e) => e.label === '[class] Vault'), description: 'Vaults keep secrets.' };
       const d = formatMechanismsToc(data, [vault], { filter: 'Vault', exe: 'ce' }).lines;
-      assert.equal(d[2], '1. Vaults keep secrets.  ([class] Vault; 3 fns, 1 file)  also [file] vault.py');
+      assert.equal(d[2], `1. ${vault.id}  Vaults keep secrets.  ([class] Vault; 3 fns, 1 file)  also [file] vault.py`);
       assert.ok(!d.some((l) => /without a model description/.test(l)), 'no footer when every listed entry is described');
       const v = formatMechanismsToc(data, [vault], { verbose: true }).lines;
       assert.equal(v[3], `   ${vault.id.padEnd(6)}[class] Vault  (3 fns, 1 file)`, '-v: the block, indented under the number, starting at the label (the TOC line has just printed the sentence)');
@@ -528,8 +531,8 @@ describe('the mechanisms index', () => {
       const base = entries.find((e) => e.label === '[class] Vault');
       const anaphoric = { ...base, description: 'These methods keep the secrets of one owner.' };
       const named = { ...base, description: 'Vault keeps the secrets of one owner.' };
-      assert.equal(formatMechanismsToc(data, [anaphoric], { exe: 'ce' }).lines[2], '1. [class] Vault  (3 fns, 1 file) — These methods keep the secrets of one owner.  also [file] vault.py', 'the label and counts lead; the sentence follows the dash, unquoted');
-      assert.equal(formatMechanismsToc(data, [named], { exe: 'ce' }).lines[2], '1. Vault keeps the secrets of one owner.  ([class] Vault; 3 fns, 1 file)  also [file] vault.py', 'a sentence that names its subject leads as before');
+      assert.equal(formatMechanismsToc(data, [anaphoric], { exe: 'ce' }).lines[2], `1. ${base.id}  [class] Vault  (3 fns, 1 file) — These methods keep the secrets of one owner.  also [file] vault.py`, 'the label and counts lead; the sentence follows the dash, unquoted');
+      assert.equal(formatMechanismsToc(data, [named], { exe: 'ce' }).lines[2], `1. ${base.id}  Vault keeps the secrets of one owner.  ([class] Vault; 3 fns, 1 file)  also [file] vault.py`, 'a sentence that names its subject leads as before');
       assert.deepEqual(recordBlock(anaphoric, {}).slice(0, 3), [`${base.id.padEnd(6)}[class] Vault  (3 fns, 1 file)`, '      These methods keep the secrets of one owner.', '      also [file] vault.py'], 'the block: the label line, then the sentence, the undescribed shape');
       assert.equal(recordBlock(named, {})[0], `${base.id.padEnd(6)}Vault keeps the secrets of one owner.`);
       const v = formatMechanismsToc(data, [anaphoric], { verbose: true }).lines;
@@ -564,9 +567,9 @@ describe('the mechanisms index', () => {
       assert.equal(recordBlock(big, { filter: 'deep' })[2], '      in src/deep/big.py');
       assert.equal(recordBlock(named, { filter: 'widgets' })[2], '      purpose "Fourteen helpers for widgets."');
       assert.equal(recordBlock(big, {})[2].slice(0, 9), '      fn0', 'no filter, no note');
-      assert.equal(formatMechanismsToc(data, [big], { filter: 'fn13' }).lines[2], '1. [file] big.py  (14 fns, 1 file) — "Fourteen helpers for widgets."  holds fn13');
-      assert.equal(formatMechanismsToc(data, [named], { filter: 'widgets' }).lines[2], '1. big.py keeps the gadgets.  ([file] big.py; 14 fns, 1 file)  purpose "Fourteen helpers for widgets."');
-      assert.equal(formatMechanismsToc(data, [big], { filter: 'widgets' }).lines[2], '1. [file] big.py  (14 fns, 1 file) — "Fourteen helpers for widgets."', 'the quoted purpose explains it');
+      assert.equal(formatMechanismsToc(data, [big], { filter: 'fn13' }).lines[2], '1. m99  [file] big.py  (14 fns, 1 file) — "Fourteen helpers for widgets."  holds fn13');
+      assert.equal(formatMechanismsToc(data, [named], { filter: 'widgets' }).lines[2], '1. m99  big.py keeps the gadgets.  ([file] big.py; 14 fns, 1 file)  purpose "Fourteen helpers for widgets."');
+      assert.equal(formatMechanismsToc(data, [big], { filter: 'widgets' }).lines[2], '1. m99  [file] big.py  (14 fns, 1 file) — "Fourteen helpers for widgets."', 'the quoted purpose explains it');
     });
   });
 
@@ -654,16 +657,16 @@ describe('the mechanisms index', () => {
       // mechanisms-listing-order-and-test-rows. Red before it: [file] test_parser.py was listed and there was one order.
       // Directory order was the default for a few hours on 2026-11-20 and is now --sort-by path.
       const dflt = runCLI(IDX2, ['--toc']);
-      assert.match(dflt.out, /^  1 test row left out \(--include-tests lists it\)\. Largest first; --sort-by path groups the rows by source directory\.$/m, dflt.out);
-      assert.match(dflt.out, /^ ?1\. \[file\] jobs\.js \/ queue  \(7 fns, 1 file\)/m, 'the largest row leads by default');
+      assert.match(dflt.out, /^  1 test row left out \(--include-tests lists it\)\. Largest first; --sort-by path groups the rows by source directory\. Each row: its number in this list, then the mechanism's id \(the name --mechanisms shows\)\.$/m, dflt.out);
+      assert.match(dflt.out, /^ ?1\. m\d+\s+\[file\] jobs\.js \/ queue  \(7 fns, 1 file\)/m, 'the largest row leads by default');
       assert.doesNotMatch(dflt.out, /^--- /m, 'no headings largest first');
       assert.doesNotMatch(dflt.out, /test_parser\.py/, 'the test row is not listed');
       const t = runCLI(IDX2, ['--toc', '--sort-by', 'path']);
-      assert.match(t.out, /^  1 test row left out \(--include-tests lists it\)\. Grouped by source directory, then by file; rows spread over several directories come last. --sort-by size lists the largest first\.$/m, t.out);
+      assert.match(t.out, /^  1 test row left out \(--include-tests lists it\)\. Grouped by source directory, then by file; rows spread over several directories come last. --sort-by size lists the largest first\. Each row: its number in this list, then the mechanism's id \(the name --mechanisms shows\)\.$/m, t.out);
       assert.doesNotMatch(t.out, /test_parser\.py/, 'the test row is not listed');
       assert.match(t.out, /^--- \S+.*  \(\d+ rows?\) ---$/m, 'a heading where the directory changes');
-      assert.doesNotMatch(t.out, /^ ?1\. \[file\] jobs\.js \/ queue/m, 'the largest row no longer leads');
-      const rows = (s) => [...s.matchAll(/^\s*\d+\. (\[(?:file|class)\] [^(]+?)  \(/gm)].map((x) => x[1]);
+      assert.doesNotMatch(t.out, /^ ?1\. m\d+\s+\[file\] jobs\.js \/ queue/m, 'the largest row no longer leads');
+      const rows = (s) => [...s.matchAll(/^\s*\d+\. m\d+\s+(\[(?:file|class)\] [^(]+?)  \(/gm)].map((x) => x[1]);
       const inOrder = rows(t.out);
       const at = (label) => inOrder.indexOf(label);
       assert.ok(at('[file] jobs.js / queue') >= 0 && at('[file] jobs.js / run') === at('[file] jobs.js / queue') + 1 && at('[file] jobs.js / retire') === at('[file] jobs.js / run') + 1, `a file's pieces are neighbours, by line: ${inOrder.join(' | ')}`);
@@ -674,37 +677,37 @@ describe('the mechanisms index', () => {
       assert.match(handleTool('list_mechanisms', { sort_by: 'path' }), /^  --- \S+.*  \(\d+ rows?\) ---$/m, 'the tool prints the same headings');
       assert.doesNotMatch(handleTool('list_mechanisms', {}), /^  --- /m);
       const withTests = runCLI(IDX2, ['--toc', '--include-tests', '--sort-by', 'path']);
-      assert.match(withTests.out, /^\s*\d+\. \[file\] test_parser\.py  \(2 fns, 1 file\)/m, withTests.out);
+      assert.match(withTests.out, /^\s*\d+\. m\d+\s+\[file\] test_parser\.py  \(2 fns, 1 file\)/m, withTests.out);
       assert.match(withTests.out, /^  Grouped by source directory, then by file; rows spread over several directories come last. /m, 'nothing left out, so the line gives the order only');
       assert.equal(rows(withTests.out).length, inOrder.length + 1);
       const bySize = runCLI(IDX2, ['--toc', '--sort-by', 'size']);
-      assert.match(bySize.out, /^ ?1\. \[file\] jobs\.js \/ queue  \(7 fns, 1 file\)/m, bySize.out);
+      assert.match(bySize.out, /^ ?1\. m\d+\s+\[file\] jobs\.js \/ queue  \(7 fns, 1 file\)/m, bySize.out);
       assert.doesNotMatch(bySize.out, /^--- /m, 'no headings largest first');
-      assert.match(bySize.out, /^  1 test row left out \(--include-tests lists it\)\. Largest first; --sort-by path groups the rows by source directory\.$/m);
+      assert.match(bySize.out, /^  1 test row left out \(--include-tests lists it\)\. Largest first; --sort-by path groups the rows by source directory\. Each row: its number in this list, then the mechanism's id \(the name --mechanisms shows\)\.$/m);
       const bad = runCLI(IDX2, ['--toc', '--sort-by', 'nearest']);
       assert.match(bad.out, /--sort-by: 'nearest' is not an order; use path or size\./);
       assert.equal(bad.code, 1);
       assert.match(runCLI(IDX2, ['--toc', 'test_parser']).out, /^No mechanisms match 'test_parser' outside test code; 1 test row does: --include-tests lists it\.$/m, 'a filter that matched only the test row says so');
-      assert.match(runCLI(IDX2, ['--toc', 'test_parser', '--include-tests']).out, /^1\. \[file\] test_parser\.py/m);
+      assert.match(runCLI(IDX2, ['--toc', 'test_parser', '--include-tests']).out, /^1\. m\d+\s+\[file\] test_parser\.py/m);
       for (const o of ['--exclude-tests', '--no-tests']) assert.doesNotMatch(runCLI(IDX2, ['--toc', o]).out, /does nothing here/, `${o} is what the listing does already`);
     });
 
     it('--toc through the CLI: the numbered contents, the folded pair as one line with "also", -v with the block, the cap, an empty filter, and the footer naming --toc', () => {
       const t = runCLI(IDX2, ['--toc']);
       assert.match(t.out, /^\d+ mechanisms \(\d+ records, 1 folded as the same functions under another label\): a cover of/m, t.out);
-      assert.match(t.out, /^ ?\d+\. \[file\] jobs\.js \/ queue  \(7 fns, 1 file\) — "jobs\.js — the worklist of jobs: queues, runs and retires each job in turn\."$/m, t.out);
-      assert.match(t.out, /^ ?\d+\. \[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py$/m, t.out);
-      assert.doesNotMatch(t.out, /^\s*\d+\. \[file\] vault\.py/m, 'the file record of the pair is not its own line');
+      assert.match(t.out, /^ ?\d+\. m\d+\s+\[file\] jobs\.js \/ queue  \(7 fns, 1 file\) — "jobs\.js — the worklist of jobs: queues, runs and retires each job in turn\."$/m, t.out);
+      assert.match(t.out, /^ ?\d+\. m\d+\s+\[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py$/m, t.out);
+      assert.doesNotMatch(t.out, /^\s*\d+\. m\d+\s+\[file\] vault\.py/m, 'the file record of the pair is not its own line');
       assert.match(t.out, /^\d+ of \d+ without a model description: .* --toc --describe --llm claude writes one sentence per listed mechanism/m, t.out);
-      const labels = (s) => [...s.matchAll(/^(?:\s*\d+\. |m\d+\s+)(\[(?:file|class)\] \S+)/gm)].map((x) => x[1]);
+      const labels = (s) => [...s.matchAll(/^(?:\s*\d+\. m\d+\s+|m\d+\s+)(\[(?:file|class)\] \S+)/gm)].map((x) => x[1]);
       assert.deepEqual(labels(t.out), labels(runCLI(IDX2, ['--mechanisms']).out), 'the same entries in the same order as --mechanisms');
       const v = runCLI(IDX2, ['--toc', 'Vault', '-v']);
-      assert.match(v.out, /^1\. \[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py\n   m\d+\s+\[class\] Vault  \(3 fns, 1 file\)\n         Holds the secrets of one owner\.\n         also \[file\] vault\.py\n         \S*vault\.py@Vault::\w+  \(L\d+–\d+\)\n/m, v.out);
+      assert.match(v.out, /^1\. m\d+  \[class\] Vault  \(3 fns, 1 file\) — "Holds the secrets of one owner\."  also \[file\] vault\.py\n   m\d+\s+\[class\] Vault  \(3 fns, 1 file\)\n         Holds the secrets of one owner\.\n         also \[file\] vault\.py\n         \S*vault\.py@Vault::\w+  \(L\d+–\d+\)\n/m, v.out);
       const c = runCLI(IDX2, ['--toc', '--max-results', '2']);
       assert.match(c.out, /\(showing 2\)/); assert.match(c.out, /2 of \d+ shown; --all-results or --max-results 0 shows all, --toc <filter> narrows\./);
       const z = runCLI(IDX2, ['--toc', 'zzz-nothing']);
       assert.match(z.out, /No mechanisms match filter "zzz-nothing" \(\d+ exist — omit the filter to see them all\)/, z.out);
-      assert.match(runCLI(IDX2, ['--toc', '--filter', 'nodoc']).out, /^\s*1\. \[file\] nodoc\.py/m, '--filter is honored when the flag carries no value');
+      assert.match(runCLI(IDX2, ['--toc', '--filter', 'nodoc']).out, /^\s*1\. m\d+\s+\[file\] nodoc\.py/m, '--filter is honored when the flag carries no value');
     });
 
     it('--describe through a stub drafter writes one cleaned sentence per mechanism from a pack that carries members and source, both records of a folded pair take it from one call, and the listing prefers it', async () => {

@@ -600,6 +600,10 @@ export function formatMechanismsToc(data, entries, { filter = null, max = 100, v
   const total = entries.length;
   const shown = Math.min(total, Number.isFinite(max) ? max : total);
   const width = String(shown).length;
+  // embed-distance-rows-show-mechanism-id (2026-11-21): the number at the left is the
+  // entry's place in this listing, which changes with the order, the filter and the
+  // test rows; the record id after it is the entry's name in every listing.
+  const idWidth = Math.max(0, ...entries.slice(0, shown).map((r) => String(r.id || '').length));
   const lines = [`${nf(total)} mechanism${total === 1 ? '' : 's'}${foldNote(entries)}${filter ? ` matching '${filter}'` : ''}${shown < total ? ` (showing ${nf(shown)})` : ''}: ${coverageLine(data)}`, ...(note ? [`  ${note}`] : []), ''];
   let n = 0;
   const heading = headingsOver(entries, headings);
@@ -607,7 +611,7 @@ export function formatMechanismsToc(data, entries, { filter = null, max = 100, v
     n++;
     const hd = heading(r);
     if (hd) lines.push(`--- ${hd} ---`, '');
-    const num =`${String(n).padStart(width)}. `;
+    const num = `${String(n).padStart(width)}. ${idWidth ? `${String(r.id || '').padEnd(idWidth)}  ` : ''}`;
     const note = filter ? matchNote(filterMatches(r, filter, { printed: [], purposeShown: !r.description }), r, { dn }) : '';
     const also = `${alsoOf(r) ? `  ${alsoOf(r)}` : ''}${note ? `  ${note}` : ''}`;
     if (r.description && sentenceNamesSubject(r.description)) lines.push(`${num}${r.description}  (${r.label}; ${countsOf(r)})${tagsOf(r)}${also}`);

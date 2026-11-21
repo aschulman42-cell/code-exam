@@ -19,7 +19,7 @@ import { MECHANISMS_FORMAT } from '../src/core/mechanisms-index.js';
 import { FUSE_ARM } from '../src/core/function-text.js';
 import { CHUNK, entryEmbedPlan, entryCandidates } from '../src/commands/embed-distance.js';
 import {
-  builtModelBases, chooseSearchModel, chooseBuildModel, searchRows, searchTiers, filterRows, formatSearchRow,
+  builtModelBases, chooseSearchModel, chooseBuildModel, searchRows, searchTiers, filterRows, formatSearchRow, groupName,
   renderSearch, acrossElements, renderAcross, readsLikeClaim, closingTips, nextFunctions, isTestEntry,
   shortPath, sourcePath, unusedOptionNotes, acrossDepth, HIT_SHARE, NEAR_SHARE, TOP_UP_MAX, PREFERRED_EMBED_MODEL,
 } from '../src/commands/semantic-search.js';
@@ -184,10 +184,13 @@ describe('--semantic-search: a result is the function that scored', () => {
     const text = formatSearchRow(rows[0]);
     const lines = text.split('\n');
     assert.match(lines[0], /^ {2}1\. 0\.440 {2}assertLocal {3}src\/core\/air\.js:37-45$/);
-    assert.match(lines[1], /in \[file\] air\.js \(2 fn\); also in \[cmd\] --synonymize, \[cmd\] --claim-search$/);
+    // embed-distance-rows-show-mechanism-id (2026-11-21): each group is named by its record id, then its label.
+    assert.match(lines[1], /in (m\d+) \[file\] air\.js \(2 fn\); also in (m\d+) \[cmd\] --synonymize, (m\d+) \[cmd\] --claim-search$/);
+    assert.deepEqual(lines[1].match(/m\d+/g), rows[0].groups.map((g) => g.id), 'the ids are the groups\' own, in the order the labels print');
+    assert.equal(groupName({ label: '[file] x.js' }), '[file] x.js', 'a group without an id prints its label alone');
     assert.match(lines[2], /air\.js blocks cloud calls\.$/);
     assert.doesNotMatch(text, /cosine|distance/);
-    assert.match(formatSearchRow(rows[2]), /\[file\] notes\.md {3}\(a group of 1 function; no single function scored\)/);
+    assert.match(formatSearchRow(rows[2]), /0\.\d+ {2}m5 \[file\] notes\.md {3}\(a group of 1 function; no single function scored\)/, 'a row that is a group leads with the group\'s id');
     assert.match(formatSearchRow(rows[0], { verbose: true }), /score parts: group name 0\.3700, function text 0\.4600; the group ranked 1 among groups/);
   });
 

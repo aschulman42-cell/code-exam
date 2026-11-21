@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from '../src/argparse.js';
 import { EMBED_MODELS, DEFAULT_EMBED_MODEL, resolveEmbedModel, entryChunks, embedAll, COMPACT_ABOVE_DIMS, readCache } from '../src/core/embed.js';
-import { readCandidateList, embedCacheFile, rankCandidates, filterRanked, formatRow, rowHeader, renderListing, CHUNK, resolveQueries, bandWord, listingStats, renderSummary, resolveEmbedModels, bandCalibrated, renderComparison, SMALL_INDEX } from '../src/commands/embed-distance.js';
+import { readCandidateList, embedCacheFile, rankCandidates, filterRanked, formatRow, rowHeader, rowId, idWidthOf, nameWithId, renderListing, CHUNK, resolveQueries, bandWord, listingStats, renderSummary, resolveEmbedModels, bandCalibrated, renderComparison, SMALL_INDEX } from '../src/commands/embed-distance.js';
 import { splitClaimElements } from '../src/commands/claim-locate.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -109,6 +109,31 @@ describe('embed-distance', () => {
     assert.match(filtered[2], /^--filter "rate": 1 of 3 match$/);
   });
 
+  it('a mechanism row carries its record id in a column between the cosine and the label, padded to the widest id and named in the header; candidates given with --against have no id column', () => {
+    // embed-distance-rows-show-mechanism-id (2026-11-21). Red before it: the rows named an entry by
+    // its label alone, which repeats, and by a rank, which is a place in this one listing.
+    const mk = (id, label, v) => ({ text: label, label, members: [{ name: 'f' }], entry: { id, label, members: [{ file: 'a.js', name: 'f' }], files: ['a.js'] }, chunks: [label], vectors: [v] });
+    const ranked = rankCandidates([1, 0, 0], [mk('m7', '[file] a.js', [1, 0, 0]), mk('m1234', '[file] b.js', [0.5, 0.5, 0]), mk('m70', 'multisect (parse)', [0, 1, 0])]);
+    assert.deepEqual(ranked.map(rowId), ['m7', 'm1234', 'm70']);
+    assert.equal(idWidthOf(ranked), 5, 'the widest id');
+    const L = renderListing({ query: 'q', what: '3 entries', ranked, top: Infinity, filter: null, verbose: false });
+    assert.deepEqual(L.slice(3), [
+      'rank  cosine  id     entry',
+      '  1.  1.0000  m7     [file] a.js  (1 fn)',
+      '  2.  0.5000  m1234  [file] b.js  (1 fn)',
+      '  3.  0.0000  m70    multisect (parse)  (1 fn)',
+    ]);
+    assert.equal(formatRow(ranked[0], 2), '  1.  1.0000  m7  [file] a.js  (1 fn)', 'a row on its own pads to its own id');
+    assert.equal(rowHeader(2, { fused: true, idWidth: 5 }), 'rank   score   label  function  id     entry', 'under --function-text the id column sits before the entry too');
+    assert.equal(nameWithId(ranked[1]), 'm1234 [file] b.js', 'the closing tables name an entry by id, then label');
+    const texts = rankCandidates([1, 0, 0], [{ text: 'a plain candidate', vectors: [[1, 0, 0]] }, { text: 'another', vectors: [[0, 1, 0]] }]);
+    assert.equal(idWidthOf(texts), 0);
+    assert.equal(rowId(texts[0]), '');
+    assert.equal(nameWithId(texts[0]), 'a plain candidate');
+    const T = renderListing({ query: 'q', what: '2 candidates', ranked: texts, top: Infinity, filter: null, verbose: false });
+    assert.deepEqual(T.slice(3), ['rank  cosine  candidate', '  1.  1.0000  a plain candidate', '  2.  0.0000  another'], 'a list given with --against: no id column, no id header');
+  });
+
   it('-v prints the entry block under a mechanism row, members as file@name with their line range, then the chunk; a text candidate stays one row', () => {
     const entry = {
       id: 'm9', label: '[class] AdaptiveTrackSelection / other', description: 'Picks the track.', files: ['a/Adaptive.java'], tags: ['giant'],
@@ -119,7 +144,7 @@ describe('embed-distance', () => {
       { text: 'a plain candidate', vectors: [[0, 1, 0]] },
     ]);
     const lines = formatRow(ranked[0], 2, { verbose: true }).split('\n');
-    assert.equal(lines[0], '  1.  1.0000  [class] AdaptiveTrackSelection / other  (2 fn)');
+    assert.equal(lines[0], '  1.  1.0000  m9  [class] AdaptiveTrackSelection / other  (2 fn)', 'the entry\'s record id sits between the cosine and the label');
     assert.equal(lines[1], '      m9    Picks the track.');
     assert.equal(lines[2], '            [class] AdaptiveTrackSelection / other  (2 fns, 1 file)  [giant]');
     assert.equal(lines[3], '            a/Adaptive.java@AdaptiveTrackSelection::determineIdealSelectedIndex  (L10–48)', 'a member with a range');
@@ -516,5 +541,55 @@ describe('--toward-code: the elements reworded toward the index\'s names, ranked
     assert.equal(b.status, 2);
     assert.ok(b.stderr.includes('--spec') && b.stderr.includes('--toward-code'), b.stderr);
     assert.equal(b.stdout.trim(), '');
+  });
+
+  it('id:m70 in place of the text measures from that mechanism: the id is read, found through a fold, its functions averaged, its block printed first, and the band not read', async () => {
+    // embed-distance-rows-show-mechanism-id (2026-11-21). Red before it: `id:m70` was embedded as a text.
+    const { mechanismQueryId, entryIndexById, meanVector, mechanismQueryBlock, rankFused } = await import('../src/commands/embed-distance.js');
+    assert.equal(mechanismQueryId('id:m70'), 'm70');
+    assert.equal(mechanismQueryId(' ID:M70 '), 'm70');
+    for (const t of ['m70', 'id:70', 'id:m70 and more', 'the id:m70', '', null]) assert.equal(mechanismQueryId(t), null, `${t} is a text`);
+    const entries = [{ id: 'm1', label: 'a', members: [] }, { id: 'm5', label: 'b', members: [], aliases: [{ id: 'm9', label: 'c' }] }];
+    assert.equal(entryIndexById(entries, 'm5'), 1);
+    assert.equal(entryIndexById(entries, 'm9'), 1, 'a record folded into another is found through it');
+    assert.equal(entryIndexById(entries, 'm2'), -1);
+    const vecs = new Map([['f', [2, 0]], ['g', [0, 5]]]);
+    const mv = meanVector(['f', 'g', 'absent'], vecs);
+    assert.ok(Math.abs(mv[0] - Math.SQRT1_2) < 1e-9 && Math.abs(mv[1] - Math.SQRT1_2) < 1e-9, 'each function counts once whatever its vector\'s length, and the mean is a unit vector');
+    assert.equal(meanVector(['absent'], vecs), null);
+    const entry = { id: 'm5', label: '[file] a.js', description: 'Does a thing.', files: ['src/a.js'], tags: [], members: [{ file: 'src/a.js', name: 'run', start: 3, end: 9 }] };
+    const B = mechanismQueryBlock(entry, '[file] a.js: run', { generated: '2026-11-10T08:00:00Z' }, 'm9');
+    assert.match(B[0], /^Measured from mechanism m9 \(folded into m5: the same functions under another label\), as recorded in the mechanisms file built 2026-11-10\./);
+    assert.ok(B.includes('  m5    Does a thing.'), B.join('\n'));
+    assert.ok(B.includes('        src/a.js@run  (L3–9)'), 'every member, as --mechanisms -v prints it');
+    assert.equal(B[B.length - 1], '  its label and member names, the text it is compared by: [file] a.js: run');
+    assert.doesNotMatch(mechanismQueryBlock(entry, 't', {}, 'm5')[0], /folded/);
+    // the function part of the score is ranked by the second query vector
+    const cands = [
+      { label: 'x', members: [], entry: { id: 'm2' }, vectors: [[1, 0]], chunks: ['x'], fnIds: ['f'] },
+      { label: 'y', members: [], entry: { id: 'm3' }, vectors: [[1, 0]], chunks: ['y'], fnIds: ['g'] },
+    ];
+    assert.equal(rankFused([1, 0], cands, vecs, 0.3, null, [0, 1])[0].label, 'y', 'the label vector ties the two; the function vector [0, 1] picks g');
+    assert.equal(rankFused([1, 0], cands, vecs, 0.3)[0].label, 'x', 'without it one vector serves both parts, as before');
+    const L = renderListing({ query: 'm5 [file] a.js', what: 'w', ranked: rankCandidates([1, 0], cands), top: 5, filter: null, verbose: false, fromMechanism: true });
+    assert.equal(L[0], 'from mechanism: m5 [file] a.js');
+    assert.ok(!L.some((l) => /^no clear match|^borderline/.test(l)), 'the band is not read for a mechanism as the query');
+  });
+
+  const hasDemo = fs.existsSync(path.join(ROOT, '.demo', 'mechanisms.json'));
+  it('id:<mechanism> stops in one line, before a model loads, for an id the index does not have, and when given with --against', { skip: hasDemo ? false : 'needs the .demo index with its mechanisms.json' }, () => {
+    const cli = (...a) => spawnSync(process.execPath, [path.join(ROOT, 'src', 'index.js'), ...a], { encoding: 'utf8' });
+    const a = cli('--ndx', path.join(ROOT, '.demo'), '--embed-distance', 'id:m99999');
+    assert.equal(a.status, 2, a.stderr);
+    assert.match(a.stderr, /has no mechanism m99999\. Its mechanisms file, built \S+, holds \d+ records; --mechanisms <filter> and --toc <filter> show each row's id\./);
+    assert.doesNotMatch(a.stderr, /# loading/, 'no model was loaded');
+    assert.equal(a.stdout.trim(), '');
+    const b = cli('--ndx', path.join(ROOT, '.demo'), '--embed-distance', 'id:m1', '--against', 'y');
+    assert.equal(b.status, 2, b.stderr);
+    assert.match(b.stderr, /id:m1 measures from one mechanism of an index to the index's other mechanisms, and --against gives texts/);
+    const c = cli('--ndx', path.join(ROOT, '.demo'), '--semantic-search', 'id:m99999');
+    assert.equal(c.status, 2, c.stderr);
+    assert.match(c.stderr, /--semantic-search: .* has no mechanism m99999\./);
+    assert.doesNotMatch(c.stderr, /# loading/, 'no model was loaded');
   });
 });
