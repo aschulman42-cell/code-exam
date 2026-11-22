@@ -7,13 +7,13 @@ members, files, and call relationships before anyone assigns a claim assessment?
 Run focused tests with:
 
 ```text
-node --test codex-tests/test_concept_toc.js
+node --test test/codex-tests/test_concept_toc.js
 ```
 
 Run it against the ExoPlayer index with a locally cached embedding model:
 
 ```text
-node codex-tests/concept-toc.mjs --ndx .AndroidX_Media_ExoPlayer3 --claim @8752101_claim_1.txt --top 12 --embed-model gemma
+node test/codex-tests/concept-toc.mjs --ndx .AndroidX_Media_ExoPlayer3 --claim @8752101_claim_1.txt --top 12 --embed-model gemma
 ```
 
 The default is a compact decision view: six direct mechanisms and three concept

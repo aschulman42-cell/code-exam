@@ -13,10 +13,10 @@ import { pathToFileURL } from 'node:url';
 import {
   resolveEmbedModels, resolveQueries, embedCacheFile, rankCandidates, rankFused,
   functionTexts, listingStats, CHUNK,
-} from '../src/commands/embed-distance.js';
-import { resolveEmbedModel, openEmbedder, embedAll, entryChunks, entryText, cut } from '../src/core/embed.js';
-import { loadMechanismsIndex, foldRecords } from '../src/core/mechanisms-index.js';
-import { buildCorpus, FUSE_ARM, FUSE_LABEL_WEIGHT } from '../src/core/function-text.js';
+} from '../../src/commands/embed-distance.js';
+import { resolveEmbedModel, openEmbedder, embedAll, entryChunks, entryText, cut } from '../../src/core/embed.js';
+import { loadMechanismsIndex, foldRecords } from '../../src/core/mechanisms-index.js';
+import { buildCorpus, FUSE_ARM, FUSE_LABEL_WEIGHT } from '../../src/core/function-text.js';
 
 export function parseArgs(argv) {
   const o = { index: null, claim: null, model: null, top: 12, cpu: false, functionText: false, help: false };
@@ -32,7 +32,7 @@ export function parseArgs(argv) {
     else if (a === '--help' || a === '-h') o.help = true;
     else throw new Error(`unknown argument ${a}`);
   }
-  if (!o.help && (!o.index || !o.claim)) throw new Error('usage: node codex-tests/claim-evidence-map.mjs --ndx <index> --claim @<claim.txt> [--embed-model nomic] [--top N] [--function-text] [--cpu]');
+  if (!o.help && (!o.index || !o.claim)) throw new Error('usage: node test/codex-tests/claim-evidence-map.mjs --ndx <index> --claim @<claim.txt> [--embed-model nomic] [--top N] [--function-text] [--cpu]');
   return o;
 }
 
@@ -108,7 +108,7 @@ export function renderEvidenceMap({ index, claimSource, model, functionText, ele
 
 async function main(argv = process.argv.slice(2)) {
   const o = parseArgs(argv);
-  if (o.help) { console.log('usage: node codex-tests/claim-evidence-map.mjs --ndx <index> --claim @<claim.txt> [--embed-model nomic] [--top N] [--function-text] [--cpu]'); return; }
+  if (o.help) { console.log('usage: node test/codex-tests/claim-evidence-map.mjs --ndx <index> --claim @<claim.txt> [--embed-model nomic] [--top N] [--function-text] [--cpu]'); return; }
   const { queries, source } = resolveQueries(o.claim);
   const indexPath = path.resolve(o.index);
   const data = loadMechanismsIndex({ indexPath }, { cache: false });
@@ -128,7 +128,7 @@ async function main(argv = process.argv.slice(2)) {
     const cands = entries.map((e, i) => ({ text: texts[i], label: e.label, members: e.members || [], entry: e, chunks: chunks[i], vectors: chunks[i].map((t, c) => t === texts[i] ? whole.get(`${e.id}:${i}`) : more.get(`${e.id}:${i}:${c}`)) }));
     let fnVecs = null, fnPlan = null;
     if (o.functionText) {
-      const { CodeSearchIndex } = await import('../src/core/CodeSearchIndex.js');
+      const { CodeSearchIndex } = await import('../../src/core/CodeSearchIndex.js');
       const old = console.log; console.log = () => {};
       let idx; try { idx = new CodeSearchIndex({ indexPath }); if (idx._ensureFunctionIndex) idx._ensureFunctionIndex(); } finally { console.log = old; }
       fnPlan = functionTexts(entries, buildCorpus(idx.functionIndex || {}, (f) => idx.fileLines.get(f)));

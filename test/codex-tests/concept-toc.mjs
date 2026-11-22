@@ -8,9 +8,9 @@
 
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadMechanismsIndex, foldRecords } from '../src/core/mechanisms-index.js';
-import { resolveEmbedModels, resolveQueries, embedCacheFile } from '../src/commands/embed-distance.js';
-import { resolveEmbedModel, openEmbedder, embedAll, cut, entryText } from '../src/core/embed.js';
+import { loadMechanismsIndex, foldRecords } from '../../src/core/mechanisms-index.js';
+import { resolveEmbedModels, resolveQueries, embedCacheFile } from '../../src/commands/embed-distance.js';
+import { resolveEmbedModel, openEmbedder, embedAll, cut, entryText } from '../../src/core/embed.js';
 
 const STOP = new Set('about after again also and are based between by each from have into more most other over such than that their these this those through using were which with class file java src main test builder factory util default data device configuration sink write bundle playback state media androidx'.split(' '));
 
@@ -194,13 +194,13 @@ export function parseArgs(argv) {
     else if (a === '--help' || a === '-h') o.help = true;
     else throw new Error(`unknown argument ${a}`);
   }
-  if (!o.help && (!o.index || !o.claim)) throw new Error('usage: node codex-tests/concept-toc.mjs --ndx <index> --claim @<claim.txt> [--embed-model gemma] [--top N] [--cpu] [--direct-embed] [--verbose-menu]');
+  if (!o.help && (!o.index || !o.claim)) throw new Error('usage: node test/codex-tests/concept-toc.mjs --ndx <index> --claim @<claim.txt> [--embed-model gemma] [--top N] [--cpu] [--direct-embed] [--verbose-menu]');
   return o;
 }
 
 async function main(argv = process.argv.slice(2)) {
   const o = parseArgs(argv);
-  if (o.help) { console.log('usage: node codex-tests/concept-toc.mjs --ndx <index> --claim @<claim.txt> [--embed-model gemma] [--top N] [--cpu] [--direct-embed] [--verbose-menu]'); return; }
+  if (o.help) { console.log('usage: node test/codex-tests/concept-toc.mjs --ndx <index> --claim @<claim.txt> [--embed-model gemma] [--top N] [--cpu] [--direct-embed] [--verbose-menu]'); return; }
   const { queries, source } = resolveQueries(o.claim);
   const indexPath = path.resolve(o.index);
   const data = loadMechanismsIndex({ indexPath }, { cache: false });

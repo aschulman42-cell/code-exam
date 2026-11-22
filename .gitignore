@@ -17,7 +17,6 @@
 !/scripts/
 !/docs/
 !/samples/
-!/codex-tests/
 
 # Re-ignore build/dep dirs even if nested inside a blessed dir
 node_modules/

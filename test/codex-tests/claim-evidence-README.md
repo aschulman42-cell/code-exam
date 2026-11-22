@@ -9,8 +9,8 @@ or a local chat model.
 ## Run
 
 ```text
-node codex-tests/claim-evidence-map.mjs --ndx <index> --claim @<claim.txt>
-node codex-tests/claim-evidence-map.mjs --ndx <index> --claim @<claim.txt> --top 12 --function-text --cpu
+node test/codex-tests/claim-evidence-map.mjs --ndx <index> --claim @<claim.txt>
+node test/codex-tests/claim-evidence-map.mjs --ndx <index> --claim @<claim.txt> --top 12 --function-text --cpu
 ```
 
 The report lists each claim element, the embedding head, a small lexical-name addition, the
@@ -48,5 +48,5 @@ Generated reports stay outside the repository unless deliberately retained.
 ## Test
 
 ```text
-node --test codex-tests/test_claim_evidence_map.js
+node --test test/codex-tests/test_claim_evidence_map.js
 ```
