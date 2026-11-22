@@ -72,6 +72,7 @@ import { doMultisect } from './commands/multisect.js';
 import { doClaimSearch } from './commands/claim.js';
 import { doPseudoClaims, doTriage } from './commands/pseudo-claims.js';
 import { doBuildMechanisms, doMechanisms, doToc } from './commands/mechanisms.js';
+import { doShowFunctionText } from './commands/function-text.js';
 import { unreadTestOptionNote } from './core/test-paths.js';
 import {
   doAnalyze, doClaimAnalyze, doMultisectAnalyze, doFileAnalyze,
@@ -141,7 +142,7 @@ const _QUERY_COMMAND_KEYS = [
   'save_fingerprints',
   'command_catalog', 'string_table', 'breadcrumbs', 'prompt_catalog', 'file_bookends', 'bundle_seams', 'digest',
   'comments_only', 'emit_harness', 'list_harnessable', 'census_imports', 'bom', 'why_depends', 'copyrights', 'exports', 'imports_from', 'imports', 'infrastructure',
-  'mechanisms', 'toc',
+  'mechanisms', 'toc', 'show_function_text',
 ];
 
 // #249: index-MUTATING commands. They ARE real commands (so a no-index run must
@@ -1160,6 +1161,7 @@ if (args.domain_fns)                        doDomainFns(index, args);
 if (args.list_classes)                      doListClasses(index, args);
 if (args._explicit.has('mechanisms'))       doMechanisms(index, args, { exe: exeBase(), describe: mechanismsDescribe });
 if (args._explicit.has('toc'))              doToc(index, args, { exe: exeBase(), describe: mechanismsDescribe });   // mechanisms-toc-one-row-per-mechanism (#296)
+if (args._explicit.has('show_function_text')) doShowFunctionText(index, args, { exe: exeBase() });   // show-function-text-option
 if (args.data_structs)                      doDataStructs(index, args);
 if (args.client_server)                     doClientServer(index, args);
 if (args.referenced_resources) {

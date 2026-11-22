@@ -136,6 +136,8 @@ export function parseArgs() {
     redescribe: false,
     mechanisms: null,
     toc: null,
+    show_function_text: null,   // --show-function-text [filter | id:mNNN]: list the per-function text --semantic-search embeds
+    text_has: null,             // --show-function-text: keep the functions whose text matches (substring, or /regex/)
     // mechanisms-listing-order-and-test-rows: the order of --toc and
     // --mechanisms; null is the default, `path`. The other is `size`.
     sort_by: null,
@@ -608,6 +610,9 @@ export function parseArgs() {
     ['list_classes',         'flag',           ['--classes'], ['--list-classes']],
     ['mechanisms',           'optional_value', ['--mechanisms']],
     ['toc',                  'optional_value', ['--toc']],
+    // show-function-text-option (2026-11-22): the text the embedding commands embed per function
+    ['show_function_text',   'optional_value', ['--show-function-text']],
+    ['text_has',             'value',          ['--text-has']],
     ['sort_by',              'value',          ['--sort-by']],
     ['data_structs',         'flag',           ['--data-structs'], ['--structs']],
     ['client_server',        'flag',           ['--client-server'], ['--routes']],
@@ -1326,6 +1331,26 @@ SEARCH:
                              about once a minute, and continues where a stopped run
                              left off. Seconds on a small index; about 45 minutes for
                              45,000 functions on a laptop CPU (2026-11-16).
+  --show-function-text [filter]
+                             List the text --semantic-search and --embed-distance
+                             --function-text embed for each function, as embedded:
+                             the name as words, the body's ranked identifiers, its
+                             comments and the words of its string literals. No model
+                             runs. Each entry is file@function, its lines and the
+                             ids of the mechanisms holding it (m12, as --mechanisms
+                             shows it), then the text. A filter matches file@function
+                             (substring, or /regex/); id:m70 in its place lists the
+                             functions of that mechanism. --text-has <text> keeps
+                             the functions whose text holds it. -v shows the text's
+                             pieces apart with their lengths. Test functions are left
+                             out unless --include-tests; 50 entries unless
+                             --max-results or --all-results.
+  --text-has <text>          With --show-function-text: list only the functions whose
+                             embedded text holds <text> (substring, any case, or a
+                             /regex/), each under its file@function line. Unlike a
+                             grep of the listing, which gives the matching line
+                             without the function it belongs to. Combines with the
+                             file@function filter and with id:m70.
   --embed-distance <text|@file>
                              Cosine distance under a local embedding model: from <text>
                              to --against "<text>" (one pair), to --against @file (one
@@ -2450,6 +2475,7 @@ LLM ANALYSIS:
                               corpus, the gate turns itself off and says so.
                               --mechanisms, --toc: also list the rows that are
                               wholly test code, which they leave out by default.
+                              --show-function-text: also list test functions.
   --claim-analyze <claim>    End-to-end patent claim analysis: extract terms, search,
                               analyze top matches. Takes @file.txt or inline text.
                               Direct-target mode: pass a FUNCTION (or FILE@FUNCTION)

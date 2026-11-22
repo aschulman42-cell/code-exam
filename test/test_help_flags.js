@@ -100,6 +100,10 @@ describe('the embed options each have a help entry, and --embed-model list', () 
     // embed-distance-rows-show-mechanism-id (2026-11-21): the help names the id column and says --against rows have none.
     assert.match(r.stdout, /--embed-distance[\s\S]*Rows are\s+rank, cosine, the entry's mechanism id \(m12, as --mechanisms\s+shows it; no id for candidates given with --against\) and the\s+entry/);
     assert.match(run('--help', 'toc').stdout, /--toc \[filter\][\s\S]*number in this list, the mechanism's id \(m12, as\s+--mechanisms shows it\)/, '--toc says what the two things at the left of a row are');
+    // show-function-text-option (2026-11-22): the listing of what is embedded per function has an entry, found under --help embed and by its own name.
+    assert.ok(entry(r.stdout, '--show-function-text'), 'no entry headed --show-function-text under --help embed');
+    assert.match(run('--help', 'show-function-text').stdout, /--show-function-text \[filter\][\s\S]*embed for each function, as embedded[\s\S]*No model\s+runs[\s\S]*id:m70 in its place lists the\s+functions of that mechanism[\s\S]*unless --include-tests/);
+    assert.match(run('--help', 'text-has').stdout, /--text-has <text>[\s\S]*With --show-function-text: list only the functions whose\s+embedded text holds <text>/);
     assert.doesNotMatch(r.stdout, /rank, cosine, distance/, 'the old row shape is not described');
     assert.match(r.stdout, /--embed-distance[\s\S]*reports about once a\s+minute/);
     assert.match(r.stdout, /--filter <s> a column with the rank of the first entry/);

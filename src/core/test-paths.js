@@ -94,10 +94,10 @@ export const AIML_LISTING_KEYS = ['list_models', 'list_artifacts', 'list_kernels
 
 /**
  * The listings that leave test rows out unless --include-tests is given (--mechanisms,
- * --toc). Given --exclude-tests or --no-tests they do what was asked already, so the
+ * --toc, --show-function-text). Given --exclude-tests or --no-tests they do what was asked already, so the
  * note below, which says no test code was left out, would be false for them.
  */
-export const TESTS_OUT_BY_DEFAULT_KEYS = ['mechanisms', 'toc'];
+export const TESTS_OUT_BY_DEFAULT_KEYS = ['mechanisms', 'toc', 'show_function_text'];
 
 /**
  * When --exclude-tests or --no-tests was given and no command in the run reads it, one

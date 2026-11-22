@@ -459,12 +459,49 @@ and for `AviStreamHeaderChunk::parseFrom`, a function with only field comments:
 avi stream header chunk parse from: body, read little endian int, initial frames, suggested buffer size, avi stream header chunk, rate, scale, skip bytes, stream type, sample size, length, parsable byte array. fccHandler (4 bytes), dwFlags (4 bytes), wPriority (2 bytes), wLanguage (2 bytes). dwStart (4 bytes). dwQuality (4 bytes).
 ```
 
+**To read these texts for your own index**, `--show-function-text` prints them exactly as
+they are embedded, with no model run:
+
+```
+ce --ndx .CE --show-function-text air-gapped.js@assert     functions whose file@name matches
+ce --ndx .CE --show-function-text id:m185                  the functions of one group
+ce --ndx .CE --show-function-text -v --max-results 5       the pieces of each text apart
+ce --ndx .CE --show-function-text --text-has "air gapped"  functions whose text holds the words
+```
+
+`--text-has` looks in the text, not the source: identifiers are there as words, so
+`airGapped` in the code is `air gapped` in the text. It takes a `/regex/` too.
+
+```
+
+```
+src/core/air-gapped.js@assertLocalOnly  (L37-45; in m2 m7 m12 m185)
+    assert local only: feature, air gapped, error. Throw a uniform, user-safe error before ...
+```
+
+The line over each text is the function, its lines, and the ids of the groups that hold it.
+With `-v` the four pieces (name, identifiers, comment, string words) are shown apart with
+their lengths, which shows at a glance whether a function's text is mostly its comment or
+mostly identifiers. Reading a page of them is the quickest way to see why one function is
+found and another is not: a function with a comment reads close to a description of itself,
+and one without is a list of identifiers, some of them names every file uses.
+
 So the things in a listing that look like code, `[class] AviStreamHeaderChunk` and
 `[file] AviStreamHeaderChunk.java`, are the **labels of groups**: CodeExam's own names for a
 class's or a file's functions taken together. They are built from the index with no model
 ([`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) explains how functions are grouped and
-how to read a label). Every function of four lines or more is in at least one group, so every
-such function can be reached.
+how to read a label). A function of four lines or more is in at least one group, and so can
+be reached, with exceptions: `--show-function-text` marks every function no text is embedded
+for and counts them in its header. On CodeExam's own index (2026-11-22) that was 803 of 2,797
+functions outside tests:
+
+- 709 of one to three lines, in no group (the four-line floor);
+- 62 of four lines or more that are in no group all the same (`in no mechanism, not
+  embedded`), among them functions named `main`, `init` and `get` and class constructors. Why
+  the grouper leaves these out has not been looked into;
+- 32 that are in a group but are the second definition of a name within one file (`in m57,
+  not embedded: a second definition of this name in the file`). A search reaches a group's
+  functions by file and name, which finds only the first definition.
 
 **The score.** A group's score for your text is 0.3 of its label text's similarity plus 0.7
 of its best function's. That weighting was fixed and measured before this command existed

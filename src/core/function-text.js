@@ -234,6 +234,22 @@ export function functionText(f, arm, corpus) {
 }
 
 /**
+ * The pieces functionText joins for the `comments` arm, kept apart so a listing can show
+ * which piece a text is mostly made of (--show-function-text -v): { name, identifiers: [..],
+ * comment, strings: [..] }. functionText(f, 'comments', corpus) is these four joined as
+ * `name: identifiers. comment. Text: strings`, an empty piece and its separator left out.
+ */
+export function functionTextParts(f, corpus) {
+  const own = new Set([leafOf(f.name)]);
+  return {
+    name: phrase(f.name),
+    identifiers: rankIdentifiers(f.tf, corpus.df, corpus.n, VOCAB_TOP, own).map(phrase),
+    comment: f.comments ? f.comments.slice(0, COMMENT_CHARS) : '',
+    strings: literalWords(f.strings),
+  };
+}
+
+/**
  * The texts of a class or file: the label with the unit's ranked vocabulary,
  * then, when the unit has more than `run` functions, one text per run of
  * `run` functions in source order. The unit scores as its best text.
