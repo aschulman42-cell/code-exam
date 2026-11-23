@@ -799,6 +799,8 @@ claims and scored at the same grain, the function, since a chart cites functions
 - [`CODEEXAM_PATENT_CLAIMS.md`](CODEEXAM_PATENT_CLAIMS.md) and
   [`CODEEXAM_CLAIM_CHARTS.md`](CODEEXAM_CLAIM_CHARTS.md): the claim commands.
 - [`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md): prose drafted from code.
+- [`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md): a status report on clustering the
+  mechanisms into features with these same vectors. Work in progress, not in the product.
 - [`model-support.md`](model-support.md): the embedding models and their prompts.
 - [`AIR_GAPPED.md`](AIR_GAPPED.md) and
   [`SOURCE_CODE_PROTECTIVE_ORDERS.md`](SOURCE_CODE_PROTECTIVE_ORDERS.md): what stays on the

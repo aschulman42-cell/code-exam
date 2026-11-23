@@ -379,6 +379,11 @@ Dated one-line results; the tables are on the linked pages.
   The two controls (another limitation of the same chart, and a codebase without the
   feature) have since been run on the chart rows, as above, not on this claim.
 
+Whether the mechanisms can be put automatically into a few dozen clusters, each one feature
+of the codebase, and how close that comes to a hand-made list of features, is reported in
+[`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md). That is work in progress and nothing in
+it is in the product.
+
 Results about mechanisms themselves that have no section yet (the grouper's cover and split
 measurements, the two describers compared as a table of contents, the no-match calibration
 of `--embed-distance`, local describe timings) go to
