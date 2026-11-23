@@ -1,12 +1,12 @@
 # Clustering: can CodeExam sort a codebase into its features automatically?
 
-*A status report on work in progress, as of 2026-11-22. No CodeExam command produces the
+*A status report on work in progress, as of 2026-11-22. No CodeExam command yet produces the
 clusters described here. The experiments were run with scratch scripts that are not part of
 the product.*
 
 When CodeExam examines a codebase, it finds **mechanisms**: small sets of functions that
 together do one thing, such as the methods of one class or a command's handler and its
-helpers. `--toc` and `--mechanisms` list them. The trouble is the length of the list.
+helpers. `--toc` and `--mechanisms` list them. One trouble is the length of the list.
 CodeExam's own code has 363 mechanisms, and a large codebase has thousands. Nobody can run
 an eye down that and see what the codebase is about.
 
@@ -19,7 +19,8 @@ program measures how similar each mechanism is to every other and puts similar m
 into the same **cluster**. The hope is that each cluster turns out to be one feature, so
 that the listing becomes a few dozen entries that a person can scan and then open.
 
-**How well does it work so far?** It has been tested on one codebase, CodeExam's own, where
+**How well does it work so far?** It has so far only been tested thoroughly on one codebase, 
+CodeExam's own (though also see "Other codebases" below), where
 a hand-made list says which mechanisms implement which feature. The best automatic
 clustering tried so far does this:
 
@@ -29,8 +30,8 @@ clustering tried so far does this:
   cluster is mechanisms from other features.
 
 Clusters made by shuffling score 20% to 35% on the same two measures. So the clusters are
-far better than chance and well short of what a person would write by hand. They may be
-good enough as a first map of an unfamiliar codebase. That has not been tested with
+far better than chance on the one hand, and on the other hand well short of what a person would write by hand. 
+They may be good enough as a first map of an unfamiliar codebase. That has not been tested with
 readers.
 
 Two limits apply to everything below:
@@ -63,25 +64,25 @@ Two limits apply to everything below:
 |---|---|
 | mechanism | a small set of functions that together do one thing; one entry of `--toc` or `--mechanisms`, with an id such as `m70`. CodeExam finds mechanisms by fixed rules, with no language model ([`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md)) |
 | feature | something a codebase does, as a person who knows it would name it: "claim charts", "finding duplicate functions" |
-| cluster | a set of mechanisms that a program has put together because they are similar |
+| cluster | a set of mechanisms that a program has put together because they are similar in some way |
 | broad and narrow clusters | the same clustering at two levels of detail: 12 broad clusters for CodeExam, or 45 narrow ones. The tests page calls them sections and sub-sections |
 | function text | a short text CodeExam builds for each function from its name, its identifiers, its comments and its strings. `--show-function-text` prints it |
-| embedding | a list of numbers computed from a text by a small model, such that texts with similar meaning get similar numbers. It is how "similar" is measured here |
+| embedding | a list of numbers computed from a text by a small model such as EmbeddingGemma, such that texts with similar meaning get similar numbers. It is how "similar" is measured here |
 | mixed mechanism | a mechanism whose functions belong to several features at once |
 
 ## Why try to put mechanisms into clusters?
 
 **To give users a menu of possibilities.** CodeExam's commands for finding the code that
 matches a patent claim (`--claim-chart`, `--claim-locate`, `--claim-search`) don't yet work
-very well. Until they do, CodeExam can at least present a menu: here is a reasonably sized
-and reasonably complete list of what is in this codebase, with easy-to-eyeball summaries of
+as well as desired. Until they do, CodeExam can at least present a menu: here is a reasonably-sized
+and reasonably-complete list of what is in this codebase, with easy-to-eyeball summaries of
 each chunk, so you can see if it is what you are looking for. From an entry you would then
 see the codebase's own vocabulary for that feature, and the main files and functions
 associated with it.
 
 **To bridge the gap between prose and code.** Much of CodeExam's claim work rests on
 literal or regex searching, even when synonyms are added. That makes it depend heavily on
-what the code says about itself, as against what the code actually does. Technical prose
+what the code says about itself, as against what the code actually *does*. Technical prose
 such as a patent claim rarely uses the code's own words. CodeExam's approach is to take the
 code, turn it into prose, and compare that prose with the user's prose by embedding both.
 That raises the question of how good the prose made from the code is. The question is not
@@ -89,20 +90,21 @@ whether it is good in the abstract. It is whether it is suitable for finding the
 a piece of prose describes. Clustering is one way to find out: if the prose is good, then
 mechanisms that implement the same feature should come out similar.
 
-**To find the sweet spot between too broad and too narrow.** CodeExam can draft
+**To find the "sweet spot" between too broad and too narrow.** CodeExam can draft
 "pseudo-claims", patent-style descriptions of what a piece of code does
 ([`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md)). They are promising but are often
 at the wrong level. A real independent claim is written to be as broad as the earlier
 inventions allow. A pseudo-claim written from one mechanism is too narrow and too closely
 tied to one codebase. A cluster of mechanisms may be closer to the size of an invention.
 
-Behind all three is an older idea: carving a codebase along its joints or seams, to see
+Behind all three is an older idea that the principal developer has worked on: 
+carving a codebase along its joints or seams, to see
 which parts are tightly integrated and which are only loosely coupled. Clustering is the
 present-day machine-learning name for that kind of carving.
 
 The test of success is practical. The clusters don't need to be perfect. When a user looks
-at the clustered listing, is it likely they will find the feature or concept they are
-interested in reflected there?
+at the clustered listing, is it likely they will find reflected there the feature or concept 
+they are interested in?
 
 ## What a clustered listing looks like
 
@@ -133,7 +135,7 @@ Two more points about this listing:
 
 ## How the clusters are made
 
-No language model is used at any step, and nothing leaves your machine. That matters
+No LLM is used at any step, and nothing leaves your machine. That matters
 because CodeExam is often used on confidential code.
 
 1. **A short text for each function.** CodeExam builds it from the function's name split
@@ -150,7 +152,7 @@ because CodeExam is often used on confidential code.
 4. **Clustering.** The program starts with every mechanism as its own cluster. It then
    repeatedly merges the two clusters that are most alike, until there is one. The record of
    the merges is a tree. This standard technique is called hierarchical clustering, and the
-   particular rule used for "most alike" is Ward's method.
+   particular rule used for "most alike" is [Ward's method](https://en.wikipedia.org/wiki/Ward%27s_method).
 5. **Choosing how many clusters.** Stopping the merging early gives many narrow clusters.
    Stopping late gives a few broad ones. The experiments stop at 12 and at 45 for CodeExam,
    and at several numbers between for comparison.
@@ -184,16 +186,16 @@ those, in 28 features. Mixed mechanisms, described below, are among the ones lef
 
 The two pull against each other. One giant cluster keeps every feature together and is pure
 for none. A cluster for every mechanism is perfectly pure and keeps nothing together. So a
-third number combines them: the **agreement score** (its usual name is the adjusted Rand
-index). It is 0 when the clusters match the feature list no better than chance, and 1 when
-they match it exactly.
+third number combines them: the **agreement score** (its usual name is the [adjusted Rand
+index](https://en.wikipedia.org/wiki/Rand_index#Adjusted_Rand_index)). It is 0 when the 
+clusters match the feature list no better than chance, and 1 when they match it exactly.
 
 Each score is also computed for the same clusters with the mechanisms shuffled among them.
 That shows what chance alone would give.
 
 **Reasons to be careful with this yardstick.**
 
-- It is one person's list for one codebase, and that person wrote much of the code.
+- It is one person's list for one codebase, and that person is responsible for the code.
 - Eight of the 28 features have only one mechanism, and one mechanism is always "together".
 - Five of the 41 features have no mechanism of their own at all, for example the leaving out
   of test code. No clustering of mechanisms can show them.
@@ -244,8 +246,8 @@ Each of these standard clustering techniques was run on the same mechanism embed
 | hierarchical, single linkage | 45 | 316 | 89% | 24% | 0.00 |
 | DBSCAN (four settings) | 1 to 6 | 253 or more | 96% or more | 20% or less | 0.01 |
 
-- Ward's method is best. k-means is a little behind, and its score moves by about 0.05 from
-  one run to the next, so smaller differences mean nothing.
+- Ward's method works best here. k-means is a little behind, and its score moves by
+  about 0.05 from one run to the next, so smaller differences mean nothing.
 - The last three techniques put most of the codebase into one huge cluster. They look for
   gaps between clumps, and there are none. Every mechanism in CodeExam is moderately
   similar to every other. So the code does not fall into features on its own, and any
@@ -367,9 +369,9 @@ mechanisms are found. None of the changes below has been made or tested.
 
 | what is wanted | status | why |
 |---|---|---|
-| Works by embedding, and can run with no network connection | **met** | A small embedding model on your own machine. No language model is used anywhere. Only one embedding model, EmbeddingGemma, has been tried. |
-| Uses known machine-learning clustering techniques | **partly** | Hierarchical clustering (four variants), k-means and DBSCAN were tried. HDBSCAN, spectral clustering and community detection on the call graph were not. |
-| Is not thrown off by synonyms or rewording, since it should reflect what code does and not how it is named | **untested** | No test has renamed the code and clustered it again. One indirect sign: clustering by calls alone uses no words and scores the same. |
+| Works by embedding, and can run with no network connection | **met** | A small embedding model on your own machine. No language model is used anywhere. Only one embedding model, EmbeddingGemma, has been tested. |
+| Uses known machine-learning (ML) clustering techniques | **partly** | Hierarchical clustering (four variants), k-means and DBSCAN were tried. HDBSCAN, spectral clustering and community detection on the call graph were not. |
+| Is not thrown off by synonyms or rewording, since it should reflect what code does and not how it is named | **largely untested** | No test has renamed the code and clustered it again. One indirect sign: clustering by calls alone uses no words and scores the same. |
 | Gives a reasonable number of clusters: not one huge cluster, and not one for every file | **open** | The scores are flat from 20 to 60 clusters, so the data does not choose a number. One broad cluster is too large. |
 | Keeps loosely coupled collections of code apart | **partly** | Narrow clusters do on all five collections measured. Broad clusters do on four and barely beat chance on the fifth. See "Other codebases" above. |
 | Tells the user something that was not obvious from the directory structure | **met by broad clusters** | Low agreement with directories on three codebases. |
@@ -383,11 +385,12 @@ mechanisms are found. None of the changes below has been made or tested.
   claim-chart measurement above: the code for a claim fits in about two broad clusters, so
   a broad cluster is roughly claim-sized and a narrow one is smaller.
 - **Can a list of a codebase's concepts guide a user into the clusters?** A `--concepts`
-  command is proposed and not built.
+  command is proposed and not yet built.
 - **Will a reader see anything surprising?** A good listing would show the familiar
   features and also some thought-provoking lower-level constructs: what the code actually
   does, as against what its source says it does. Headings that are word lists surprise
   nobody. Clustering by calls is the nearest thing here to "what the code does".
+  See [`CODEEXAM_STRUCTURAL_SEARCH.md`](CODEEXAM_STRUCTURAL_SEARCH.md).
 - **Are mechanisms the right thing to cluster?** The evidence is mixed. Mechanisms beat
   single functions. But the mixed mechanisms are a fault in how mechanisms are found, and
   some functions are in no mechanism.
@@ -412,7 +415,7 @@ mechanisms are found. None of the changes below has been made or tested.
 - **Function texts contain generic identifiers** such as `push`, `slice` and `console`,
   which appear in many functions. How far they pull unrelated functions together has not
   been measured.
-- **Calls are matched by name only.** Two functions with the same name count as one.
+- **Calls are matched by name only.** Two different functions with the same name count as one.
 - **The CodeExam index used is from 2026-11-10.** The feature list refers to mechanisms by
   id, and rebuilding the index would renumber them. Commands added since then are not in
   it.
@@ -488,8 +491,8 @@ are the strongest signal. The likely reason is the target. Those papers score ag
 developers' own structure, which the directories express. The feature list here cuts across
 the directories on purpose.
 
-**Not found:** published work on automatically locating patent claims in source code. One
-search returned material from practitioners only, which shows that one search found nothing
+**Not found:** published work on automatically locating patent claims embodied in, or practiced by, source code. 
+One search returned material from practitioners only, which shows that one search found nothing
 and not that nothing exists.
 
 ## Where the figures come from
