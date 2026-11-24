@@ -136,6 +136,8 @@ export function parseArgs() {
     redescribe: false,
     mechanisms: null,
     toc: null,
+    // issue-364-concepts-cli: --concepts [filter] lists the concepts the Overview prints, on their own
+    concepts: null,
     show_function_text: null,   // --show-function-text [filter | id:mNNN]: list the per-function text --semantic-search embeds
     text_has: null,             // --show-function-text: keep the functions whose text matches (substring, or /regex/)
     // mechanisms-listing-order-and-test-rows: the order of --toc and
@@ -621,6 +623,7 @@ export function parseArgs() {
     ['list_classes',         'flag',           ['--classes'], ['--list-classes']],
     ['mechanisms',           'optional_value', ['--mechanisms']],
     ['toc',                  'optional_value', ['--toc']],
+    ['concepts',             'optional_value', ['--concepts']],   // issue-364-concepts-cli
     // show-function-text-option (2026-11-22): the text the embedding commands embed per function
     ['show_function_text',   'optional_value', ['--show-function-text']],
     ['text_has',             'value',          ['--text-has']],
@@ -1522,7 +1525,9 @@ BROWSE:
   --scan-extensions <path>   Count file extensions in a directory
   --index-extensions         Count file extensions in current index
   --overview                 One-shot orientation: size, languages, structure,
-                             top vocabulary, key files, entry points (run first)
+                             concepts and key files (from the top vocabulary),
+                             entry points (run first). --concepts lists the
+                             concepts on their own.
   --ask-ai "<question>"      One question to an engine over the index, through
                              the same tool loops the GUI Chat runs (every tool
                              on a cloud engine; the curated core on a local
@@ -1652,7 +1657,7 @@ DISPLAY / FILTERING (query-time, does not affect index build):
                              something out ends with a line "Tip: N ... left out
                              (--exclude-tests); run without it to list them." The
                              MCP tools take exclude_tests. The other family ranks or
-                             summarises (--mechanisms, --toc, --carve,
+                             summarises (--mechanisms, --toc, --carve, --concepts,
                              --show-function-text, --semantic-search,
                              --claim-locate, --claim-chart, --hof): it leaves test
                              code out unless --include-tests is given.
@@ -1966,9 +1971,28 @@ METRICS / DISCOVERY:
                                commands (external commands; aliases: cmds, exec)
                                cloud    (cloud/infra config; alias: infra)
                                models   (model IDs)
+  --concepts [filter]        The concepts the Overview prints, on their own: the
+                             words the codebase's top vocabulary is made of,
+                             each with an example identifier, found by counting
+                             names with no model (default 30; --max-results N,
+                             --all-results). Per concept: its top files where it
+                             is one of the top vocabulary terms (no other row
+                             has files), and, when --build-mechanisms has run,
+                             how many mechanisms are named for it (the number
+                             in brackets at the end of its row): a label or
+                             a member function name carries the word. --toc
+                             <word> and --mechanisms <word> also match file
+                             paths, purposes and descriptions, so may list more.
+                             A suggestion of what to
+                             look for, not a finding. A filter (substring or
+                             /regex/) keeps matching concepts; one match is
+                             shown in full, with its mechanisms. Mechanisms that
+                             are wholly test code are left out unless
+                             --include-tests is given.
   --vocabulary [n]           Top N domain-specific tokens by TF-IDF score (default 50)
                              (short alias: --vocab; deprecated alias:
-                             --discover-vocabulary)
+                             --discover-vocabulary). --concepts lists the
+                             concepts these tokens are made of.
   --hotspots [n]             Top N structurally important functions (calls x log2(lines), default 20)
   --hot-folders [n]          Top N directories by aggregated hotspot score (default 20)
   --class-hotspots [n]       Top N classes by aggregated method hotspot score (default 20)
@@ -2563,6 +2587,8 @@ LLM ANALYSIS:
                               --mechanisms, --toc: also list the rows that are
                               wholly test code, which they leave out by default.
                               --show-function-text: also list test functions.
+                              --concepts: also count the mechanisms that are
+                              wholly test code, which it leaves out by default.
   --claim-analyze <claim>    End-to-end patent claim analysis: extract terms, search,
                               analyze top matches. Takes @file.txt or inline text.
                               Direct-target mode: pass a FUNCTION (or FILE@FUNCTION)

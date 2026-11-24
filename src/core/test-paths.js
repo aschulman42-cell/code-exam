@@ -30,8 +30,8 @@
 //                build wrote.
 // Two families of command use it. Those that find exactly what was typed (the searches, the
 // listings, callers, callees) list everything unless --exclude-tests or --no-tests is given.
-// Those that rank or summarise (--mechanisms, --toc, --carve, --semantic-search, the claim
-// tools) leave test code out unless --include-tests is given. Either way a command that left
+// Those that rank or summarise (--mechanisms, --toc, --carve, --concepts, --show-function-text,
+// --semantic-search, the claim tools) leave test code out unless --include-tests is given. Either way a command that left
 // anything out ends with one line, testsTip, saying how many and what lists them.
 
 // Every pattern is anchored at a token boundary so look-alikes stay in: attest, latest,
@@ -190,7 +190,7 @@ export const AIML_LISTING_KEYS = ['list_models', 'list_artifacts', 'list_kernels
  * --toc, --show-function-text). Given --exclude-tests or --no-tests they do what was asked already, so the
  * note below, which says no test code was left out, would be false for them.
  */
-export const TESTS_OUT_BY_DEFAULT_KEYS = ['mechanisms', 'toc', 'show_function_text'];
+export const TESTS_OUT_BY_DEFAULT_KEYS = ['mechanisms', 'toc', 'show_function_text', 'concepts'];
 
 /**
  * Commands that accept the two options and deliberately do not read them, by argument
@@ -224,5 +224,5 @@ export function unreadTestOptionNote(args, isSet) {
     const read = readers.map((k) => TEST_OPTION_READERS[k] || `--${k.replace(/_/g, '-')}`).join(', ');
     return `# ${given} was not read by ${names}: ${nonReaders.map((k) => TEST_OPTION_NON_READERS[k].why).join('; ')}. It was read by ${read}.`;
   }
-  return `# ${given} does nothing here: no command in this run reads it, and no test code was left out. ${reasons ? reasons + ' ' : ''}It is read by the text searches (--search, --regex, --literal, --fast, --files-search, --folders-search), --multisect-search, --multisect-analyze, --claim-search, --claim-analyze, --claims-loop, --callers, --callees, the listings (--list-files, --list-functions, --list-classes, --most-called, --hotspots, --entry-points, --gaps, --domain-fns, --class-hotspots, --data-structs) and the AI/ML listings. --exclude-path <text> leaves out any path. The claim tools, --semantic-search, --mechanisms and --toc leave test code out unless --include-tests is given.`;
+  return `# ${given} does nothing here: no command in this run reads it, and no test code was left out. ${reasons ? reasons + ' ' : ''}It is read by the text searches (--search, --regex, --literal, --fast, --files-search, --folders-search), --multisect-search, --multisect-analyze, --claim-search, --claim-analyze, --claims-loop, --callers, --callees, the listings (--list-files, --list-functions, --list-classes, --most-called, --hotspots, --entry-points, --gaps, --domain-fns, --class-hotspots, --data-structs) and the AI/ML listings. --exclude-path <text> leaves out any path. The claim tools, --semantic-search, --mechanisms, --toc, --carve, --show-function-text and --concepts leave test code out unless --include-tests is given.`;
 }

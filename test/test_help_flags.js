@@ -148,6 +148,18 @@ describe('the embed options each have a help entry, and --embed-model list', () 
     assert.match(h.stdout, /calls: mechanisms that call each other go\s+together \(Louvain community detection; needs no\s+embeddings\)/);
     assert.match(h.stdout, /suggestion, not a finding/);
   });
+  // issue-364-concepts-cli (B6): `--help concept` returned two modifiers of --pseudo-claims and not the commands that print concepts
+  it('--help concept finds --concepts, --overview and --vocabulary, and the --overview entry says it prints concepts and key files', () => {
+    const h = run('--help', 'concept');
+    assert.equal(h.status, 0);
+    for (const flag of ['--concepts', '--overview', '--vocabulary']) assert.match(h.stdout, new RegExp(`^  ${flag}\\b`, 'm'), flag);
+    const full = run('--help').stdout.split(/\r?\n/);
+    const at = full.findIndex((l) => l.startsWith('  --overview '));
+    assert.ok(at >= 0);
+    assert.match(full.slice(at, at + 4).join(' '), /concepts and key files/);
+    const c = full.findIndex((l) => l.startsWith('  --concepts '));
+    assert.match(full.slice(c, c + 20).join(' '), /--include-tests/);
+  });
   it('--embed-model list names every known model, needs no index, and marks the default', () => {
     const r = run('--embed-model', 'list');
     assert.equal(r.status, 0, r.stderr);

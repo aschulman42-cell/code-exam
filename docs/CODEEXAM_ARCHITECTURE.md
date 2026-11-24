@@ -160,6 +160,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/commands/claim-chart.js` — builds one-row-per-element claim charts merged across targets; CE owns structure, model fills cells
 - `src/commands/claim-locate.js` — proposes symbols from a claim, verifies them against the index, navigates callees, emits targets
 - `src/commands/claims-loop.js` — fills pseudo-claim chart cells from anchors and measures draft-vs-retrieval agreement; flags redrafts
+- `src/commands/concepts.js` — `--concepts [filter]`: the concepts the Overview prints, on their own, each with its example, its top files and the mechanisms that carry the word
 - `src/commands/dedup.js` — duplicate reporting: file SHA1, function, near, structural, and string-call fingerprint families
 - `src/commands/copyrights.js` — `--copyrights`: the copyright-holder table, presumptive first vs third party, licenses and license documents
 - `src/commands/digest.js` — `--digest` / `--comments-only`: renders mechanical function, class, and file digests with no interpretation
@@ -307,6 +308,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_class_scope.js` — multisect class-level scope: terms spread across methods of one class, dedupe
 - `test/test_cli_errors.js` — CLI bad input fails before index load: banner, error, run-help, exit 2
 - `test/test_client_server.js` — client/server detector: route + call detection, unmatched-call reconciliation
+- `test/test_concepts.js` — `--concepts`: the concepts on their own, each one's top files, its mechanisms as what to hunt for, one concept in full, the cap, test code
 - `test/test_credential_mask.js` — credential masking at the tool seam: assignment forms, random-token entropy gate
 - `test/test_data_structs.js` — #194 `extractDataStructures`: struct/enum/union/trait/interface across Rust/C/Go/TS
 - `test/test_dep_claim_rules.js` — dependent-claim malformation rules over real USPTO specimens: parents, taxonomy

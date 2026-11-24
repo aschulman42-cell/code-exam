@@ -452,6 +452,7 @@ export function formatOverview(ov, { surface = 'cli' } = {}) {
   } else {
     L.push('  - `--extract <name>` — print the source of a function by name. (The names in parentheses above, and under Entry points, are functions — pass one to `--extract` or `--digest`.)');
     L.push('  - `--digest <file@function>` — a summary of a function or file');
+    L.push('  - `--concepts` — the concepts above and more, each with its files and the mechanisms that carry it (`--concepts <word>` shows one in full)');
     L.push('  - `--vocabulary 50` — the full ranked terms (add `--bare` for a plain copy-paste list)');
     L.push('  - `--files <dir>` — explore a folder');
     L.push('  - `--command-catalog` / `--models` / `--prompts` / `--exports` — probe what kinds of content this index holds');

@@ -1720,6 +1720,27 @@ export function computeVocabDensity(topTokens) {
   return { ranked, fileCount: fileScore.size, totalW };
 }
 
+/**
+ * The same data as computeVocabDensity, read the other way round (issue-364-concepts-cli):
+ * term to files. For each top vocabulary term (lowercased; two spellings of one word are one
+ * term) the files its score concentrates in, best first, each with the weight
+ * computeVocabDensity gives it (score x concentration, per-function doc-ids folded to the file).
+ * @returns {Map<string, Array<{ file: string, weight: number }>>}
+ */
+export function computeTermFiles(topTokens) {
+  const byTerm = new Map();
+  for (const entry of topTokens || []) {
+    const term = String(entry.token).toLowerCase();
+    let files = byTerm.get(term);
+    if (!files) byTerm.set(term, files = new Map());
+    for (const f of (entry.top_files || [])) {
+      const file = String(f.path).split('|||')[0];   // per-function-mode fold
+      files.set(file, (files.get(file) || 0) + (entry.score || 0) * (f.concentration || 0));
+    }
+  }
+  return new Map([...byTerm].map(([term, files]) => [term, [...files].map(([file, weight]) => ({ file, weight })).sort((a, b) => b.weight - a.weight)]));
+}
+
 function printVocabDensityRollup(topTokens, args) {
   const { ranked, fileCount, totalW } = computeVocabDensity(topTokens);
   if (fileCount === 0) return;
