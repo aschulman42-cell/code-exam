@@ -1092,6 +1092,213 @@ function renderMechanismMembers(r, container) {
 
 
 // ============================================================================
+// Concepts list — the GUI form of --concepts (issue-364-concepts-gui-accordion).
+// One row per concept, the rows /api/concepts sends: the command's concepts in the
+// command's order with the command's counts. A row shows the word, an example name
+// and the number of mechanisms named for it. A click puts the concept in the upper
+// middle pane, as a Vocabulary row's click does: its example, the files where the word
+// concentrates, and the mechanisms named for it; a click on one of those opens it in
+// the lower middle pane (a mechanism as its functions and their source). Nothing here
+// is built or computed by a model.
+// ============================================================================
+const conceptView = { includeTests: false };
+/** The query for /api/concepts under the Filter box and the reader's choice about test code. */
+export function conceptListParams(filter) {
+  return { filter, max: 300, include_tests: conceptView.includeTests ? '1' : '' };
+}
+
+/** Open (or re-open) a left-pane section, with `filter` put in the Filter box first when given. */
+function openLeftSection(id, filter) {
+  const section = document.querySelector(`.accordion-section[data-section="${id}"]`);
+  if (!section) return;
+  const box = $('#left-filter');
+  if (filter != null && box) box.value = filter;
+  if (section.classList.contains('open')) section.classList.remove('open');   // so the click below loads it afresh under the Filter box
+  const header = section.querySelector('.accordion-header');
+  if (header) header.click();
+  section.scrollIntoView({ block: 'start' });
+}
+/** A small muted link, for the lines that lead from one list to another. */
+function sectionLink(text, title, onClick) {
+  const a = h('a', { text, title, href: '#', style: 'margin-left:6px' });
+  a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); onClick(); });
+  return a;
+}
+
+export function renderConceptList(container, data) {
+  container.innerHTML = '';
+  const refetch = async () => {
+    const box = $('#left-filter');
+    const fresh = await api.concepts(conceptListParams((box && box.value.trim()) || ''));
+    if (state.sectionData) state.sectionData.concepts = fresh.rows;
+    renderConceptList(container, fresh);
+  };
+  const rows = (data && data.rows) || [];
+  const hasCounts = data && data.mechanisms === 'ok';
+  const WHAT = 'Words the code seems to be about: pieces of its names, found by counting with no model. A suggestion of what to look for, not a finding.';
+  container.appendChild(h('div', { className: 'muted', text: hasCounts ? `${WHAT} The number on a row is how many mechanisms are named for the word; 0 means it is in the code's text, often only its comments, and in no function's name.` : WHAT, style: 'font-size:10px;padding:2px 8px;white-space:normal' }));
+  if (data && data.message) container.appendChild(h('div', { className: 'muted', text: `No counts: mechanisms index ${data.message}`, title: 'The Mechanisms list below has a Build button', style: 'font-size:10px;padding:2px 8px;white-space:normal' }));
+  // test mechanisms are left out of the counts unless asked for, as in the Mechanisms list
+  const n = Number((data && data.tests_left) || 0);
+  if (hasCounts && (n || conceptView.includeTests)) {
+    const bar = h('div', { className: 'muted', style: 'font-size:10px;padding:2px 8px' });
+    bar.appendChild(h('span', { text: conceptView.includeTests ? 'Test mechanisms counted.' : `${n.toLocaleString()} test mechanism${n === 1 ? '' : 's'} left out of the counts.` }));
+    bar.appendChild(sectionLink(conceptView.includeTests ? 'leave out' : 'count them', 'Mechanisms that are wholly test code are left out of the counts by default (the command line: --include-tests)', () => { conceptView.includeTests = !conceptView.includeTests; refetch(); }));
+    container.appendChild(bar);
+  }
+  if (!rows.length) {
+    container.appendChild(h('div', { className: 'list-placeholder', text: (data && data.empty_message) || 'No concepts match', style: 'white-space:normal;text-align:left' }));
+    return;
+  }
+  for (const r of rows) {
+    // A row is a plain list row, as in Vocabulary: a click puts the concept in the upper
+    // middle pane (Andrew, 2026-11-24: a click that filtered the Mechanisms list was "too
+    // different from how clicking on items elsewhere in left pane works").
+    const named = r.named;
+    const title = `${r.concept}${r.example ? `\nexample: ${r.example}` : '\nno example: the word is only ever a whole name'}${named == null ? '' : `\n${named} mechanism${named === 1 ? '' : 's'} named for it${named ? '' : ': the word is in the code\'s text and in no function\'s name'}`}${r.files ? `\n${r.files_total} file${r.files_total === 1 ? '' : 's'} where it concentrates` : '\na piece of longer names, not itself a top vocabulary term: no files listed'}\nClick: its example, files and mechanisms in the upper middle pane`;
+    const item = h('div', { className: 'list-item', title, 'data-concept': r.concept }, [
+      h('span', { className: 'rank', text: `${r.rank}` }),
+      h('span', { className: 'name clickable', text: r.concept }),
+      r.example ? h('span', { className: 'filepath', text: r.example, style: 'flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }) : h('span', { style: 'flex:1 1 0' }),
+      named == null ? null : h('span', { className: named ? 'metric' : 'metric muted', text: `${named}` }),
+    ].filter(Boolean));
+    item.addEventListener('click', () => openConceptPane(r));
+    container.appendChild(item);
+  }
+  if (data.matched > rows.length) container.appendChild(h('div', { className: 'list-placeholder', text: `${rows.length} of ${data.matched} shown` }));
+}
+
+/**
+ * A concept in the upper middle pane, where a click on a left-pane row lands (as a Vocabulary
+ * row's does): its example, the files where the word concentrates, the mechanisms named for it,
+ * and a search. Every row there opens in the lower middle pane, so this pane stays as it is.
+ */
+function openConceptPane(r) {
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = `Concept: ${r.concept}`;
+  const body = $('#middle-top-body');
+  body.innerHTML = '';
+  const named = r.named;
+  body.appendChild(h('div', {
+    text: `"${r.concept}" is concept ${r.rank} of this index: a piece of the names in the code, found by counting with no model. A suggestion of what to look for, not a finding.${named == null ? '' : named ? ` ${named} mechanism${named === 1 ? ' is' : 's are'} named for it.` : ' No mechanism is named for it: it is in the code\'s text, often only its comments, and in no function\'s name.'}`,
+    style: 'padding:4px 8px;font-size:11px;color:var(--text-bright);border-bottom:1px solid var(--border,#333);margin-bottom:2px;white-space:normal',
+  }));
+  const list = h('div');
+  body.appendChild(list);
+  renderConceptDetail(r, list);
+}
+
+function renderConceptDetail(r, container) {
+  const label = (text) => h('div', { className: 'muted', text, style: 'font-size:10px;padding:5px 8px 1px 8px;white-space:normal' });
+  // A row says what its click opens in data attributes, and carries no listener of its own: the
+  // pane's history keeps a page as markup, so a page brought back by the back arrow has only
+  // its attributes. data-funcname / data-filepath are wired by the app's wireClickables (on
+  // render and again on return); data-open-mechanism and data-open-vocab by one listener on
+  // the document, below.
+  const row = (text, sub, attrs, tip) => h('div', { className: 'list-item', title: tip || text }, [
+    h('span', { className: 'name clickable', text, style: 'flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis', ...attrs }),
+    sub ? h('span', { className: 'metric muted', text: sub, style: 'white-space:nowrap' }) : null,
+  ].filter(Boolean));
+  if (r.example) {
+    container.appendChild(label('Example: a longer name the word is a piece of'));
+    // source only: the lower pane takes the definition and this pane keeps the concept
+    const attrs = r.example_is_function ? { 'data-funcname': r.example, ...(r.example_file ? { 'data-filepath': r.example_file } : {}) }
+      : r.example_file ? { 'data-filepath': r.example_file } : { 'data-open-vocab': r.example };
+    container.appendChild(row(r.example, r.example_is_function ? 'function' : '', attrs, r.example_file ? `${r.example}\n${r.example_file}\nClick: its source in the lower middle pane` : r.example));
+  }
+  if (r.files && r.files.length) {
+    container.appendChild(label(`Files where the word concentrates${r.files_total > r.files.length ? ` (${r.files.length} of ${r.files_total})` : ''}`));
+    for (const f of r.files) container.appendChild(row(shortPath(f), '', { 'data-filepath': f }, f));
+  } else if (!r.files) {
+    container.appendChild(label('Files: none listed. The word is a piece of longer names and not itself a top vocabulary term.'));
+  }
+  if (r.mechanisms) {
+    container.appendChild(label(r.mechanisms.length ? `Mechanisms named for it${r.named > r.mechanisms.length ? ` (${r.mechanisms.length} of ${r.named})` : ''}` : 'Mechanisms: none is named for it. The word is in the code\'s text and in no mechanism\'s label or function names.'));
+    for (const m of r.mechanisms) container.appendChild(row(`${m.id}  ${m.label}`, `${m.fns}f`, { 'data-open-mechanism': m.id }, `${m.id}  ${m.label}\n${m.fns} function${m.fns === 1 ? '' : 's'}, ${m.files} file${m.files === 1 ? '' : 's'}\nClick: the mechanism in full, in the lower middle pane`));
+  }
+  container.appendChild(row(`Every place "${r.concept}" is in the code`, 'search', { 'data-open-vocab': r.concept }, `Files containing "${r.concept}"; this replaces the pane (the back arrow returns here)`));
+  _wireClickables(container, { sourceOnly: true });
+}
+
+// The two clicks wireClickables does not know: a mechanism (to the lower middle pane) and a
+// word (to the upper, as a Vocabulary row). One listener on the document, so that a page the
+// back arrow restored from markup answers as a fresh one does. (Guarded: tests import this
+// module with no page.)
+if (typeof document !== 'undefined') document.addEventListener('click', (e) => {
+  const el = e.target && e.target.closest ? e.target.closest('[data-open-mechanism], [data-open-vocab]') : null;
+  if (!el || !el.closest('#middle-top-body, #middle-bottom-body')) return;
+  const sel = window.getSelection();
+  if (sel && sel.toString().length > 0) return;   // selecting text, not navigating
+  if (el.dataset.openMechanism) openMechanismInSourcePane(el.dataset.openMechanism);
+  else if (el.dataset.openVocab) onVocabClick(el.dataset.openVocab);
+});
+
+// A mechanism in the lower middle pane: everything the mechanisms file says of it (id, label,
+// kind, other labels, a model's description when there is one, the purpose read from the code,
+// tags, what it calls, its size), then its functions as file@function references and its files.
+// No source: a reference's click opens the function's source in this pane, and the back arrow
+// returns. For a click on a mechanism in the upper middle pane (the Concepts pane), so the
+// upper pane keeps its list. The entry is fetched by an anchored filter on its id, as
+// openMechanismById does.
+let _mechanismPaneToken = 0;
+async function openMechanismInSourcePane(id) {
+  const token = ++_mechanismPaneToken;
+  const body = $('#middle-bottom-body'), title = $('#middle-bottom-title');
+  navPush('middle-bottom');
+  body.innerHTML = `<div class="loading">Loading mechanism ${escHtml(id)}…</div>`;
+  let r, described = null;   // `described`: which model wrote the index's descriptions, and when
+  try {
+    const d = await api.listMechanisms({ filter: `/^${id}$/`, include_tests: '1', max: 10 });
+    r = (d.records || []).find((x) => x.id === id);
+    described = d.described || null;
+  } catch (err) { if (token === _mechanismPaneToken) body.innerHTML = `<div class="error-msg">${escHtml(err.message)}</div>`; return; }
+  if (token !== _mechanismPaneToken) return;
+  if (!r) { body.innerHTML = `<div class="error-msg">No Mechanisms entry ${escHtml(id)}</div>`; return; }
+  const members = r.members || [];
+  const nFn = r.members_total || members.length;
+  const aliases = (r.aliases || []).map((a) => a.label);
+  title.textContent = `Mechanism ${r.id}: ${r.label}  (${nFn} function${nFn === 1 ? '' : 's'}, ${r.files} file${r.files === 1 ? '' : 's'})`;
+  state.lastSourceRender = null;   // not a function or a file: nothing for the re-render options to redraw
+  body.innerHTML = '';
+  body.scrollTop = 0;
+  const KIND = { file: 'the functions of one file', class: 'the methods of one class', cmd: 'a command\'s handler and what it calls', token: 'functions across files that share a name token' };
+  const norm = (p) => String(p || '').replace(/\\/g, '/');
+  const field = (name, value, { bright = false } = {}) => h('div', { style: 'padding:2px 10px;white-space:normal;font-size:11px' }, [
+    h('span', { className: 'muted', text: `${name}: `, style: 'font-size:10px' }),
+    h('span', { text: value, style: bright ? 'color:var(--text-bright)' : '' }),
+  ]);
+  body.appendChild(h('div', { text: `${r.id}  ${r.label}`, style: 'padding:6px 10px 2px;color:var(--text-bright);font-size:12px;white-space:normal' }));
+  body.appendChild(field('Kind', `${r.kind || 'unknown'}${KIND[r.kind] ? `: ${KIND[r.kind]}` : ''}. Found by grouping, with no model.`));
+  if (aliases.length) body.appendChild(field('Also labelled', `${aliases.join(', ')} (${r.record_count || aliases.length + 1} records with the same functions)`));
+  if (r.description) body.appendChild(field(`Description${described && described.engine ? ` (written by a model: ${described.engine}${described.generated ? `, ${String(described.generated).slice(0, 10)}` : ''})` : ' (written by a model)'}`, r.description, { bright: true }));
+  if (r.purpose) body.appendChild(field('Purpose (read from the code\'s own text, no model)', r.purpose, { bright: !r.description }));
+  if (!r.description && !r.purpose) body.appendChild(field('Description', 'none: no model has described this index\'s mechanisms, and the code has no doc text for this one'));
+  if ((r.tags || []).length) body.appendChild(field('Tags', r.tags.join(', ')));
+  if ((r.calls || []).length) body.appendChild(field('Calls out to', r.calls.join(', ')));
+  const files = [...new Set(members.map((m) => norm(m.filepath)).filter(Boolean))];
+  body.appendChild(field('Size', `${nFn} function${nFn === 1 ? '' : 's'} in ${r.files} file${r.files === 1 ? '' : 's'}`));
+  // The functions, as file@function references. The code is one click away and not shown here
+  // (Andrew, 2026-11-24: the source under each name was "too detailed: big chunks of code").
+  body.appendChild(h('div', { className: 'muted', text: `Functions (click one for its source${members.length < nFn ? `; ${members.length} of ${nFn} listed` : ''})`, style: 'font-size:10px;padding:8px 10px 1px;border-top:1px solid var(--border,#333);margin-top:4px' }));
+  for (const m of members) {
+    const info = { name: m.name, display_name: m.display_name || m.name, filepath: m.filepath, lines: m.lines, start: m.start, end: m.end };
+    // data attributes, no listeners: wired below, and again when the back arrow restores the page
+    body.appendChild(h('div', { className: 'list-item', title: `${norm(m.filepath)}@${m.name}\nLine ${m.start}–${m.end} (${m.lines} lines)\nClick: its source, here (the back arrow returns to the mechanism)` }, [
+      h('span', { className: 'name clickable', text: `${norm(m.filepath)}@${info.display_name}`, style: 'flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis', 'data-funcname': m.name, 'data-filepath': m.filepath }),
+      h('span', { className: 'metric muted', text: `L${m.start}–${m.end}`, style: 'white-space:nowrap' }),
+      h('span', { className: 'metric', text: `${m.lines}`, title: `${m.lines} lines`, style: 'min-width:24px' }),
+    ]));
+  }
+  body.appendChild(h('div', { className: 'muted', text: `Files (${files.length}${members.length < nFn ? ', of the functions listed' : ''})`, style: 'font-size:10px;padding:8px 10px 1px;border-top:1px solid var(--border,#333);margin-top:4px' }));
+  for (const f of files) {
+    body.appendChild(h('div', { className: 'list-item', title: `${f}\nClick: the file, here` }, [h('span', { className: 'name clickable', text: f, style: 'flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis', 'data-filepath': f })]));
+  }
+  _wireClickables(body, { sourceOnly: true });
+}
+
+
+// ============================================================================
 // Function texts list — the GUI form of --show-function-text (gui-function-texts-
 // section). One row per function: file@function, with the ids of the mechanisms
 // holding it beneath; a function the embedding commands make no text for is marked
@@ -2314,7 +2521,10 @@ export function renderVocabList(container, vocab, concepts) {
     // Each concept is { concept, example } (#181 polish) — show concept (example),
     // or bare for a standalone-token concept with no larger identifier.
     const label = (c) => (c && typeof c === 'object') ? (c.example ? `${c.concept} (${c.example})` : c.concept) : c;
-    container.appendChild(h('div', { className: 'list-placeholder', text: `Potentially important concepts: ${concepts.map(label).join(', ')}`, style: 'font-size:10px;padding:4px 8px;color:var(--accent-blue);white-space:normal' }));
+    const caption = h('div', { className: 'list-placeholder', text: `Potentially important concepts: ${concepts.map(label).join(', ')}`, style: 'font-size:10px;padding:4px 8px;color:var(--accent-blue);white-space:normal' });
+    // issue-364-concepts-gui-accordion: the caption is the head of the Concepts list
+    caption.appendChild(sectionLink('more in Concepts', 'Open the Concepts list: these concepts and more, each with the files where it concentrates and the mechanisms named for it', () => openLeftSection('concepts', null)));
+    container.appendChild(caption);
   }
   for (const v of vocab) {
     const item = h('div', { className: 'list-item', title: `Score: ${v.score}\nDoc freq: ${v.doc_freq}\nTotal freq: ${v.total_freq}` }, [
@@ -2402,6 +2612,10 @@ export function renderOverviewList(container, ov, opts = {}) {
 
   if (ov.concepts && ov.concepts.length) {
     container.appendChild(head('Potentially important concepts (with examples):'));
+    // issue-364-concepts-gui-accordion: these twelve are the first rows of the Concepts list
+    const more = h('div', { className: 'muted', style: 'font-size:10px;text-align:center' }, [h('span', { text: 'The first twelve.' })]);
+    more.appendChild(sectionLink('more, with files and mechanisms, in Concepts', 'Open the Concepts list: the same concepts and more, each with the files where it concentrates and the mechanisms named for it', () => openLeftSection('concepts', null)));
+    container.appendChild(more);
     for (const c of ov.concepts) {
       const label = c.example ? `${c.concept} (${c.example})` : c.concept;
       // Clickable when we know which file the example identifier lives in; jumps

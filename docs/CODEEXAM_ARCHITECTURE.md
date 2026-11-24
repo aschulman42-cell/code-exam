@@ -324,6 +324,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_follow_calls.js` — `--follow-calls` (`--deep`) and `--comments-only` over extracted functions
 - `test/test_function_texts_route.js` — `/api/function-texts`: the texts the embedding commands embed, the mechanisms holding each function, the filters, tests left out, and the no-mechanisms-file answer
 - `test/test_function_text.js` — the mechanical function text and the reach script's scoring with no index and no model: source split into code, comments and literals, the ranked vocabulary, the four arms, class and file chunks, the roll-up, the set reading, the pool, the tallies and the control
+- `test/test_gui_concepts_route.js` — `/api/concepts` answers the rows of `--concepts` (the same concepts, order and counts as the command), with what a row opens to, before and after a mechanisms index is built; test mechanisms, the filter and the cap
 - `test/test_har.js` — #161 `.har` expansion: text/base64 bodies, mime inference, URL dedupe, malformed input
 - `test/test_help_filter.js` — `filterHelp`: entry blocks and continuation lines, section headers, no-match report
 - `test/test_help_flags.js` — help discoverability: `--gui`/`--port`/`--load-index` in `--help`; `--load-index` synonym

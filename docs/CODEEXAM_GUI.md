@@ -59,8 +59,10 @@ their own threads. That redesign, and the open questions behind it, are tracked 
 ## The left pane: browse, catalogs, and duplicates
 
 The left pane is where you orient yourself in an unfamiliar codebase. Under an **Orient** heading
-sits **Overview** (the one-shot "what is this codebase" summary); under **Browse** sit the
-structural lists — **Functions**, **Files**, **Classes**, **Mechanisms**, **Function texts**, **Class Inheritance**,
+sit the lists that say what the code is about: **Overview** (the one-shot "what is this codebase"
+summary), **Concepts** (the words the code seems to be about, described below), **Vocabulary**,
+**Mechanisms** and **Function texts** (the last three moved here from Browse on 2026-11-24); under
+**Browse** sit the structural lists — **Functions**, **Files**, **Classes**, **Class Inheritance**,
 **Data Structures**, plus **Bundle Seams** and the extension census. Clicking a row loads it into the
 middle panes. **Mechanisms** is the one list the GUI does not compute on each open: it reads the
 records `ce --index-path <X> --build-mechanisms`, or the pane's own **Build** button, wrote beside
@@ -103,6 +105,27 @@ phase shows beside the button (loading the index, grouping, then records), the l
 it ends, and the Describe bar reports the outcome. No model is involved, so the button needs no
 engine. The build is about a minute per 25,000 functions (seconds on CodeExam's own index, nine
 minutes on Py314's 378,000), and the CLI command in the line does the same from a terminal.
+
+**Concepts**, directly under Overview (since 2026-11-24), is the GUI form of `--concepts`: the
+words the code seems to be about, which are pieces of its distinctive names, found by counting
+with no model. The rows are the command's, in its order; the first twelve are the ones the
+Overview prints. A row shows its place in the list, the word, an example name it is a piece of,
+and the number of mechanisms named for it (a label or a member function name carries the word).
+A zero means the word is in the code's text, often only its comments, and in no function's name:
+the first rows to doubt. Clicking a row puts the concept in the upper middle pane, as clicking a
+Vocabulary row does: its example, the files where the word concentrates, the mechanisms named for
+it, and a search for the word. Each of those opens in the lower middle pane, so the upper pane
+keeps the concept: the example's source, a file, or a mechanism. A mechanism is shown there in
+full and without code: its id and label, its kind, any other labels for the same functions, the
+description a model wrote (with the model's name) when the index has been described, the purpose
+read from the code's own text, its tags, what it calls, and then its functions as `file@function`
+references and its files. A click on a reference opens that function's source in the same pane,
+and the pane's back arrow returns to the mechanism. Mechanisms that are wholly test code
+are left out of the counts, with a line saying how many and a link to count them. When the index
+has no mechanisms file the rows have no numbers and a line says so; the Mechanisms list has the
+Build button. The Filter box filters the list by word. The Overview's concepts and the caption at
+the top of Vocabulary each have a link that opens this list. What a concept is and how often the
+list is right: [`CODEEXAM_CONCEPTS.md`](CODEEXAM_CONCEPTS.md).
 
 **Function texts**, directly under Mechanisms, is the GUI form of `--show-function-text`: for each
 function, the short text that `--semantic-search` and `--embed-distance --function-text` embed for

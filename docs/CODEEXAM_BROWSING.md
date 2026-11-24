@@ -118,6 +118,12 @@ verdicts:
   codebases (`function`, `handler`, `data`) so genuinely distinctive terms rise. Often the quickest
   read of what a codebase is "about," and it feeds the Overview and search-term extraction (see
   [`UNCOVER_KEY_CODE.md`](UNCOVER_KEY_CODE.md)).
+- **Concepts** (`--concepts`; the **Concepts** list under Overview in the GUI) — the words the
+  codebase seems to be about: pieces of its distinctive names, each with an example name, the
+  files where it concentrates, and the number of mechanisms named for it. A list of things to
+  look for in the mechanisms listings; in the GUI a click on a row lists its files and its
+  mechanisms in the upper middle pane. A suggestion, not a finding: how often it is right is on
+  [`CODEEXAM_CONCEPTS.md`](CODEEXAM_CONCEPTS.md).
 - **Hotspots** (`--hotspots`) — complexity- and centrality-ranked functions (and class hotspots).
 - **Domain functions** (`--domain-fns`) — the functions most characteristic of the codebase.
 - **Entry points** (`--entry-points`) — defined-but-rarely-called functions: likely handlers,

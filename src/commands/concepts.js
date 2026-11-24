@@ -102,10 +102,11 @@ export function conceptRows(index, { filter = null, includeTests = false, max = 
   const mech = loadMechanisms(index);
   const termFiles = computeTermFiles(vocab);
   const leftOut = new Set();
+  const rankOf = new Map(all.map((c, i) => [c.concept, i + 1]));   // a concept's place in the whole list, kept under a filter
   const shown = matched.slice(0, Number.isFinite(max) && max > 0 ? max : matched.length).map((c) => {
     const m = mech.all ? mechanismsFor(mech, c.concept, includeTests) : null;
     if (m) m.testEntries.forEach((e) => leftOut.add(e));
-    return { concept: c.concept, example: c.example || null, label: conceptLabel(c), files: termFiles.get(c.concept) || null, mechanisms: m ? m.entries : null };
+    return { rank: rankOf.get(c.concept), concept: c.concept, example: c.example || null, exampleFile: c.exampleFile || null, exampleIsFunction: !!c.exampleIsFunction, label: conceptLabel(c), files: termFiles.get(c.concept) || null, mechanisms: m ? m.entries : null };
   });
   return { total: all.length, matched, shown, mechanisms: mech.all ? 'ok' : mech.error ? 'error' : 'missing', mechanismsError: mech.error || null, testsLeft: leftOut.size };
 }

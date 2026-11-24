@@ -98,6 +98,9 @@ function navRestore(paneId, entry) {
   if (paneId === 'middle-bottom') {
     state.currentSourceFile = entry.file;
     linkifySourceCalls(body, entry.file);
+    // issue-364-concepts-gui-accordion: this pane can also hold a list (a mechanism's
+    // functions and files), whose rows say what they open in data attributes
+    _wireClickables(body, { sourceOnly: true });
   } else {
     _wireClickables(body, { sourceOnly: true });
   }

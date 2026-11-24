@@ -41,6 +41,7 @@ import { buildCorpus, functionTextParts, memberResolver } from './core/function-
 import { isTestFunction, selectFunctionTexts, mechanismsOfFunctions, standingOf, lengthStats } from './commands/function-text.js';
 import { copyrightNotices } from './core/copyrights.js';
 import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
+import { conceptRows } from './commands/concepts.js';
 import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
 import { extractDataStructures } from './core/data-structs.js';
 import { extractClientServer } from './core/client-server.js';
@@ -2729,6 +2730,40 @@ routes['/api/vocabulary'] = (req, res) => {
   });
 };
 
+
+// issue-364-concepts-gui-accordion: the Concepts accordion's list. The rows of `ce --concepts`,
+// from the command's own function (conceptRows), so the pane and the command cannot differ: the
+// same concepts in the same order, each with its example, the files where it concentrates, and
+// the mechanisms named for it. Never builds the mechanisms index; without one the rows carry no
+// counts and `message` is the one not-built line. `total` is the index's concepts, `matched`
+// those the filter kept, `rows` those sent (max, default 100). A row's `rank` is its place in
+// the whole list, kept under a filter.
+routes['/api/concepts'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const includeTests = q.include_tests === '1' || q.include_tests === 'true';
+  const filter = q.filter || null;
+  let data;
+  try { data = conceptRows(index, { filter, includeTests, max: safeMax(q.max, 100) }); } catch (e) { return errorResponse(res, `concepts could not be listed: ${e.message}`, 500); }
+  const MECHANISMS_PER_ROW = 200;
+  jsonResponse(res, {
+    total: data.total,
+    matched: data.matched.length,
+    mechanisms: data.mechanisms,
+    message: data.mechanisms === 'missing' ? notBuiltLine(index) : data.mechanisms === 'error' ? `mechanisms.json could not be read: ${data.mechanismsError}` : '',
+    tests_left: data.testsLeft,
+    empty_message: data.matched.length ? '' : !data.total ? 'No concepts: the top vocabulary of this index gives none. The Vocabulary list has its top terms.' : `'${filter}' is not one of this index's ${data.total} concepts. The Vocabulary list has the names that carry it, and Search finds the word in the code.`,
+    rows: data.shown.map((r) => ({
+      rank: r.rank, concept: r.concept, example: r.example, example_file: r.exampleFile, example_is_function: r.exampleIsFunction,
+      // null: the concept is a piece of longer names and not itself a top vocabulary term, so no files are listed for it
+      files: r.files ? r.files.slice(0, 10).map((f) => f.file) : null,
+      files_total: r.files ? r.files.length : 0,
+      named: r.mechanisms ? r.mechanisms.length : null,
+      mechanisms: r.mechanisms ? r.mechanisms.slice(0, MECHANISMS_PER_ROW).map((e) => ({ id: e.id, label: e.label, kind: e.kind, fns: (e.members || []).length, files: (e.files || []).length })) : null,
+    })),
+  });
+};
 
 // --- String table ---
 
