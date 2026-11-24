@@ -21,6 +21,8 @@ Planned coverage:
 - **`--mechanisms`, `--describe`, `--toc`** — the index's functions grouped into named
   "mechanisms," each described in one sentence when a model is run over them, and a table of
   contents of the codebase built from them (the paragraph below).
+- **`--carve`** (experimental) — the same mechanisms divided into numbered sections and
+  sub-sections, so a long table of contents can be read by its headings.
 - **`--analyze`** — an LLM analysis of a function/class/file (in the GUI,
   right-click the target → **Analyze**).
 - **GUI Chat** — ask the LLM to summarize, interactively.
@@ -29,7 +31,12 @@ Planned coverage:
 index into named mechanisms — file, class, command and token records — with no model involved;
 `--mechanisms` lists them, and `--toc` prints them as a table of contents of the codebase.
 `--describe` runs a cloud or local model over the groups to give each a one-sentence
-description, after which every listing leads with the sentence. The groups also serve as the
+description, after which every listing leads with the sentence. On a codebase of any size the
+table of contents runs to hundreds or thousands of rows; `--carve clusters` and
+`--carve calls` (experimental) carve it into sections and sub-sections, by the likeness of
+the mechanisms' text or by which mechanisms call which, and print a list to run an eye down
+for the codebase's major pieces. The sections are a suggestion and not a finding
+([`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md#how-to-run-it)). The groups also serve as the
 candidates the pseudo-claims feature drafts from, and as the unit the retrieval measurements
 score against. The feature page is [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md).
 

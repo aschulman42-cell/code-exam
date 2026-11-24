@@ -88,8 +88,11 @@ at the feature that serves it.
    features. The `--toc` and `--mechanisms` commands group every function in
    the index into named "mechanisms" — a table of contents for the codebase —
    with a one-sentence description of each when a model is run over them.
+   The experimental `--carve` command divides that table of contents into
+   sections and sub-sections, a shorter list to run an eye down.
    → [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md),
-   [`CODEEXAM_MECHANISMS.md`](docs/CODEEXAM_MECHANISMS.md)
+   [`CODEEXAM_MECHANISMS.md`](docs/CODEEXAM_MECHANISMS.md),
+   [`CODEEXAM_CLUSTERING.md`](docs/CODEEXAM_CLUSTERING.md)
 
 4. **Quasi-source.** A surprising amount of indexable structure can be
    recovered from artifacts never shipped as source — minified/bundled JS,

@@ -154,6 +154,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/commands/browse.js` — index browsing: stats, list/show files, list functions, extract, bundle seams, extension census
 - `src/commands/build_fp_renames.js` — writes `_FP_` display renames into `rename_map.json` for cross-source fingerprint matches above a threshold
 - `src/commands/callers.js` — `--callers`/`--callees`/`--most-called`/`--call-inventory` over the index's call graph, with depth and filters
+- `src/commands/carve.js` — `--carve clusters|calls`: an index's mechanisms under numbered sections and sub-sections, by the likeness of their text or by the calls between them
 - `src/commands/census.js` — `--census-imports`: ranks import targets (Python, JS/TS, C/C++, Java/Kotlin, C#, Go, Rust) across one index or a whole multi-index corpus
 - `src/commands/claim.js` — `--claim-search`: LLM extraction of TIGHT/BROAD multisect terms from claim prose, then runs both searches
 - `src/commands/claim-chart.js` — builds one-row-per-element claim charts merged across targets; CE owns structure, model fills cells
@@ -194,6 +195,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `src/core/breadcrumbs-commands.js` — extracts telemetry breadcrumbs and the CLI/route/GUI-action command catalog from indexed lines
 - `src/core/bundle-seam-detection.js` — detects esbuild module-wrapper seams in minified bundles and recovers per-module names and previews
 - `src/core/calls.js` — call-graph engine: resolves callees, finds callers, builds call inventories and per-name call counts
+- `src/core/carve.js` — an index's mechanisms carved into sections and sub-sections, two ways: clusters of their text embeddings (Ward's method), or communities of the calls between them (Louvain); headings from label words; no language model
 - `src/core/canonical-funcs.js` — groups identical function hashes and picks a canonical representative (shortest path) per group
 - `src/core/claim-class.js` — picks a pseudo-claim's statutory class (method, system or apparatus) by a stated word-list rule, with its reason
 - `src/core/claim-genericity.js` — scores a claim element generic-bookend vs mechanism via I/O-verb shape and corpus word frequency
@@ -290,6 +292,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_binary_sniff.js` — TreeSitterParser guards: binary/MPEG-TS sniff keeps grammars off non-source (#299)
 - `test/test_binstrings.js` — binstrings: string extraction, noise filter, mangled names, `.op` pseudo-source gate
 - `test/test_call_inventory.js` — `--call-inventory`: in-index vs external callee split, provenance labels, `--filter`
+- `test/test_carve.js` — `--carve clusters|calls`: the two techniques recover planted groups, the listing's rows and tags, the header's counts, what is said when something is missing, and the command line
 - `test/test_catalog.js` — #162 catalog emit: `buildCatalogEntry` root aliasing, `mergeCatalog` de-dupe and refresh
 - `test/test_command_catalog.js` — the command catalog's CLI rows and option-to-handler joins on in-memory indexes: four-element argparse rows, one-line and block dispatch, modifiers, dispatch tables, and one answer whatever the file order
 - `test/test_claim_analyze.js` — claim-analyze: claim scope, term probes, multisect scope ladder, per-element arm

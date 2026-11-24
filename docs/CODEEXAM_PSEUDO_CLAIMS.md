@@ -450,8 +450,10 @@ file seeding whole, every class a record, the command seed uncapped, records of 
 two kept, test and third-party code kept and tagged, and records allowed to overlap,
 then writes `<index>/mechanisms.json` with every candidate function in at least one
 record. `--mechanisms` lists it one row per function set (CodeExam's 390 records are 383
-rows), `--toc` is its table of contents (#296), and the GUI and the MCP tool read the same
-file; it is a listing, not a
+rows), `--toc` is its table of contents (#296), `--carve` (experimental, command line only)
+arranges the same rows under sections and sub-sections
+([`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md#how-to-run-it)), and the GUI and the MCP
+tool read the same file; it is a listing, not a
 drafting list, and a cover record is a file or a class as often as a mechanism
 ([`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) has the rest).
 

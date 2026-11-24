@@ -239,6 +239,9 @@ the one-line version.
   and `--mechanisms [filter]` show the rows with their members; `--toc [filter]` prints the
   contents page; the MCP `list_mechanisms` tool gives an agent the same rows
   ([`CODEEXAM_MCP.md`](CODEEXAM_MCP.md)). All read the one file; none recomputes the grouping.
+  When the list is too long to read down, `--carve clusters` or `--carve calls`
+  (experimental, command line only) prints the same rows under numbered sections and
+  sub-sections ([`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md#how-to-run-it)).
 - **Drafting pseudo-claims.** `--pseudo-claims --candidates` emits the grouper's candidate
   groups for drafting ([`CODEEXAM_PSEUDO_CLAIMS.md`](CODEEXAM_PSEUDO_CLAIMS.md)); the same
   grouper, run as a cover rather than as a ranked emission, is the mechanisms index.

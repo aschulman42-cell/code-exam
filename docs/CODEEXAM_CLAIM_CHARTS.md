@@ -257,7 +257,12 @@ on the tests page.
 model, a record for every small group of functions that do one thing together, labeled from
 the code (`[class] AdaptiveTrackSelection`, `[file] frame.c / x264`, `[cmd] --claim-chart`);
 `--toc` and `--mechanisms` list the records, and `--describe` adds a one-sentence description
-to each ([`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md)). For claim charting the index is
+to each ([`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md)). `--carve clusters` or
+`--carve calls` (experimental) prints the same records under numbered sections and
+sub-sections, a list to run an eye down before charting: to see what the major pieces of the
+codebase are, and what words the codebase itself uses for the thing a claim describes. Its
+groups are a suggestion; it is a way to look, and not evidence for a chart
+([`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md#how-to-run-it)). For claim charting the index is
 a second unit beside the symbol table: a claim element is matched against a few hundred to a
 few thousand short labeled groups instead of tens of thousands of bare names, and every match
 is two short texts a person can read. What ships today is the measurement, `--embed-distance`
