@@ -58,6 +58,7 @@ export const api = {
   listFiles:       (p) => api.get('list-files', p),
   listFunctions:   (p) => api.get('list-functions', p),
   listMechanisms:  (p) => api.get('list-mechanisms', p),   // mechanisms-index-prebuild-cli-gui: the records --build-mechanisms wrote
+  functionTexts:   (p) => api.get('function-texts', p),     // gui-function-texts-section: the texts the embedding commands embed, with the mechanisms holding each function
   describeMechanisms:       (p) => api.post('describe-mechanisms', p),         // gui-mechanisms-describe-button: dryRun projects; else starts a job
   describeMechanismsStatus: (p) => api.get('describe-mechanisms-status', p),   // polled until done / error
   buildMechanisms:          (p) => api.post('build-mechanisms', p),            // the Build button: starts the worker-thread build, answers { jobId, functions, minutes }

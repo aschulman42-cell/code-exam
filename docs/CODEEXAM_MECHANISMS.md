@@ -19,7 +19,12 @@ file: large enough to be "the thing that does X", small enough to read in one si
 The **mechanisms index** is the set of those groups for a whole codebase, written once by
 `--build-mechanisms` to `mechanisms.json` beside the index's other files. It is a *cover*:
 every function of four lines or more sits in at least one record, and a function may sit in
-two (a class and the file that holds it; a name-token group and a piece of a file). Records
+two (a class and the file that holds it; a name-token group and a piece of a file). (Until
+2026-11-23 that was not quite so: a function with a generic name, such as `main`, `init`,
+`get` or a constructor, was left out of every record whatever its length, 62 functions on
+CodeExam's own index. Such a function of four lines or more is now in its file's record and
+in no other, and no record is named for it. A mechanisms file built earlier still lacks
+them until `--build-mechanisms` is run again.) Records
 whose members are the same set under two labels fold into one row in every listing, the
 second label shown after `also`.
 

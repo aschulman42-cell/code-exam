@@ -30,7 +30,7 @@ import {
 } from './dom-utils.js';
 import { showPane } from './layout.js';
 import {
-  onFunctionClick, onFileClick, onClassClick, onVocabClick,
+  onFunctionClick, onFunctionClickSourceOnly, onFileClick, onClassClick, onVocabClick,
 } from './click-handlers.js';
 import { showContextMenu } from './context-menu.js';
 import { renderMermaid } from './mermaid.js';
@@ -1088,6 +1088,141 @@ function renderMechanismMembers(r, container) {
     container.appendChild(item);
   }
   if ((r.members_total || 0) > members.length) container.appendChild(h('div', { className: 'list-placeholder', text: `${members.length} of ${r.members_total} members shown`, style: 'padding:4px 10px;font-size:11px' }));
+}
+
+
+// ============================================================================
+// Function texts list — the GUI form of --show-function-text (gui-function-texts-
+// section). One row per function: file@function, with the ids of the mechanisms
+// holding it beneath; a function the embedding commands make no text for is marked
+// as the CLI marks it. The shared Filter box filters on file@function; the section's
+// own box filters on the text (--text-has), so it is labelled as the text. A click
+// shows the text, its four pieces and the holding mechanisms in the upper middle
+// pane, and the source in the lower one, through the path a Functions row uses.
+// ============================================================================
+
+const fnTextView = { textOrName: '', includeTests: false };
+/** The query for /api/function-texts under the Filter box and the section's text box. */
+export function functionTextParams(filter) {
+  return { filter, textOrName: fnTextView.textOrName, includeTests: fnTextView.includeTests ? '1' : '', max: 300 };
+}
+
+/** The line the CLI prints beside a function that is not embedded. */
+const notEmbeddedNote = (r) => (r.second_definition
+  ? `not embedded: a second definition of this name in the file (in ${r.mechanisms.join(' ')})`
+  : 'in no mechanism, not embedded');
+
+export function renderFunctionTextsSection(container, data) {
+  container.innerHTML = '';
+  const list = h('div');
+  const badgeOf = () => { const s = container.closest('.accordion-section'); return s && s.querySelector('.accordion-badge'); };
+  const refetch = async () => {
+    const filterBox = $('#left-filter');
+    const fresh = await api.functionTexts(functionTextParams((filterBox && filterBox.value.trim()) || ''));
+    if (state.sectionData) state.sectionData['function-texts'] = fresh.rows;
+    renderFunctionTextRows(list, fresh, refetch);
+    const badge = badgeOf();
+    if (badge) badge.textContent = fresh.total;
+  };
+  const input = h('input', { type: 'text', placeholder: 'text or name (or /regex/)', style: 'flex:1 1 0;min-width:0;font-size:11px', title: 'Keeps the functions whose embedded text OR file@function matches (a substring, or /regex/). The text is the name as words, its ranked identifiers, comments and string words, not the source. Combined with the Filter box above (file@function) by AND. The CLI: --text-has matches the text only' });
+  input.value = fnTextView.textOrName;
+  let timer = null;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { fnTextView.textOrName = input.value.trim(); refetch().catch((err) => { list.innerHTML = `<div class="error-msg" style="font-size:11px">${escHtml(err.message)}</div>`; }); }, 300);
+  });
+  input.addEventListener('click', (e) => e.stopPropagation());
+  container.appendChild(h('div', { style: 'display:flex;align-items:center;gap:6px;padding:3px 8px' }, [
+    h('span', { className: 'muted', text: 'Text or name:', style: 'font-size:10px;white-space:nowrap', title: input.title }),
+    input,
+  ]));
+  container.appendChild(list);
+  renderFunctionTextRows(list, data, refetch);
+}
+
+function renderFunctionTextRows(list, data, refetch) {
+  list.innerHTML = '';
+  const rows = data.rows || [];
+  if (data.message) list.appendChild(h('div', { className: 'muted', text: data.message, title: data.message, style: 'font-size:10px;padding:2px 8px' }));
+  // the filters in force, so a stale value in one box is visible (the two are ANDed)
+  const nameBox = $('#left-filter');
+  const nameF = (nameBox && nameBox.value.trim()) || '', textF = fnTextView.textOrName;
+  if (nameF || textF) {
+    const line = [nameF ? `name filter "${nameF}" (Filter box)` : '', textF ? `text-or-name filter "${textF}"` : ''].filter(Boolean).join(' and ');
+    list.appendChild(h('div', { className: 'muted', text: `Filtered by ${line}.`, title: 'Both filters must match: a function is kept when its file@function matches the Filter box and its text or file@function matches the Text or name box', style: 'font-size:10px;padding:2px 8px' }));
+  }
+  // test functions are left out unless asked for, as in the Mechanisms list
+  const n = Number(data.tests_left || 0);
+  if (n || fnTextView.includeTests) {
+    const bar = h('div', { className: 'muted', style: 'font-size:10px;padding:2px 8px' });
+    const a = h('a', { href: '#', style: 'margin-left:6px', text: fnTextView.includeTests ? 'leave out' : 'show', title: 'Test functions are left out by default (the CLI: --include-tests)' });
+    a.addEventListener('click', (e) => { e.preventDefault(); fnTextView.includeTests = !fnTextView.includeTests; refetch(); });
+    bar.appendChild(h('span', { text: fnTextView.includeTests ? 'Test functions shown.' : `${n.toLocaleString()} test function${n === 1 ? '' : 's'} left out.` }));
+    bar.appendChild(a);
+    list.appendChild(bar);
+  }
+  if (!rows.length) { list.appendChild(h('div', { className: 'list-placeholder', text: data.empty_message || 'No function texts match', style: 'white-space:normal;text-align:left' })); return; }
+  for (const r of rows) {
+    const second = r.embedded ? (r.mechanisms || []).join(' ') : notEmbeddedNote(r);
+    const sub = data.hasMechanisms ? second : '';
+    const item = h('div', { className: 'list-item', title: `${r.id}\nL${r.start}-${r.end}${sub ? `\n${sub}` : ''}\n${r.text}`, style: 'flex-wrap:wrap' }, [
+      h('span', { className: 'name clickable', html: displayNameHtml(r.id), style: 'flex:1 1 100%;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
+      sub ? h('span', { className: 'filepath', text: sub, style: 'flex:1 1 100%;font-size:10px;color:var(--text-muted)' }) : null,
+    ].filter(Boolean));
+    item.addEventListener('click', () => openFunctionTextPane(r, data));
+    list.appendChild(item);
+  }
+  if (data.total > rows.length) list.appendChild(h('div', { className: 'list-placeholder', text: `${rows.length} of ${data.total} shown` }));
+}
+
+// A mechanism id in the pane opens that Mechanisms entry in the upper middle pane
+// (openMechanismEntryPane, the pane a x N row opens); the entry is fetched by an
+// anchored-regex filter on its id, which the route's filter matches against the id.
+async function openMechanismById(id) {
+  try {
+    const d = await api.listMechanisms({ filter: `/^${id}$/`, include_tests: '1', max: 10 });
+    const r = (d.records || []).find((x) => x.id === id);
+    if (!r) { showMiddleTopError(`No Mechanisms entry ${id}`); return; }
+    const aliases = (r.aliases || []).map((a) => a.label);
+    openMechanismEntryPane(r, r.description || r.label, aliases.length ? `also ${aliases.join(', ')}` : '');
+  } catch (err) { showMiddleTopError(err.message); }
+}
+
+function openFunctionTextPane(r, data) {
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = `Function text: ${r.id}`;
+  const body = $('#middle-top-body');
+  body.innerHTML = '';
+  const pad = 'padding:4px 8px;font-size:11px';
+  body.appendChild(h('div', { text: `${r.id}  (L${r.start}-${r.end})`, style: `${pad};color:var(--text-bright)` }));
+  body.appendChild(h('div', { text: r.text, style: `${pad};white-space:pre-wrap;word-break:break-word;font-family:var(--font-mono)` }));
+  body.appendChild(h('div', { className: 'muted', text: `${r.text.length.toLocaleString()} characters${r.cut ? ` (cut from ${r.full_length.toLocaleString()} to what the model takes)` : ''}`, style: 'padding:0 8px 4px;font-size:10px' }));
+  const piece = (label, p) => h('div', { style: 'display:flex;gap:8px;padding:1px 8px;font-size:10px;font-family:var(--font-mono)' }, [
+    h('span', { className: 'muted', text: label, style: 'flex:0 0 78px' }),
+    h('span', { className: 'muted', text: `${p.length} chars`, style: 'flex:0 0 64px;text-align:right' }),
+    h('span', { text: p.text, style: 'flex:1 1 0;min-width:0;white-space:pre-wrap;word-break:break-word' }),
+  ]);
+  body.appendChild(piece('name', r.parts.name));
+  body.appendChild(piece('identifiers', r.parts.identifiers));
+  body.appendChild(piece('comment', r.parts.comment));
+  body.appendChild(piece('strings', r.parts.strings));
+  if (data.hasMechanisms) {
+    const mech = h('div', { style: `${pad};display:flex;flex-wrap:wrap;gap:8px;align-items:baseline` });
+    mech.appendChild(h('span', { className: 'muted', text: r.mechanisms.length ? 'In:' : '' }));
+    for (const id of r.mechanisms) {
+      const a = h('a', { href: '#', text: id, title: `Open mechanism ${id} in this pane` });
+      a.addEventListener('click', (e) => { e.preventDefault(); openMechanismById(id); });
+      mech.appendChild(a);
+    }
+    if (!r.embedded) mech.appendChild(h('span', { className: 'muted', text: notEmbeddedNote(r) }));
+    body.appendChild(mech);
+  } else if (data.message) {
+    body.appendChild(h('div', { className: 'muted', text: data.message, style: pad }));
+  }
+  // the source: the lower pane, through the path a Functions row's click uses
+  showPane('middle-bottom');
+  onFunctionClickSourceOnly({ name: r.name, display_name: r.name, filepath: r.file, start: r.start, end: r.end });
 }
 
 

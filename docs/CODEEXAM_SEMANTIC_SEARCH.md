@@ -447,7 +447,8 @@ A group with more than eight functions is also embedded in runs of eight names, 
 its best run, so a group of 400 functions is not one long text cut short.
 
 **2. One text per function**: its name as words, the identifiers in its body that are rare in
-this codebase, and its comments. For `assertLocalOnly`:
+this codebase, and its comments (without the ruled lines of a banner comment, such as
+`// ======`). For `assertLocalOnly`:
 
 ```
 assert local only: feature, air gapped, error. Throw a uniform, user-safe error before any outbound AI call when air-gapped. Call this at every cloud-AI call site, just before the network is touched.. Text: air gapped feature needs cloud call which blocked local model instead the gui set engine workspace
@@ -497,11 +498,20 @@ functions outside tests:
 
 - 709 of one to three lines, in no group (the four-line floor);
 - 62 of four lines or more that are in no group all the same (`in no mechanism, not
-  embedded`), among them functions named `main`, `init` and `get` and class constructors. Why
-  the grouper leaves these out has not been looked into;
+  embedded`), among them functions named `main`, `init` and `get` and class constructors. The
+  grouper left out every function with such a generic name, because no group should be named
+  for one;
 - 32 that are in a group but are the second definition of a name within one file (`in m57,
-  not embedded: a second definition of this name in the file`). A search reaches a group's
+  not embedded: a second definition of this name in the file`). A search reached a group's
   functions by file and name, which finds only the first definition.
+
+Both of the last two were changed on 2026-11-23. A second definition is now reached by its
+start line and gets a text of its own; that needs nothing rebuilt, and the next search or
+`--build-embeddings` embeds the newly reached functions. A function with a generic name that
+is four lines or more now sits in its file's group (and in no other, and no group is named
+for it), but only in a mechanisms file built since then: `--build-mechanisms` has to be run
+again, which renumbers the groups' ids. On an index whose mechanisms file is older, the 62
+kind is still marked.
 
 **The score.** A group's score for your text is 0.3 of its label text's similarity plus 0.7
 of its best function's. That weighting was fixed and measured before this command existed

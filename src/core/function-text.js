@@ -89,6 +89,17 @@ export function splitSource(text, file = '') {
   return { code, comments: comments.join(' ').replace(/\s+/g, ' ').trim(), strings };
 }
 
+/**
+ * Comment text without ruled lines: a run of three or more of one of `= - _ * # ~ +` is a
+ * banner's rule (`// ======== Accordion left pane ========`, `// --- report ---`), not
+ * words. Two are kept, so `--flag` and `a == b` in a comment survive. Left in, a
+ * 72-character rule took a fifth of the 400 characters a function's comment is given, twice
+ * over for a boxed heading, and was embedded with the rest (19 function texts on CodeExam's
+ * own index, 2026-11-23; Andrew, reading --show-function-text: "frequent occurrences of
+ * ====="). The words between the rules stay.
+ */
+export const withoutRules = (text) => String(text || '').replace(/([=\-_*#~+])\1{2,}/g, ' ').replace(/\s+/g, ' ').trim();
+
 /** The comment lines directly above line `start` (1-based), nearest last, at most `max` lines; '' when the line above is not a comment. */
 export function leadingComment(lines, start, file = '', max = 12) {
   const hash = HASH_COMMENT.test(file);
@@ -189,7 +200,7 @@ export function buildCorpus(functionIndex, linesOf) {
         let r = byRange.get(key);
         if (!r) {
           const src = splitSource(lines.slice(info.start - 1, info.end).join('\n'), file);
-          r = { tf: identifierCounts(src.code), comments: [leadingComment(lines, info.start, file), src.comments].filter(Boolean).join(' '), strings: src.strings, calls: calledNames(src.code, known) };
+          r = { tf: identifierCounts(src.code), comments: withoutRules([leadingComment(lines, info.start, file), src.comments].filter(Boolean).join(' ')), strings: src.strings, calls: calledNames(src.code, known) };
           byRange.set(key, r);
           rangesRead++;
         }
@@ -309,3 +320,22 @@ export function fuseSum(a, b, w) {
 }
 /** The corpus id (`file@name`, forward slashes) of a mechanism member { file, name }. */
 export const memberId = (m) => `${String((m && m.file) || '').replace(/\\/g, '/')}@${(m && m.name) || ''}`;
+/**
+ * A member-to-corpus-id function that also reaches a second definition of a name within one
+ * file (function-text-embedding-gaps-and-gui, part A). The index names the second definition
+ * `name@<line>`; a mechanism record lists both under the bare name, each with its own
+ * `start`. Joined by `file@name` alone, both members became the first definition, and the
+ * second never had a text or a vector (32 functions on CodeExam's index, one of 41 lines).
+ * With `fns` (the corpus's functions): a member whose `start` is not the first definition's
+ * resolves to `file@name@<start>` when the corpus has it. A member with no `start` (an older
+ * mechanisms file) resolves by name as before, and so does everything else.
+ */
+export function memberResolver(fns) {
+  const startOf = new Map((fns || []).map((f) => [f.id, f.start]));
+  return (m) => {
+    const id = memberId(m);
+    if (!m || m.start == null || !startOf.has(id) || startOf.get(id) === m.start) return id;
+    const second = `${id}@${m.start}`;
+    return startOf.has(second) ? second : id;
+  };
+}

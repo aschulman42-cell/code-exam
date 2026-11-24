@@ -60,7 +60,7 @@ their own threads. That redesign, and the open questions behind it, are tracked 
 
 The left pane is where you orient yourself in an unfamiliar codebase. Under an **Orient** heading
 sits **Overview** (the one-shot "what is this codebase" summary); under **Browse** sit the
-structural lists — **Functions**, **Files**, **Classes**, **Mechanisms**, **Class Inheritance**,
+structural lists — **Functions**, **Files**, **Classes**, **Mechanisms**, **Function texts**, **Class Inheritance**,
 **Data Structures**, plus **Bundle Seams** and the extension census. Clicking a row loads it into the
 middle panes. **Mechanisms** is the one list the GUI does not compute on each open: it reads the
 records `ce --index-path <X> --build-mechanisms`, or the pane's own **Build** button, wrote beside
@@ -103,6 +103,34 @@ phase shows beside the button (loading the index, grouping, then records), the l
 it ends, and the Describe bar reports the outcome. No model is involved, so the button needs no
 engine. The build is about a minute per 25,000 functions (seconds on CodeExam's own index, nine
 minutes on Py314's 378,000), and the CLI command in the line does the same from a terminal.
+
+**Function texts**, directly under Mechanisms, is the GUI form of `--show-function-text`: for each
+function, the short text that `--semantic-search` and `--embed-distance --function-text` embed for
+it. The text is built from the index with no model: the function's name as words, its ranked
+identifiers, its comments, then the words of its string literals. A row is `file@function`, with the
+ids of the mechanisms holding the function beneath it (`m12 m57`), in file and line order; the badge
+counts the functions listed. The shared **Filter** box filters on `file@function`. The section has a
+second box, **Text or name**, that keeps the functions whose embedded text or `file@function`
+matches it (a substring, or `/regex/`); it does not search the source. The name is in the text only
+as separate words (`parseMultisectVerdicts` reads "parse multisect verdicts"), so the box also
+matches the name itself, which the CLI's `--text-has` (the text only) does not. The two boxes are
+combined with AND, so a value left in one of them hides rows; a line above the list says which
+filters are in force (`Filtered by name filter "..." (Filter box) and text-or-name filter "..."`),
+and an empty list names each filter and says how many test functions left out would match. Test
+functions are left out, and a line above the list says how many and offers **show** (the CLI's
+`--include-tests`). The list holds up to 300 rows. A function the
+two commands make no text for, because no mechanism holds it or because it is a second definition
+of a name within its file, is marked "in no mechanism, not embedded" (or "not embedded: a second
+definition of this name in the file"), as the CLI marks it. Clicking a row shows, in the upper
+middle pane, the text and its length, its four pieces (name, identifiers, comment, strings) with
+their lengths (the CLI's `-v`), and the mechanisms holding it; each id is a link that opens that
+Mechanisms entry in the same pane. The function's source opens in the lower middle pane, as it does
+from a Functions row (without replacing the upper pane). When the index has no mechanisms file the
+texts are still listed, with a line saying that no mechanism ids are shown and nothing is embedded
+yet. The list comes from `/api/function-texts` (`filter`, `textHas` for the text only, `textOrName` for the pane's box, `id`, `max`, `includeTests`);
+`id=m70` restricts it to one mechanism's functions, as the CLI's `id:m70` does, though the pane has
+no control for it. The server reads every function's source lines once per loaded index, on the
+first request, and keeps the result until the index is reloaded.
 
 The Overview surface ends with the opt-in **✨ Overview by AI** button, and the same surface is
 available as a pop-up (the **⧉ Open Overview pop-up** button in the Overview's button row). The two are one view: the

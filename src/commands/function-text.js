@@ -22,7 +22,7 @@
 
 import { effectiveMaxResults, capNotice } from '../argparse.js';
 import { cut } from '../core/embed.js';
-import { buildCorpus, functionText, functionTextParts, memberId, FUSE_ARM } from '../core/function-text.js';
+import { buildCorpus, functionText, functionTextParts, memberId, memberResolver, FUSE_ARM } from '../core/function-text.js';
 import { loadMechanismsIndex, foldRecords } from '../core/mechanisms-index.js';
 import { makeFilterMatcher, filteredEmptyNotice } from '../core/filter-match.js';
 import { isTestPath } from '../core/test-paths.js';
@@ -38,16 +38,19 @@ export const isTestFunction = (f) => !!(f && (f.test || isTestPath(f.file)));
  * Which mechanism entries hold which functions, two ways. `byId`: function id (`file@name`)
  * to the record ids of the entries holding it, lowest number first; this is the join the
  * embedding commands make (functionTexts in embed-distance.js), so a function it finds is
- * one they embed. `byLine`: `file|start line` to the same, which also finds a second
- * definition of a name within one file: the index names it `name@<line>`, a mechanism
- * holds it under the bare name, and the join by name reaches only the first definition.
+ * one they embed. `idOf` is that join's member-to-id function: memberResolver(corpus.fns)
+ * since function-text-embedding-gaps-and-gui, which reaches a second definition of a name
+ * within one file by its start line; memberId, the default, reaches only the first.
+ * `byLine`: `file|start line` to the same, for a function `idOf` did not reach (a second
+ * definition under the default; the index names it `name@<line>` and a mechanism holds it
+ * under the bare name).
  * `entries` are the folded records; an entry several records folded into is named by its own id.
  */
-export function mechanismsOfFunctions(entries) {
+export function mechanismsOfFunctions(entries, idOf = memberId) {
   const byId = new Map(), byLine = new Map();
   const add = (m, k, id) => { if (!m.has(k)) m.set(k, []); if (!m.get(k).includes(id)) m.get(k).push(id); };
   for (const e of entries || []) for (const m of e.members || []) {
-    add(byId, memberId(m), e.id);
+    add(byId, idOf(m), e.id);
     if (m && m.start != null) add(byLine, `${String(m.file || '').split('\\').join('/')}|${m.start}`, e.id);
   }
   for (const map of [byId, byLine]) for (const l of map.values()) l.sort((a, b) => idNumber(a) - idNumber(b));
@@ -146,6 +149,8 @@ export function doShowFunctionText(index, args, { exe = 'ce' } = {}) {
   if (typeof index._ensureFunctionIndex === 'function') index._ensureFunctionIndex();
   const corpus = buildCorpus(index.functionIndex || {}, (f) => index.fileLines.get(f));
   if (!corpus.fns.length) { console.log(`--show-function-text: ${args.index_path} holds no functions.`); return; }
+  // the join the embedding commands make: by name, and by start line for a second definition
+  const idOf = memberResolver(corpus.fns);
   let data = null;
   try { data = loadMechanismsIndex(index); } catch (e) { console.error(`--show-function-text: ${e.message}`); process.exitCode = 1; return; }
   const entries = data ? foldRecords(data.records) : null;
@@ -155,7 +160,7 @@ export function doShowFunctionText(index, args, { exe = 'ce' } = {}) {
     const at = entryIndexById(entries, fromId);
     if (at < 0) { console.error(`--show-function-text: ${args.index_path} has no mechanism ${fromId}. Its mechanisms file, built ${String(data.generated || '').slice(0, 10) || 'at an unrecorded date'}, has ${nf(entries.length)} mechanisms; ${exe} --index-path ${args.index_path} --mechanisms lists them with their ids.`); process.exitCode = 2; return; }
     of = entries[at];
-    want = new Set((of.members || []).map(memberId));
+    want = new Set((of.members || []).map(idOf));
   }
   const filter = fromId ? null : own;
   const textFilter = typeof args.text_has === 'string' && args.text_has ? args.text_has : null;
@@ -174,5 +179,5 @@ export function doShowFunctionText(index, args, { exe = 'ce' } = {}) {
   }
   const max = effectiveMaxResults(args, 50);
   if (args.verbose) for (const r of sel.rows.slice(0, Number.isFinite(max) ? max : sel.rows.length)) r.parts = functionTextParts(r.f, corpus);
-  console.log(formatFunctionTexts(sel, { indexPath: args.index_path, filter, textFilter, of, mechs: entries ? mechanismsOfFunctions(entries) : null, max, verbose: !!args.verbose, exe }).join('\n'));
+  console.log(formatFunctionTexts(sel, { indexPath: args.index_path, filter, textFilter, of, mechs: entries ? mechanismsOfFunctions(entries, idOf) : null, max, verbose: !!args.verbose, exe }).join('\n'));
 }

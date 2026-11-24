@@ -318,6 +318,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_file_resolution.js` — #238 file-target resolution: exact match wins, leading `/` anchors to repo root
 - `test/test_first_run.js` — first-run UX: bare `ce` welcome, demo auto-load, bad `--index-path`, no auto-REPL
 - `test/test_follow_calls.js` — `--follow-calls` (`--deep`) and `--comments-only` over extracted functions
+- `test/test_function_texts_route.js` — `/api/function-texts`: the texts the embedding commands embed, the mechanisms holding each function, the filters, tests left out, and the no-mechanisms-file answer
 - `test/test_function_text.js` — the mechanical function text and the reach script's scoring with no index and no model: source split into code, comments and literals, the ranked vocabulary, the four arms, class and file chunks, the roll-up, the set reading, the pool, the tallies and the control
 - `test/test_har.js` — #161 `.har` expansion: text/base64 bodies, mime inference, URL dedupe, malformed input
 - `test/test_help_filter.js` — `filterHelp`: entry blocks and continuation lines, section headers, no-match report

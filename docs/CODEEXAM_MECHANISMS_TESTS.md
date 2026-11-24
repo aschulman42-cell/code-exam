@@ -13,7 +13,9 @@ an entry or a group. Seed, floor and cover are defined on
 ## The bottom line, here at the top (2026-11-14)
 
 Mechanisms are soundly based as a way to divide code into pieces small enough to label,
-describe and search: every function of four lines or more is in one, and a search by a
+describe and search: every function of four lines or more is in one (in a mechanisms file
+built since 2026-11-23; before that, functions with generic names such as `main` and `init`
+were in none, 62 on CodeExam's index), and a search by a
 claim's words puts the mechanism holding a cited function in the top 25 for 58% of the names
 litigants cited. They are not the unit a claim limitation reads on. In the public claim
 charts that cite code row by row, a limitation with two or more cited functions almost never

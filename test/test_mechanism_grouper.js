@@ -335,6 +335,19 @@ describe('test-attributed candidate filter (#291 A)', () => {
     const { funcs } = enumerateFuncs(bare, {});
     assert.equal(funcs.length, 3);
   });
+  it('a function with a generic name is no candidate for drafting; the cover keeps a long one, marked, and still leaves a short one out (function-text-embedding-gaps-and-gui, part B)', () => {
+    const idx = { _ensureFunctionIndex() {}, functionIndex: { 'src/tool.js': {
+      main: { start: 1, end: 40, type: 'function' },          // generic name, long
+      init: { start: 41, end: 42, type: 'function' },         // generic name, under four lines
+      parseArguments: { start: 50, end: 60, type: 'function' },
+      Tool: { start: 70, end: 200, type: 'class' },           // a class entry: its methods are the candidates
+    } } };
+    assert.deepEqual(enumerateFuncs(idx, {}).funcs.map((f) => f.bare), ['parseArguments'], 'candidate discovery is unchanged');
+    const cover = enumerateFuncs(idx, { cover: true }).funcs;
+    assert.deepEqual(cover.map((f) => f.bare), ['main', 'parseArguments']);
+    assert.equal(cover[0].intrinsic, true);
+    assert.equal(cover[1].intrinsic, undefined);
+  });
 });
 
 // issue-289-doc-anchor-enrichment: heading-bounded doc sections attach to

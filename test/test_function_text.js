@@ -11,7 +11,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ARMS, classOf, leafOf, phrase, splitSource, leadingComment, identifierCounts, calledNames,
+  ARMS, classOf, leafOf, phrase, splitSource, leadingComment, withoutRules, identifierCounts, calledNames,
   literalWords, rankIdentifiers, buildCorpus, functionText, unitChunks, unitsOf, rollUp, setReading,
 } from '../src/core/function-text.js';
 import {
@@ -72,6 +72,19 @@ describe('function-text: splitting a source text', () => {
     assert.ok(!s.code.includes('hello') && !s.code.includes('set a') && s.code.includes('b()'));
     assert.equal(s.comments, 'set a block two');
     assert.deepEqual(s.strings, ['hello world']);
+  });
+  it('a banner\'s ruled lines are not part of a function\'s text; the words between them are (function-text-embedding-gaps-and-gui, Andrew 2026-11-23)', () => {
+    assert.equal(withoutRules('======================== Accordion left pane ========================'), 'Accordion left pane');
+    assert.equal(withoutRules('---- .npy reader (float32) ------------'), '.npy reader (float32)');
+    assert.equal(withoutRules('--- report ---'), 'report');
+    assert.equal(withoutRules('pass --flag when a == b, or use a_b'), 'pass --flag when a == b, or use a_b', 'two of a kind are words');
+    assert.equal(withoutRules('*** ### ~~~ +++ ___'), '');
+    assert.equal(withoutRules(''), '');
+    // through the corpus: the rule above a function and inside it leave its comment text
+    const lines = ['// ========================================', '// Accordion left pane', '// ========================================', 'function initAccordion(section) {', '  // ---- wire the header ----', '  return section;', '}'];
+    const c = buildCorpus({ 'ui.js': { initAccordion: { start: 4, end: 7 } } }, () => lines);
+    assert.equal(c.fns[0].comments, 'Accordion left pane wire the header');
+    assert.doesNotMatch(functionText(c.fns[0], 'comments', c), /[=-]{3}/);
   });
   it('reads # comments and docstrings in Python, and leaves # alone in C', () => {
     const p = splitSource('x = 1  # one\n"""Doc here."""\n', 'a.py');

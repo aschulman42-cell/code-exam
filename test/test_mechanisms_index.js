@@ -308,6 +308,13 @@ describe('the mechanisms index', () => {
       assert.ok(inClass.includes('Tokenizer::tokenize'), inClass.join(', '));
       assert.ok(inFile.includes('Tokenizer::tokenize'), inFile.join(', '));
       assert.equal(inClass.length, 3, 'tokenize, tally_tokens, head (the dunder constructor is an intrinsic name)');
+      // function-text-embedding-gaps-and-gui, part B: a function with a generic name that is
+      // four lines or more is in its file's record, and in no other, so the cover's 100% is of
+      // every such function. Before, `__init__` here was in no record at all.
+      assert.ok(inFile.includes('Tokenizer::__init__'), inFile.join(', '));
+      assert.ok(!inClass.includes('Tokenizer::__init__'), 'it seeds and joins no class record');
+      assert.deepEqual(data.records.filter((r) => r.members.some((m) => m.name === 'Tokenizer::__init__')).map((r) => r.label), ['[file] parser.py']);
+      assert.ok(!data.records.some((r) => r.kind !== 'file' && /__init__/.test(r.label)), 'and no token, class or command record is named for it');
       assert.ok(inFile.includes('resolve_element') && inFile.includes('chart_row'), inFile.join(', '));
       assert.equal(cls.files.length, 1);
     });
@@ -503,7 +510,7 @@ describe('the mechanisms index', () => {
       try {
         rec.purpose = 'Keeps secrets under a key and hands them back on demand, ' + 'y'.repeat(100);
         const cutLine = formatMechanismsToc(data, [rec], {}).lines[2];
-        assert.match(cutLine, /^1\. m\d+  \[file\] parser\.py  \(5 fns, 1 file\) — "Keeps secrets under a key and hands them back on demand, y+…"$/, cutLine);
+        assert.match(cutLine, /^1\. m\d+  \[file\] parser\.py  \(6 fns, 1 file\) — "Keeps secrets under a key and hands them back on demand, y+…"$/, cutLine);
         assert.equal(cutLine.split('"')[1].length, 90, 'the quote is cut at 90 characters');
       } finally { rec.purpose = orig; }
       assert.equal(purposeSnippet('a  b\n c'), 'a b c');

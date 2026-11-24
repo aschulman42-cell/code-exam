@@ -231,11 +231,14 @@ independently-operable panels that redesign is built toward.
   `id (prefix_…)` row can still appear under "Potentially important concepts". The
   withheld tokens are reported with a redacted fingerprint; the ones that pass are not.
 - **Some functions cannot be returned by `--semantic-search`** — a search compares your text
-  with one short text per function, and for three kinds of function no text is embedded:
-  a function of one to three lines; a function with a generic name (`main`, `init`, `get`,
-  `run`, a class constructor), which the grouper leaves out of every mechanism; and the
-  second definition of a name within one file. On CodeExam's own index (2026-11-22) that was
-  709, 62 and 32 of 2,797 functions outside tests. `--show-function-text` lists every
+  with one short text per function, and for some functions no text is embedded: always, a
+  function of one to three lines; and, on an index whose mechanisms file was built before
+  2026-11-23, a function with a generic name (`main`, `init`, `get`, `run`, a class
+  constructor), which the grouper then left out of every mechanism (running
+  `--build-mechanisms` again puts those of four lines or more in their file's mechanism, and
+  renumbers the mechanisms). Until 2026-11-23 the second definition of a name within one
+  file was a third kind; it is now reached. On CodeExam's own index (2026-11-22) the three
+  kinds were 709, 62 and 32 of 2,797 functions outside tests. `--show-function-text` lists every
   function with its text and marks the ones not embedded
   ([`CODEEXAM_SEMANTIC_SEARCH.md`](CODEEXAM_SEMANTIC_SEARCH.md), "What your text is compared
   to"). The exact searches (`--search`, `--regex`, multisect) are not affected.

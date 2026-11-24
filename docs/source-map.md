@@ -235,6 +235,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_first_run.js` — first-run UX: bare `ce` welcome, demo auto-load, bad --index-path, no auto-REPL
 - `test/test_follow_calls.js` — --follow-calls (--deep) and --comments-only over extracted functions
 - `test/test_function_bounds.js` — function-end detection: masked tokenizer, brace / arrow / indentation ends, prose-in-template guard, hybrid-merge dedupe, tree-sitter macro names and parse-error counts
+- `test/test_function_texts_route.js` — /api/function-texts: the texts the embedding commands embed, the mechanisms holding each function, the filters, tests left out, and the no-mechanisms-file answer
 - `test/test_function_text.js` — the mechanical function text and the reach script's scoring with no index and no model: source split into code, comments and literals, the ranked vocabulary, the four arms, class and file chunks, the roll-up, the set reading, the pool, the tallies and the control
 - `test/test_gui_imports_route.js` — /api/imports answers for a corpus with no Python (the Imports accordion is not Python-only)
 - `test/test_gui_mechanisms_route.js` — /api/list-mechanisms answers the not-built line before --build-mechanisms and the records, with members a click can open, after it

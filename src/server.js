@@ -37,6 +37,8 @@ import { extractExports } from './core/exports.js';
 import { extractImports, bomReport } from './core/imports.js';
 import { loadMechanismsIndex, saveMechanismsIndex, filterRecords, foldRecords, notBuiltLine, candidateCount, estimateBuildMinutes, sentenceNamesSubject, filterMatches, matchNote, orderEntries, listingGroup, withoutTestEntries, LISTING_ORDERS, DEFAULT_LISTING_ORDER } from './core/mechanisms-index.js';
 import { describeMechanisms, describeProjection } from './core/mechanisms-describe.js';
+import { buildCorpus, functionTextParts, memberResolver } from './core/function-text.js';
+import { isTestFunction, selectFunctionTexts, mechanismsOfFunctions, standingOf, lengthStats } from './commands/function-text.js';
 import { copyrightNotices } from './core/copyrights.js';
 import { extractConcepts, INTRINSIC_NAMES, isIntrinsicName } from './core/vocabulary.js';
 import { buildOverviewFast, buildOverviewDeep } from './core/overview.js';
@@ -3250,6 +3252,104 @@ routes['/api/list-mechanisms'] = (req, res) => {
         lines: (m.end || m.start || 0) - (m.start || 0) + 1,
       })),
     })),
+  });
+};
+
+// gui-function-texts-section: the GUI form of --show-function-text. One row per
+// function: the short text the embedding commands embed for it (core/function-text.js,
+// no model), the mechanisms holding it, and whether those commands embed it at all.
+// The corpus reads every function's source lines, so it is built once per loaded
+// index, on first use, and kept in a WeakMap: a reload replaces the index instance and
+// the entry drops with it (the _knownNameSetCache pattern). The mechanisms file is
+// read per request (the loader caches it by mtime and size), so a rebuild shows at once.
+// Query: filter (file@name), textHas (the text; --text-has), textOrName (text or file@name; the GUI's box), id (mNNN; the CLI's
+// id:mNNN), max, includeTests ('1' / 'true').
+const _functionTextCorpusCache = new WeakMap();
+function _functionTextCorpus(index) {
+  let c = _functionTextCorpusCache.get(index);
+  if (c) return c;
+  if (typeof index._ensureFunctionIndex === 'function') index._ensureFunctionIndex();
+  const corpus = buildCorpus(index.functionIndex || {}, (f) => index.fileLines.get(f));
+  c = { corpus, idOf: memberResolver(corpus.fns) };
+  _functionTextCorpusCache.set(index, c);
+  return c;
+}
+
+routes['/api/function-texts'] = (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const { corpus, idOf } = _functionTextCorpus(index);
+  let data = null;
+  try { data = loadMechanismsIndex(index); } catch (e) { return errorResponse(res, `mechanisms.json could not be read: ${e.message}`, 500); }
+  const entries = data ? foldRecords(data.records) : null;
+  const mechs = entries ? mechanismsOfFunctions(entries, idOf) : null;
+  const includeTests = q.includeTests === '1' || q.includeTests === 'true';
+  const textFilter = q.textHas || null;
+  let of = null, want = null;
+  const wantId = q.id ? String(q.id).trim().toLowerCase().replace(/^id:/, '') : '';
+  if (wantId) {
+    if (!/^m[0-9]+$/.test(wantId)) return errorResponse(res, `id must look like m70; got "${q.id}"`, 400);
+    if (!entries) return errorResponse(res, `This index has no mechanisms file, so it has no mechanism ${wantId}. ${notBuiltLine(index)}`, 404);
+    // the entry's own id, or the id of a record folded into it (the CLI's entryIndexById)
+    of = entries.find((e) => e.id === wantId || (e.aliases || []).some((a) => a.id === wantId));
+    if (!of) return errorResponse(res, `This index has no mechanism ${wantId}; its mechanisms file has ${entries.length} mechanisms.`, 404);
+    want = new Set((of.members || []).map(idOf));
+  }
+  const nameFilter = wantId ? null : (q.filter || null);
+  const sel = selectFunctionTexts(corpus, { filter: nameFilter, want, includeTests, textFilter });
+  // textOrName: the GUI's own box. Keeps a function whose embedded text OR file@name matches
+  // (the name is in the text only as separate words, so `parsemultisect` is not in the text of
+  // parseMultisectVerdicts). --text-has keeps its meaning (text only) as `textHas`. The two
+  // parameters, and `filter`, are ANDed. selectFunctionTexts counts testsLeft under textHas
+  // and filter alone, so the count under textOrName is made here from the same pool.
+  const textOrName = q.textOrName || null;
+  if (textOrName) {
+    const hit = makeFilterMatcher(textOrName);
+    const keep = (r) => hit(r.text, r.f.id, r.f.name);
+    sel.rows = sel.rows.filter(keep);
+    sel.testsLeft = includeTests ? 0 : selectFunctionTexts(corpus, { filter: nameFilter, want, includeTests: true, textFilter }).rows.filter((r) => isTestFunction(r.f) && keep(r)).length;
+  }
+  const stats = lengthStats(sel.rows);
+  // an empty answer names every filter in force and what each matches, so a stale value in one box is visible
+  const inForce = [of ? `mechanism ${of.id}` : '', nameFilter ? `name filter ${JSON.stringify(nameFilter)}` : '', textFilter ? `text filter ${JSON.stringify(textFilter)}` : '', textOrName ? `text-or-name filter ${JSON.stringify(textOrName)}` : ''].filter(Boolean);
+  const emptyMessage = sel.rows.length ? '' : `No function texts match ${inForce.length ? inForce.join(' and ') : 'the index (it holds none outside test code)'}.${sel.testsLeft ? ` ${sel.testsLeft} test function${sel.testsLeft === 1 ? '' : 's'} left out would match (the "show" link beside the count of test functions lists ${sel.testsLeft === 1 ? 'it' : 'them'}).` : ''}`;
+  const stand = (r) => (mechs ? standingOf(r.f, mechs) : { ids: [], embedded: false });
+  const standings = sel.rows.map(stand);
+  const max = safeMax(q.max, 300);
+  const shown = sel.rows.slice(0, max);
+  jsonResponse(res, {
+    hasMechanisms: !!mechs,
+    // no mechanisms file: the texts are listed all the same, nothing is embedded yet (the CLI's header line)
+    message: mechs ? '' : `This index has no mechanisms file, so no mechanism ids are shown and nothing is embedded yet. ${notBuiltLine(index)}`,
+    mechanism: of ? { id: of.id, label: of.label } : null,
+    empty_message: emptyMessage,
+    shown: shown.length,
+    total: sel.rows.length,       // the functions the filters kept
+    total_all: sel.total,         // the functions before the filters (test functions already left out)
+    tests_left: sel.testsLeft,
+    // functions listed but not embedded: in no mechanism, or a second definition of a name within a file
+    not_embedded: mechs ? standings.filter((s) => !s.embedded).length : 0,
+    in_no_mechanism: mechs ? standings.filter((s) => !s.embedded && !s.ids.length).length : 0,
+    second_definition: mechs ? standings.filter((s) => !s.embedded && s.ids.length).length : 0,
+    stats,
+    rows: shown.map((r, i) => {
+      const p = functionTextParts(r.f, corpus);
+      const ids = p.identifiers.join(', '), strs = p.strings.join(' ');
+      return {
+        id: r.f.id, file: r.f.file, name: r.f.name, start: r.f.start, end: r.f.end,
+        text: r.text, cut: r.wasCut, full_length: r.full.length,
+        mechanisms: standings[i].ids, embedded: standings[i].embedded,
+        // `second_definition`: held by a mechanism, but under a name the join reaches only for the first definition
+        second_definition: !standings[i].embedded && standings[i].ids.length > 0,
+        parts: {
+          name: { text: p.name, length: p.name.length },
+          identifiers: { text: ids, length: ids.length },
+          comment: { text: p.comment, length: p.comment.length },
+          strings: { text: strs, length: strs.length },
+        },
+      };
+    }),
   });
 };
 

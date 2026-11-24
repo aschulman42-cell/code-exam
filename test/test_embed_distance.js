@@ -391,6 +391,15 @@ describe('--function-text: an entry scored by its label and its best member func
     assert.equal(plan.short.get('src/b.js@B::run'), 'b.js@B::run', 'what a row prints after via');
     assert.ok(plan.texts[0].text.startsWith('parse terms'), plan.texts[0].text);
     assert.ok(plan.texts[0].text.includes('split the list'), 'the comments form carries the comment');
+    // function-text-embedding-gaps-and-gui, part A: a second definition of a name in one file
+    // (the index's `name@<line>`) is held by a record under the bare name with its own start
+    // line; it gets its own text, where the join by name gave both members the first's.
+    const files = { 'src/twice.js': ['function poll(a) {', '  return a;', '}', 'function poll(a, b) {', '  // the second one', '  return b;', '}'] };
+    const twice = buildCorpus({ 'src/twice.js': { poll: { start: 1, end: 3 }, 'poll@4': { start: 4, end: 7 } } }, (f) => files[f]);
+    const p2 = functionTexts([{ label: 'twice', members: [{ file: 'src/twice.js', name: 'poll', start: 1, end: 3 }, { file: 'src/twice.js', name: 'poll', start: 4, end: 7 }] }], twice);
+    assert.deepEqual(p2.ids, [['src/twice.js@poll', 'src/twice.js@poll@4']]);
+    assert.deepEqual(p2.texts.map((t) => t.key), ['src/twice.js@poll', 'src/twice.js@poll@4']);
+    assert.ok(p2.texts[1].text.includes('the second one'), p2.texts[1].text);
   });
 
   it('rankFused weighs 0.3 on the label and 0.7 on the best function, and names the function that scored', async () => {

@@ -270,8 +270,10 @@ export function isUnderVendored(file, vendored) {
 // is a cover of EVERY function, and a reader looking for "the test harness"
 // or "the vendored codec" must find a record for it -- so those functions are
 // kept and TAGGED (`test`, `noise`, `vendored: <root>`) and the counters count
-// the tagged files instead of excluded ones. Intrinsics and one-liners stay
-// out: they are not functions a mechanism record would name.
+// the tagged files instead of excluded ones. One-liners stay out. A function
+// with an intrinsic name stays out of candidate discovery and, in the cover,
+// is kept for its file's record only (`intrinsic: true`): no token, class,
+// command or file-piece seed reads it.
 export function enumerateFuncs(index, opts = {}) {
   const o = { ...GROUPER_DEFAULTS, ...opts };
   index._ensureFunctionIndex?.();
@@ -296,7 +298,16 @@ export function enumerateFuncs(index, opts = {}) {
     for (const [full, info] of Object.entries(fns)) {
       if ((info.type || 'function') === 'class') continue;
       const bare = (info.base_name || full.split('::').pop() || '').split('@')[0];
-      if (!bare || isIntrinsicName(bare)) continue;
+      if (!bare) continue;
+      // A function with a generic name (`main`, `init`, `get`, `run`, `constructor`) names
+      // nothing, so no record is seeded by it or labelled for it. Candidate discovery drops
+      // it. The cover keeps it when it is long enough to be a candidate at all, marked
+      // `intrinsic`, so that it sits in its file's record and nowhere else
+      // (function-text-embedding-gaps-and-gui, part B): CodeExam's own index had 62 such
+      // functions of four lines or more in no record, one `init` of 123 lines among them,
+      // under a cover line reading "100%".
+      const intrinsic = isIntrinsicName(bare);
+      if (intrinsic && !cover) continue;
       const lines = (info.end || 0) - (info.start || 0) + 1;
       if (lines < o.minLines) continue;
       const testAttr = Array.isArray(fileLines) && isTestAttributedFunction(fileLines, info.start || 0);
@@ -304,6 +315,7 @@ export function enumerateFuncs(index, opts = {}) {
       const id = `${file}@${full}`;
       const f = { id, file, name: full, bare, start: info.start, end: info.end, lines };
       if (cover) {
+        if (intrinsic) f.intrinsic = true;
         if (fileIsTest || testAttr) f.test = true;
         else if (noise) f.noise = true;
         if (v) f.vendored = v.root;
@@ -339,6 +351,7 @@ function conceptSeededGroups(index, funcs, o) {
   const tokens = [...rank.keys()];
   const groups = new Map();
   for (const f of funcs) {
+    if (f.intrinsic) continue;   // a generic name seeds no token group (cover mode keeps it for its file's record)
     const nameLc = f.bare.toLowerCase();
     let bestTok = null, bestRank = Infinity;
     for (const t of tokens) if (nameLc.includes(t) && rank.get(t) < bestRank) { bestRank = rank.get(t); bestTok = t; }
@@ -422,6 +435,8 @@ function multiSeedGroups(index, funcs, o) {
   const totalFiles = new Set(funcs.map((f) => f.file)).size || 1;
   const spreadCap = Math.max(3, Math.ceil(totalFiles * o.overbroadFileFrac)); // a namespace cross-cuts many files
   const fileOf = new Map(funcs.map((f) => [f.id, f.file]));
+  // cover mode's generic-named functions (enumerateFuncs): in their file's record only
+  const intrinsicIds = new Set(funcs.filter((f) => f.intrinsic).map((f) => f.id));
   // Drafting mode emits a PARTITION: `assigned` (funcId -> label) is the
   // record of which seed took a function, and a later seed sees only the
   // unassigned residue. COVER mode (mechanisms-index-prebuild-cli-gui) emits
@@ -447,6 +462,7 @@ function multiSeedGroups(index, funcs, o) {
   const tokens = [...rank.keys()];
   const tokGroups = new Map();
   for (const f of funcs) {
+    if (f.intrinsic) continue;   // a generic name seeds no token group (cover mode keeps it for its file's record)
     const nameLc = f.bare.toLowerCase();
     let best = null, bestRank = Infinity;
     for (const t of tokens) if (nameLc.includes(t) && rank.get(t) < bestRank) { bestRank = rank.get(t); best = t; }
@@ -477,7 +493,7 @@ function multiSeedGroups(index, funcs, o) {
   for (const fns of Object.values(index.functionIndex || {})) for (const [full, info] of Object.entries(fns)) if (info && info.type === 'class') classNames.add((info.base_name || full.split('::').pop() || full).split('@')[0]);
   const leafParents = new Map(); const recs = [];
   for (const f of funcs) {
-    if (isTaken(f.id)) continue;
+    if (isTaken(f.id) || f.intrinsic) continue;
     const ix = f.name.lastIndexOf('::'); if (ix <= 0) continue;
     const segs = f.name.slice(0, ix).split('::');
     const leaf = segs[segs.length - 1], parent = segs.length >= 2 ? segs[segs.length - 2] : '';
@@ -553,7 +569,7 @@ function multiSeedGroups(index, funcs, o) {
       const seen = new Set();
       let reached = 0, taken = 0;
       const consider = (fid) => {
-        if (!fid || seen.has(fid) || !fileOf.has(fid)) return false;
+        if (!fid || seen.has(fid) || !fileOf.has(fid) || intrinsicIds.has(fid)) return false;
         seen.add(fid); reached++;
         if (isTaken(fid)) { taken++; return false; }
         if (memberIds.size >= o.catalogClosureMax) return false;
@@ -1048,7 +1064,7 @@ export function subTokenPartition(group, o) {
   const freq = new Map();
   const memberToks = new Map();
   for (const m of members) {
-    const ts = new Set(subTokens(m.bare || m.name || ''));
+    const ts = new Set(m.intrinsic ? [] : subTokens(m.bare || m.name || ''));   // a generic name names no piece of a file
     memberToks.set(m.id, ts);
     for (const t of ts) freq.set(t, (freq.get(t) || 0) + 1);
   }

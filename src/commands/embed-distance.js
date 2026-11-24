@@ -43,7 +43,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { resolveEmbedModel, openEmbedder, embedAll, entryChunks, entryText, cosine, median, cut, TEXT_MAX_CHARS, EMBED_MODELS, DEFAULT_EMBED_MODEL } from '../core/embed.js';
 import { loadMechanismsIndex, foldRecords, recordBlock } from '../core/mechanisms-index.js';
-import { buildCorpus, functionText, fuseSum, memberId, FUSE_ARM, FUSE_LABEL_WEIGHT } from '../core/function-text.js';
+import { buildCorpus, functionText, fuseSum, memberId, memberResolver, FUSE_ARM, FUSE_LABEL_WEIGHT } from '../core/function-text.js';
 import { effectiveCount } from '../argparse.js';
 import { splitClaimElements, parseElementsFile } from './claim-locate.js';
 
@@ -149,7 +149,9 @@ export function rankCandidates(qv, cands) {
  */
 export function functionTexts(entries, corpus) {
   const byId = new Map(corpus.fns.map((f) => [f.id, f]));
-  const ids = entries.map((e) => [...new Set((e.members || []).map(memberId))].filter((id) => byId.has(id)));
+  // memberResolver, not memberId: a second definition of a name in a file is its own function
+  const idOf = memberResolver(corpus.fns);
+  const ids = entries.map((e) => [...new Set((e.members || []).map(idOf))].filter((id) => byId.has(id)));
   const texts = [...new Set(ids.flat())].map((id) => ({ key: id, text: cut(functionText(byId.get(id), FUSE_ARM, corpus)) }));
   // What a row prints after `via`: the file's base name and the function. A full path inside a
   // zipped source tree ran past 150 characters on ExoPlayer 3 and pushed the name off the line.

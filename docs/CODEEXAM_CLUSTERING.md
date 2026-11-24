@@ -120,19 +120,37 @@ These are five of the 12 broad clusters made for CodeExam's own code, as
 its heading and how many mechanisms it holds. The command calls a broad cluster a section.
 
 ```
-1. sitter, archive, prompts, tree   (84 mechanisms)
-4. claim, chart, locate, split   (39 mechanisms)
-6. renderers, list, render, app   (25 mechanisms)
-8. calls, graph, tree, call   (21 mechanisms)
-12. dupes, diff, struct, string   (13 mechanisms)
+2. sitter, prompts, tree, parser   (61 mechanisms)
+3. claim, chart, locate, split   (39 mechanisms)
+7. renderers, list, render, app   (25 mechanisms)
+8. dupes, struct, funcstr, string   (25 mechanisms)
+11. calls, tree, graph, file   (16 mechanisms)
 ```
 
-Someone who knows CodeExam recognises several of these. Cluster 4 is the claim-chart work,
-cluster 6 is the browser interface, cluster 12 is the finding of duplicate functions, and
-cluster 8 is the following of calls between functions.
+Someone who knows CodeExam recognises several of these. Cluster 3 is the claim-chart work,
+cluster 7 is the browser interface, cluster 8 is the finding of duplicate functions, and
+cluster 11 is the following of calls between functions.
 
-Cluster 1 is the failure. It holds 84 of the 363 mechanisms under four words that say
-nothing. It is a "junk drawer": the things that did not clearly belong anywhere else.
+Cluster 2 is the failure. It holds 61 of the 363 mechanisms under four words that say
+little: its narrow clusters are the bundle reader, the prompt finder, utilities, part of the
+grouper, the parser, digests, copyrights and masking. It is a "junk drawer": the things
+that did not clearly belong anywhere else.
+
+This listing is not the clustering the scores below were measured on. On 2026-11-23, after
+the scores were taken, two things changed in what the clusters are made from:
+
+- 32 functions that had been left out (second definitions of a name within one file) were
+  let into their mechanisms. That alone moved the junk drawer from 84 mechanisms to 88
+  under a different heading.
+- Ruled lines in banner comments (`// ======== Accordion left pane ========`) were taken
+  out of the function texts, 65 of them. The junk drawer then fell to 61, and the largest
+  cluster became a different one, of 63, that holds the pseudo-claims and mechanisms code.
+  The rules had been making unrelated functions with banner comments look alike.
+
+The scores have not been taken again, so it is not known whether the clusters are now
+closer to the feature list or further from it. It is a fair picture of how much these
+clusters move when their input changes a little; see
+[Known weaknesses](#known-weaknesses).
 
 Two more points about this listing:
 
@@ -475,23 +493,32 @@ mechanisms are found. None of the changes below has been made or tested.
 
 ## Known weaknesses
 
-- **One broad cluster is a junk drawer**: 84 of the 363 mechanisms, as shown above. Under
+- **One broad cluster is a junk drawer**: 84 of the 363 mechanisms when the scores were
+  taken, 61 in the listing shown above. Under
   the second technique the largest community holds 30 to 45.
 - **The clusters are not stable.** When they were made again from 80% of the mechanisms,
   on three codebases, the result agreed with the full run only 0.50 to 0.67, where 1 is
-  the same clusters (2026-11-19). The same has not been measured for the second technique,
+  the same clusters (2026-11-19). Smaller changes show the same thing: letting 32 more
+  functions into the mechanisms, and taking ruled comment lines out of 65 function texts,
+  both on 2026-11-23, each rearranged the broad clusters, as described
+  under [What a clustered listing looks like](#what-a-clustered-listing-looks-like), and
+  took the second technique from 21 sections to 20. The 80% test has not been run for the
+  second technique,
   where two runs differ unless they are given the same seed.
 - **Not every function takes part.** Of CodeExam's 2,797 functions outside test code, 803
   have no embedding. 709 of them are one to three lines long and are left out by rule. 62
   have a generic name (`main`, `init`, `get`, `run`, a class constructor) and are left out
   of every mechanism. 32 are the second definition of a name within one file.
-  `--show-function-text` marks them. The left-out functions are spread across the
+  `--show-function-text` marks them. (Those figures are for the index the scores were
+  measured on. Since 2026-11-23 a second definition is reached, and a rebuilt mechanisms
+  file holds the generic-named functions of four lines or more in their file's mechanism.) The left-out functions are spread across the
   codebase and are not mainly the browser interface: 21% of the functions under `public/`
   have no embedding, against 24% under `src/commands/`, 30% under `src/core/` and 43% under
   `scripts/`.
 - **Function texts contain generic identifiers** such as `push`, `slice` and `console`,
   which appear in many functions. How far they pull unrelated functions together has not
-  been measured.
+  been measured. One such thing was found and removed on 2026-11-23, the ruled lines of
+  banner comments, and removing it changed the clusters visibly (above).
 - **Calls are matched by name only.** Two different functions with the same name count as one.
 - **The CodeExam index used is from 2026-11-10.** The feature list refers to mechanisms by
   id, and rebuilding the index would renumber them. Commands added since then are not in
@@ -535,16 +562,16 @@ sections came out.
 of eight:
 
 ```
-5. multisect, vocabulary, census, copyrights   (28 mechanisms)
-   5.1 vocabulary, vocab, extraction   (8)
-       m114   vocab (buildLocalExtractionPromptWithVocab) / vocab [5.1]
-       m115   vocab (buildLocalExtractionPromptWithVocab) / vocabulary [5.1]
-       m382   [file] build-claim-genre-df.mjs [5.1]
-       m326   [file] claim-terms.js [5.1]
-       m327   [file] CodeSearchIndex.js / bare [5.1]
-       m270   [file] vocabulary.js / corpus [5.1]
-       m111   [file] vocabulary.js / other [5.1]
-       m197   [file] vocabulary.js / vocabulary [5.1]
+6. multisect, analyze, vocabulary, prompt   (25 mechanisms)
+   6.2 vocabulary, vocab, extraction   (8)
+       m114   vocab (buildLocalExtractionPromptWithVocab) / vocab [6.2]
+       m115   vocab (buildLocalExtractionPromptWithVocab) / vocabulary [6.2]
+       m382   [file] build-claim-genre-df.mjs [6.2]
+       m326   [file] claim-terms.js [6.2]
+       m327   [file] CodeSearchIndex.js / bare [6.2]
+       m270   [file] vocabulary.js / corpus [6.2]
+       m111   [file] vocabulary.js / other [6.2]
+       m197   [file] vocabulary.js / vocabulary [6.2]
 ```
 
 Under `calls` four of the five are in one sub-section of five:
@@ -560,7 +587,7 @@ Under `calls` four of the five are in one sub-section of five:
 ```
 
 The fifth, `m114`, is the vocabulary handed to the prompt that reads a patent claim, and
-`calls` puts it in sub-section 3.2 with the claim-search code that calls it. The extras
+`calls` puts it in sub-section 3.1 with the claim-search code that calls it. The extras
 differ in the same way. Under `clusters` they are other code about terms and how often
 they occur. Under `calls` it is a helper file that the vocabulary code calls. This is the
 usual difference between the two: `clusters` gathers code that talks about the same thing,

@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseArgs as parseProcessArgs } from '../src/argparse.js';
 import { cut } from '../src/core/embed.js';
-import { buildCorpus, functionText, functionTextParts, FUSE_ARM } from '../src/core/function-text.js';
+import { buildCorpus, functionText, functionTextParts, memberResolver, FUSE_ARM } from '../src/core/function-text.js';
 import { MECHANISMS_FORMAT, mechanismsPath } from '../src/core/mechanisms-index.js';
 import { TESTS_OUT_BY_DEFAULT_KEYS, unreadTestOptionNote } from '../src/core/test-paths.js';
 import { isTestFunction, mechanismsOfFunctions, standingOf, selectFunctionTexts, lengthStats, formatFunctionTexts, doShowFunctionText } from '../src/commands/function-text.js';
@@ -139,6 +139,19 @@ describe('--show-function-text: the parts', () => {
     assert.deepEqual(standingOf(fn('lone'), of), { ids: [], embedded: false });
     const text = formatFunctionTexts(selectFunctionTexts(c2), { indexPath: '.x', mechs: of }).join('\n');
     assert.match(text, /For 2 of these the two commands embed no text \(1 in no mechanism, 1 a second definition of a name in its file\); they are marked\./);
+    // function-text-embedding-gaps-and-gui, part A: the join the commands now make reaches the
+    // second definition by its start line, so it is embedded and only `lone` is left marked.
+    const idOf = memberResolver(c2.fns);
+    assert.equal(idOf(entries[0].members[0]), 'src/twice.js@poll');
+    assert.equal(idOf(entries[0].members[1]), 'src/twice.js@poll@4', 'the second definition is its own function');
+    assert.equal(idOf({ file: 'src\\twice.js', name: 'poll' }), 'src/twice.js@poll', 'a member with no start line resolves by name, as before');
+    assert.equal(idOf({ file: 'src/twice.js', name: 'poll', start: 99 }), 'src/twice.js@poll', 'a start line the index has no definition at falls back to the name');
+    assert.equal(idOf({ file: 'src/twice.js', name: 'gone', start: 4 }), 'src/twice.js@gone');
+    const reached = mechanismsOfFunctions(entries, idOf);
+    assert.deepEqual(standingOf(fn('poll@4'), reached), { ids: ['m7'], embedded: true });
+    const after = formatFunctionTexts(selectFunctionTexts(c2), { indexPath: '.x', mechs: reached }).join('\n');
+    assert.match(after, /For 1 of these the two commands embed no text \(1 in no mechanism\); they are marked\./);
+    assert.match(after, /^src\/twice\.js@poll@4 {2}\(L4-6; in m7\)$/m);
     assert.match(text, /^src\/twice\.js@poll {2}\(L1-3; in m7\)$/m);
     assert.match(text, /^src\/twice\.js@poll@4 {2}\(L4-6; in m7, not embedded: a second definition of this name in the file\)$/m);
     assert.match(text, /^src\/twice\.js@lone {2}\(L7-7; in no mechanism, not embedded\)$/m);
