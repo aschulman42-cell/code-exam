@@ -72,6 +72,44 @@ function mechanismsFor(mech, word, includeTests) {
   return { entries: orderEntries(kept, DEFAULT_LISTING_ORDER), testsLeft: includeTests ? 0 : hit.length - kept.length, testEntries: includeTests ? [] : hit.filter((e) => mech.tests.has(e)) };
 }
 
+/** The concepts a filter selects: the one concept equal to it, or all whose word it matches (substring or /regex/). */
+function matchConcepts(all, filter) {
+  if (!filter) return all;
+  const exact = all.filter((c) => c.concept === String(filter).toLowerCase());
+  const match = makeFilterMatcher(filter);
+  return exact.length === 1 ? exact : all.filter((c) => match(c.concept));
+}
+
+/** One row of a concepts listing: `  3. zorble (postZorbleRecord): files: a, b  (4)`. `named` is the count of mechanisms named for the concept, or null when the index has no mechanisms file. */
+export function conceptRowText(n, width, label, files, named, showPath = shortFile) {
+  const f = files && files.length ? `: files: ${files.slice(0, ROW_FILES).map((x) => showPath(x.file)).join(', ')}` : '';
+  return `  ${String(n).padStart(width)}. ${label}${f}${named == null ? '' : `  (${nf(named)})`}`;
+}
+
+/**
+ * A concepts listing as data, for a caller that writes its own sentences around the rows (the MCP
+ * tool `concepts`, issue-364-concepts-mcp-tool). The same functions as `--concepts`, in the same
+ * order, so the rows cannot differ from the command's:
+ *   { total, matched: [concept], shown: [{ concept, example, label, files, mechanisms }],
+ *     mechanisms: 'ok' | 'missing' | 'error', mechanismsError, testsLeft }
+ * `files` is null for a concept that is not itself a top vocabulary term; `mechanisms` is null
+ * when the index has no mechanisms file, which this never builds. `testsLeft` counts the distinct
+ * test mechanisms that a shown concept's word matched and that were left out.
+ */
+export function conceptRows(index, { filter = null, includeTests = false, max = CONCEPTS_DEFAULT } = {}) {
+  const { vocab, all } = allConcepts(index);
+  const matched = matchConcepts(all, filter);
+  const mech = loadMechanisms(index);
+  const termFiles = computeTermFiles(vocab);
+  const leftOut = new Set();
+  const shown = matched.slice(0, Number.isFinite(max) && max > 0 ? max : matched.length).map((c) => {
+    const m = mech.all ? mechanismsFor(mech, c.concept, includeTests) : null;
+    if (m) m.testEntries.forEach((e) => leftOut.add(e));
+    return { concept: c.concept, example: c.example || null, label: conceptLabel(c), files: termFiles.get(c.concept) || null, mechanisms: m ? m.entries : null };
+  });
+  return { total: all.length, matched, shown, mechanisms: mech.all ? 'ok' : mech.error ? 'error' : 'missing', mechanismsError: mech.error || null, testsLeft: leftOut.size };
+}
+
 /** `--concepts [filter]`. */
 export function doConcepts(index, args, { exe = process.env.CODEEXAM_INVOKED_AS || 'ce' } = {}) {
   const ndxArg = args.index_path || '<index>';
@@ -84,11 +122,8 @@ export function doConcepts(index, args, { exe = process.env.CODEEXAM_INVOKED_AS 
   }
   const own = args.concepts;
   const filter = typeof own === 'string' && own ? own : (args.filter || null);
-  let matched = all;
+  const matched = matchConcepts(all, filter);
   if (filter) {
-    const exact = all.filter((c) => c.concept === String(filter).toLowerCase());
-    const match = makeFilterMatcher(filter);
-    matched = exact.length === 1 ? exact : all.filter((c) => match(c.concept));
     if (!matched.length) {
       console.log(`'${filter}' is not one of this index's ${nf(all.length)} concepts. ${exe} --index-path ${ndx} --vocabulary lists its top terms, and ${exe} --index-path ${ndx} --search ${quotePathIfNeeded(String(filter))} finds the word in the code.`);
       return;
@@ -148,17 +183,16 @@ export function doConcepts(index, args, { exe = process.env.CODEEXAM_INVOKED_AS 
     const width = String(shown.length).length;
     let withFiles = 0;
     shown.forEach((c, i) => {
-      const parts = [];
-      let count = '';
+      let named = null;
       if (hasMech) {
         const m = mechanismsFor(mech, c.concept, includeTests);
         m.testEntries.forEach((e) => leftOut.add(e));
         if (!m.entries.length) unnamed++;
-        count = `  (${nf(m.entries.length)})`;   // said once in the header what the number is (Andrew, 2026-11-23: the phrase on every row was too repetitive)
+        named = m.entries.length;   // said once in the header what the number is (Andrew, 2026-11-23: the phrase on every row was too repetitive)
       }
       const files = termFiles.get(c.concept);
-      if (files && files.length) { withFiles++; parts.push(`files: ${files.slice(0, ROW_FILES).map((f) => showPath(f.file)).join(', ')}`); }
-      lines.push(`  ${String(i + 1).padStart(width)}. ${conceptLabel(c)}${parts.length ? `: ${parts.join('; ')}` : ''}${count}`);
+      if (files && files.length) withFiles++;
+      lines.push(conceptRowText(i + 1, width, conceptLabel(c), files, named, showPath));
     });
     // One line, not one per row: files are listed only for a concept that is itself a top vocabulary term.
     // The example of "a part of longer names" is taken from this listing, not from CodeExam's own code.

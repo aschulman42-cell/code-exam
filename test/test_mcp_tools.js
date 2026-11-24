@@ -16,6 +16,8 @@ import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { handleTool, TOOLS, setIndex } from '../src/mcp-server.js';
 import { modelsUsedNegative } from '../src/commands/metrics.js';
 import { indexPathsFromListFiles } from '../src/core/answer-disclosure.js';
+import { CURATED_LOCAL_CHAT_TOOLS } from '../src/core/local-chat-tools.js';
+import { AI_OVERVIEW_TOOL_NAMES } from '../src/core/ai-overview.js';
 
 const SRC = path.join(os.tmpdir(), 'ce_mcp_tools_src');
 const IDX = path.join(os.tmpdir(), 'ce_mcp_tools_idx');
@@ -71,6 +73,30 @@ describe('chat-essential MCP tools', () => {
     for (const n of ['digest', 'call_tree', 'command_catalog', 'models_used']) {
       assert.ok(names.has(n), `TOOLS missing ${n}`);
     }
+  });
+
+  // issue-364-concepts-mcp-tool (2026-11-24). What the tool prints is tested beside the command
+  // it mirrors, in test_concepts.js; here, that it is registered and reachable from the two
+  // texts a model reads to choose a tool.
+  it('registers concepts, read-only, and names it in capabilities and in the overview\'s next steps', () => {
+    const t = TOOLS.find((x) => x.name === 'concepts');
+    assert.ok(t, 'TOOLS has concepts');
+    assert.deepEqual(Object.keys(t.inputSchema.properties).sort(), ['concept', 'include_tests', 'max']);
+    assert.match(t.description, /no model/i);
+    assert.match(t.description, /after overview/i);
+    assert.match(handleTool('capabilities', {}), /\bconcepts\b/);
+    assert.match(handleTool('overview', {}), /`concepts`/);
+    // not in the two measured menus: the local Chat's core and the Overview by AI's
+    assert.ok(!CURATED_LOCAL_CHAT_TOOLS.includes('concepts'));
+    assert.ok(!AI_OVERVIEW_TOOL_NAMES.includes('concepts'));
+  });
+
+  it('concepts on an index too small to have any says so in one sentence and names the vocabulary tool', () => {
+    // three small files: no name is in two of them, so the vocabulary gives no concept
+    const out = handleTool('concepts', {});
+    assert.match(out, /^No concepts: /);
+    assert.match(out, /vocabulary/);
+    assert.doesNotMatch(out, /--[a-z]/);
   });
 
   it('digest summarizes a function (returns text naming it)', () => {

@@ -33,6 +33,7 @@ useful first look. It is not a list of everything that matters.
 | `ce --index-path <index> --overview` | the first twelve, under "Potentially important concepts (with examples)" |
 | the GUI | the same twelve in the Overview, and as a caption at the top of the Vocabulary list |
 | the MCP `overview` tool | the same twelve, as text |
+| the MCP `concepts` tool | the rows of `--concepts`, for a chat or an agent; `concept` shows one in full ([`CODEEXAM_MCP.md`](CODEEXAM_MCP.md)) |
 
 A row of `--concepts` on CodeExam's own index:
 
@@ -352,7 +353,7 @@ names (`splitClaimElements`) and never a name on its own, so its row has none.
 | [#235](https://github.com/aschulman42-cell/code-exam/issues/235) | concepts with no example on small or prose-heavy indexes |
 | [#275](https://github.com/aschulman42-cell/code-exam/issues/275) | in the GUI, a click on a concept can land on an import line |
 | [#307](https://github.com/aschulman42-cell/code-exam/issues/307) | the ranking had no measure of accuracy; section 6 is the first |
-| [#364](https://github.com/aschulman42-cell/code-exam/issues/364) | concepts in the GUI as their own list and as an MCP tool, and where a concept sits in the carved listing: not built yet |
+| [#364](https://github.com/aschulman42-cell/code-exam/issues/364) | concepts in the GUI as their own list, and where a concept sits in the carved listing: not built yet |
 
 Also: single words only; a subject the code does not name has no concept; a word spread
 over many low-ranked names is missed (section 6); and on a codebase where every file

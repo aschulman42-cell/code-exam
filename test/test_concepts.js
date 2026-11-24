@@ -22,6 +22,7 @@ import { harvestPurpose } from '../src/commands/pseudo-claims.js';
 import { buildOverview } from '../src/core/overview.js';
 import { extractConcepts, conceptLabel, CONCEPT_NAMES, KEY_FILE_NAMES } from '../src/core/vocabulary.js';
 import { TESTS_OUT_BY_DEFAULT_KEYS } from '../src/core/test-paths.js';
+import { handleTool, setIndex } from '../src/mcp-server.js';
 import { parseArgs as parseProcessArgs } from '../src/argparse.js';
 
 // parseArgs reads process.argv: set it for one call.
@@ -336,5 +337,73 @@ describe('--concepts', () => {
     const r = runCLI(IDX, ['--concepts', '--exclude-tests']);
     assert.equal(r.code, 0, r.out);
     assert.doesNotMatch(r.stderr, /does nothing here/);
+  });
+
+  // issue-364-concepts-mcp-tool (2026-11-24): the MCP tool `concepts` is the command's list, from
+  // the command's code, in the command's row format; it speaks of tools and never of --flags.
+  describe('the MCP tool', () => {
+    const tool = (args, index = idx) => { setIndex(index); return handleTool('concepts', args || {}); };
+
+    it('lists the same rows as the command, with the same counts', () => {
+      const cli = rowsOf(runCLI(IDX, ['--concepts', '--all-results']).stdout);
+      const mcp = rowsOf(tool({ max: 10000 }));
+      assert.ok(cli.length >= 5, 'the fixture has concepts');
+      assert.deepEqual(mcp, cli);
+    });
+
+    it('says what the list is and what the number is, and offers tools, not command-line options', () => {
+      const out = tool({});
+      assert.match(out.split('\n')[0], /^\d+ concepts?\b/);
+      assert.match(out, /no model/);
+      assert.match(out, /not a finding/);
+      assert.match(out, /how many mechanisms are named for/);
+      assert.match(out, /list_mechanisms/);
+      assert.match(out, /search/);
+      assert.doesNotMatch(out, /--[a-z]/, 'an MCP client has tool names, no --flags');
+    });
+
+    it('max caps the list and the cap is said, with the way to raise it', () => {
+      const out = tool({ max: 2 });
+      assert.equal(rowsOf(out).length, 2);
+      assert.match(out.split('\n')[0], new RegExp(`^2 of ${all.length} concepts`));
+      assert.match(out, /PARTIAL result; do not infer absence\./);
+      assert.match(out, /max/);
+    });
+
+    it('concept: <word> shows that concept in full: its example, its files, its mechanisms by id and label', () => {
+      const cli = runCLI(IDX, ['--concepts', 'zorble']).stdout;
+      const out = tool({ concept: 'zorble' });
+      assert.match(out, /^Concept 'zorble'/);
+      assert.match(out, /Example: /);
+      const ids = (s) => s.split(/\r?\n/).map((l) => /^\s+(m\d+)\s+\S/.exec(l)).filter(Boolean).map((m) => m[1]);
+      assert.ok(ids(cli).length >= 1, cli);
+      assert.deepEqual(ids(out), ids(cli), 'the same mechanisms, in the same order, as the command');
+      assert.doesNotMatch(out, /--[a-z]/);
+    });
+
+    it('a word that is not a concept gets a plain sentence naming the vocabulary and search tools', () => {
+      const out = tool({ concept: 'zzznothing' });
+      assert.match(out, /'zzznothing' is not one of this index's \d+ concepts\./);
+      assert.match(out, /vocabulary/);
+      assert.match(out, /search/);
+    });
+
+    it('include_tests counts the test mechanisms too, and without it the tool ends with the one closing Tip', () => {
+      const without = tool({ max: 10000 });
+      const withTests = tool({ max: 10000, include_tests: true });
+      assert.match(without, /Tip: \d+ mechanisms? of test, benchmark, mock and example code left out; include_tests: true lists (it|them)\.$/);
+      assert.doesNotMatch(withTests, /Tip: /);
+      const sum = (s) => rowsOf(s).reduce((a, r) => a + (r.count || 0), 0);
+      assert.ok(sum(withTests) > sum(without), 'the fixture has test mechanisms named for a concept');
+    });
+
+    it('with no mechanisms file the rows have no counts and one line says how to get them; nothing is built', () => {
+      const bare = new CodeSearchIndex({ indexPath: IDX_NOMECH });
+      const out = tool({}, bare);
+      assert.ok(rowsOf(out).length >= 1);
+      assert.ok(rowsOf(out).every((r) => r.count == null), out);
+      assert.match(out, /Mechanism counts left out/);
+      assert.ok(!fs.existsSync(path.join(IDX_NOMECH, 'mechanisms.json')), 'the tool never builds');
+    });
   });
 });

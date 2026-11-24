@@ -31,6 +31,7 @@ import { extractClientServer } from './core/client-server.js';
 import { extractReferencedResources } from './core/referenced-resources.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { modelsUsedNegative } from './commands/metrics.js';
+import { conceptRows, conceptRowText, CONCEPTS_DEFAULT } from './commands/concepts.js';
 import { filteredEmptyNotice } from './core/filter-match.js';
 import { loadMechanismsIndex, filterRecords, foldRecords, foldNote, notBuiltLine, coverageLine, filterMatches, matchNote, orderEntries, headingsOver, withoutTestEntries, listingNote, onlyTestsNotice, LISTING_ORDERS, DEFAULT_LISTING_ORDER, SIMILARITY_ORDER, TEXT_LISTING_ORDERS, mechanismsPath } from './core/mechanisms-index.js';
 import { similarityOrderFor, noSimilarityOrder } from './core/carve.js';
@@ -304,6 +305,18 @@ const TOOLS = [
         max: { type: 'number', description: 'Max records (default 50)' },
         include_tests: { type: 'boolean', description: 'Also list the entries that are wholly test code (default false: they are left out, and the line under the header says how many)' },
         sort_by: { type: 'string', enum: ['path', 'size', 'similarity'], description: 'Order of the entries. size (default): largest entry first. path: grouped by source directory under a heading line, then by file; entries spread over several directories come last. similarity: entries whose text is alike next to each other, in the order the command-line step --carve clusters saved in the index (a suggestion, not a finding; when none is saved the tool says how to make one)' },
+      },
+    },
+  },
+  {
+    name: 'concepts',
+    description: 'What to look for in an unfamiliar index, after overview: the words the code seems to be about, more of them than the dozen overview prints, in the same order. A concept is one piece of the names in the code (`worklist` in `parseWorklistEntry`), found by counting names, with no model; a suggestion of what to look for, not a finding, and a single word. Each row gives an example name, up to three files where the word concentrates, and, when the index has a mechanisms file, how many mechanisms are named for it (0 means the word is in the code\'s text, often only its comments, and in no function\'s name). With `concept` set to one of the words: that concept in full, its files and its mechanisms by id and label. Follow a concept with list_mechanisms (filter) or search. Never builds anything. Capped; a concept missing from the list has not been ruled out of the code.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        concept: { type: 'string', description: 'One concept to show in full (its example, files and mechanisms), or a substring or /regex/ to list only the concepts that match' },
+        max: { type: 'number', description: 'Max concepts listed, or max mechanisms when one concept is shown in full (default 30)' },
+        include_tests: { type: 'boolean', description: 'Also count mechanisms that are wholly test code (default false: they are left out, and the last line says how many)' },
       },
     },
   },
@@ -704,7 +717,7 @@ function _capabilitiesText() {
   return [
     'CodeExam examines an indexed codebase deterministically; you supply the judgment. Which tool to reach for:',
     '',
-    '- Orientation: overview (start here), stats, vocabulary, list_files, list_functions, list_classes, list_mechanisms (what the codebase is made of, between a function and a file; built once by --build-mechanisms), data_structures, command_catalog, models_used, client_server, referenced_resources; list_indexes / load_index to switch indexes.',
+    '- Orientation: overview (start here), concepts (the words the code seems to be about: what to look for next), stats, vocabulary, list_files, list_functions, list_classes, list_mechanisms (what the codebase is made of, between a function and a file; built once by --build-mechanisms), data_structures, command_catalog, models_used, client_server, referenced_resources; list_indexes / load_index to switch indexes.',
     '- Find code: search (literal text), regex_search, multisect_search (functions holding ALL of several terms).',
     '- Read code: extract <file@func>, show_file, digest (callers, callees, strings and structure in one view).',
     '- Cross-reference: callers, callees, call_tree, most_called, hotspots, entry_points, struct_dupes.',
@@ -1149,6 +1162,64 @@ function handleToolRaw(name, args) {
         lines.push(`  ${c.name}  (${c.methods.length} methods, ${c.filepath})`);
       }
       return lines.join('\n') + tip;
+    }
+
+    case 'concepts': {
+      // issue-364-concepts-mcp-tool: `ce --concepts` for a client that has tool names and no
+      // --flags. The rows come from the command's own functions (conceptRows, conceptRowText),
+      // so the two cannot differ; only the sentences around them are written here.
+      const asked = typeof args.concept === 'string' && args.concept.trim() ? args.concept.trim() : null;
+      const max = Number(args.max) > 0 ? Number(args.max) : CONCEPTS_DEFAULT;
+      const includeTests = !!args.include_tests;
+      const probe = conceptRows(index, { filter: asked, includeTests, max: 1 });   // which concepts match; only one row is counted
+      if (!probe.total) return 'No concepts: the top vocabulary of this index gives none. vocabulary lists its top terms.';
+      if (asked && !probe.matched.length) return `'${asked}' is not one of this index's ${probe.total} concepts. vocabulary (filter: "${asked}") lists the names that carry it, and search finds the word in the code.`;
+      const noCounts = probe.mechanisms === 'ok' ? '' : `\nMechanism counts left out: ${probe.mechanisms === 'error' ? `the mechanisms file could not be read (${probe.mechanismsError})` : notBuiltLine(index)}.`;
+      const what = 'pieces of the names in the code, found by counting names with no model; a suggestion of what to look for, not a finding';
+
+      if (asked && probe.matched.length === 1) {
+        const c = probe.shown[0];
+        const pl = (k, one) => `${k} ${one}${k === 1 ? '' : 's'}`;
+        const lines = [`Concept '${c.concept}': one of this index's ${probe.total} concepts (${what}).`,
+          `  Example: ${c.example || 'none: the word is only ever a whole name'}`];
+        if (!c.files) lines.push('  Files: none are listed, because this word is a part of longer names and not one of the top vocabulary terms; search finds where it is in the code.');
+        else if (!c.files.length) lines.push('  Files: a top vocabulary term, but no file holds it more than others.');
+        else {
+          lines.push('  Files: where this top vocabulary term concentrates, best first');
+          c.files.slice(0, 10).forEach((f, i) => lines.push(`    ${i + 1}. ${f.file}`));
+          if (c.files.length > 10) lines.push(`    ... ${c.files.length - 10} more files`);
+        }
+        let footer = '';
+        if (c.mechanisms) {
+          const shownM = c.mechanisms.slice(0, max);
+          lines.push(`  Mechanisms: ${c.mechanisms.length} named for it (a label or a member function name carries the word)${shownM.length < c.mechanisms.length ? `, the first ${shownM.length} shown ${_PARTIAL_CLAUSE}` : ''}`);
+          const idWidth = Math.max(0, ...shownM.map((e) => String(e.id || '').length));
+          for (const e of shownM) lines.push(`    ${String(e.id || '').padEnd(idWidth)}  ${e.label}  (${pl((e.members || []).length, 'fn')}, ${pl((e.files || []).length, 'file')})`);
+          footer = _capFooter(shownM.length, c.mechanisms.length, false, 'Raise "max".');
+          if (!c.mechanisms.length) lines.push('  No mechanism is named for this word: it is in the code\'s text (comments, strings, names that are not functions) and in no mechanism\'s label or function names. It may be a word from comments and not something the code is about; search shows which.');
+        }
+        const next = c.mechanisms && c.mechanisms.length
+          ? `Next: list_mechanisms (filter: "${c.concept}") for these mechanisms with members and purposes (it also matches file paths, purposes and descriptions, so it may list more); search (query: "${c.concept}") for every place the word is in the code.`
+          : `Next: search (query: "${c.concept}") for every place the word is in the code.`;
+        return lines.join('\n') + footer + noCounts + `\n\n${next}` + _tipTailInclude(probe.testsLeft, 'mechanisms');
+      }
+
+      const data = conceptRows(index, { filter: asked, includeTests, max });
+      const n = data.shown.length, of = data.matched.length;
+      const which = asked ? ` matching "${asked}" (of ${data.total})` : '';
+      const head = n < of
+        ? `${n} of ${of} concepts${which} ${_PARTIAL_CLAUSE} Raise "max" to see the rest. They are ${what}; in overview's order.`
+        : `${of} concept${of === 1 ? '' : 's'}${which}: ${what}; in overview's order.`;
+      const lines = [head];
+      if (data.mechanisms === 'ok') {
+        const unnamed = data.shown.filter((r) => !r.mechanisms.length).length;
+        lines.push(`The number at the end of a row is how many mechanisms are named for the concept: a label or a member function name carries the word${includeTests ? '' : ' (test mechanisms left out)'}.${unnamed ? ` ${unnamed} of these rows ${unnamed === 1 ? 'shows' : 'show'} (0): the word is in the code's text, often only its comments, and in no function's name; doubt those first.` : ''}`);
+      }
+      lines.push('Files are listed only where the concept is itself one of the top vocabulary terms, not where it is only a part of longer names.', '');
+      const width = String(n).length;
+      data.shown.forEach((r, i) => lines.push(conceptRowText(i + 1, width, r.label, r.files, r.mechanisms ? r.mechanisms.length : null)));
+      const next = `Next: concepts (concept: "<word>") for one concept's files and mechanisms; ${data.mechanisms === 'ok' ? 'list_mechanisms (filter: "<word>") for the mechanisms that carry a word; ' : ''}search (query: "<word>") for every place the word is in the code.`;
+      return lines.join('\n') + _capFooter(n, of, false, 'Raise "max".') + noCounts + `\n\n${next}` + _tipTailInclude(data.testsLeft, 'mechanisms');
     }
 
     case 'list_mechanisms': {
