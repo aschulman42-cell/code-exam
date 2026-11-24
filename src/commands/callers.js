@@ -13,7 +13,7 @@ import { displayName, parseFuncSpec, quotePathIfNeeded } from '../utils.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
 import { effectiveCount, effectiveMaxResults, capNotice } from '../argparse.js';
 import { isIntrinsicName } from '../core/vocabulary.js';
-import { isTestPath, leavesTestsOut } from '../core/test-paths.js';
+import { isTestPath, leavesTestsOut, withoutTests, optionTestsTip, printTip, testOptionGiven } from '../core/test-paths.js';
 
 
 // ========================================================================
@@ -52,9 +52,18 @@ export function doCallers(index, args) {
 
   if (depth === 1) {
     // Simple single-level callers
-    let callers;
+    let callers, testSitesLeft = 0, fetchedAtCap = false;
     try {
-      callers = index.findCallers(functionName, args.max_results, { fileHint: pathHint });
+      // test-options-remaining-commands: with --exclude-tests / --no-tests the cap applies to the sites kept,
+      // so look past it (findCallers' own default, 500) and cut after the test sites are gone.
+      const leaving = leavesTestsOut(args);
+      callers = index.findCallers(functionName, leaving ? Math.max(500, Number(args.max_results) || 0) : args.max_results, { fileHint: pathHint });
+      if (leaving) {
+        fetchedAtCap = callers.length >= Math.max(500, Number(args.max_results) || 0);   // the count of test sites is then a lower bound
+        const w = withoutTests(callers, args, (c) => c.filepath);
+        testSitesLeft = w.left;
+        callers = args.max_results > 0 ? w.kept.slice(0, args.max_results) : w.kept;
+      }
     } catch (e) {
       if (e.code === 'SHORT_NAME_BAILOUT') {
         console.log(`\n${e.message}`);
@@ -66,7 +75,9 @@ export function doCallers(index, args) {
     }
 
     if (callers.length === 0) {
-      console.log(`No callers found for '${functionName}'`);
+      console.log(testSitesLeft
+        ? `No callers found for '${functionName}' outside test code; ${fetchedAtCap ? 'at least ' : ''}${testSitesLeft.toLocaleString('en-US')} call site${testSitesLeft === 1 && !fetchedAtCap ? '' : 's'} in test code left out (${testOptionGiven(args)}).`
+        : `No callers found for '${functionName}'`);
       console.log("Note: Search is case-insensitive and matches the function name followed by '('");
       return;
     }
@@ -123,12 +134,14 @@ export function doCallers(index, args) {
       }
       console.log();
     }
+    printTip(optionTestsTip(args, testSitesLeft, 'call sites', { atLeast: fetchedAtCap }), true);   // part E4; the output ends blank
 
   } else {
     // Transitive callers
     console.log(`\nTransitive callers of '${functionName}' (depth ${depth}):\n`);
 
     const visited = new Set();
+    let testSitesLeft = 0;
     let currentLevel = new Set([functionName]);
 
     for (let d = 0; d < depth; d++) {
@@ -136,7 +149,12 @@ export function doCallers(index, args) {
       const nextLevel = new Set();
 
       for (const target of [...currentLevel].sort()) {
-        const callers = index.findCallers(target, 200);
+        let callers = index.findCallers(target, leavesTestsOut(args) ? 500 : 200);
+        if (leavesTestsOut(args)) {   // test-options-remaining-commands: every level, by the shared rule
+          const w = withoutTests(callers, args, (c) => c.filepath);
+          testSitesLeft += w.left;
+          callers = w.kept.slice(0, 200);
+        }
         const callerNames = {};
         for (const c of callers) {
           const caller = c.caller_function || '(file scope)';
@@ -168,6 +186,7 @@ export function doCallers(index, args) {
 
     const total = visited.size - 1;
     console.log(`\n  ${total} unique callers found across ${depth} level(s)`);
+    printTip(optionTestsTip(args, testSitesLeft, 'call sites'));
   }
 }
 
@@ -182,10 +201,18 @@ export function doCallees(index, args) {
   // package path (`node_modules/@scope/pkg/index.js@foo`) split at the wrong @.
   const { fileHint: pathHint, funcName: functionName } = parseFuncSpec(calleesArg);
 
-  const callees = index.findCallees(functionName, pathHint);
+  const allCallees = index.findCallees(functionName, pathHint);
+  // test-options-remaining-commands: a callee whose every definition is in test code is left out
+  // (--exclude-tests / --no-tests); one with no definition in the index (a library call) stays.
+  const { kept: callees, left: testCalleesLeft } = withoutTests(allCallees, args, (ce) => {
+    const defs = ce.definitions || [];
+    return defs.length && defs.every((d) => isTestPath(d.filepath)) ? defs[0].filepath : '';
+  });
 
   if (callees.length === 0) {
-    console.log(`No callees found for '${functionName}' (or function not in index)`);
+    console.log(testCalleesLeft
+      ? `No callees found for '${functionName}' outside test code; ${testCalleesLeft.toLocaleString('en-US')} callee${testCalleesLeft === 1 ? '' : 's'} in test code left out (${testOptionGiven(args)}).`
+      : `No callees found for '${functionName}' (or function not in index)`);
     return;
   }
 
@@ -229,6 +256,7 @@ export function doCallees(index, args) {
     }
   }
   console.log();
+  printTip(optionTestsTip(args, testCalleesLeft, 'callees'), true);   // part E4; the output ends blank
 }
 
 
@@ -249,6 +277,7 @@ export function doMostCalled(index, args) {
   const includeMacros = args.include_macros || false;
   const definedOnly = args.defined_only || false;
   const filtersApplied = [];
+  let testIdentsLeft = 0;
 
   const matchCaller = args.filter ? makeFilterMatcher(args.filter) : null;
   const filteredData = [];
@@ -282,9 +311,11 @@ export function doMostCalled(index, args) {
       }
       // --exclude-tests / --no-tests, by the shared rule (test-paths.js). Until 2026-11-19 this was
       // "the path contains the letters test", which dropped latest.js and kept examples/.
+      const defsBeforeTests = defs.length;
       if (leavesTestsOut(args)) {
         defs = defs.filter(d => !isTestPath(d.filepath));
       }
+      if (defsBeforeTests > 0 && defs.length === 0) testIdentsLeft++;   // dropped by the test rule alone (part E4's count)
       item = { ...item, definitions: defs };
       // #252: this used to read item.definitions AFTER the reassignment above
       // — comparing the filtered list to itself, so the drop never fired. The
@@ -306,6 +337,7 @@ export function doMostCalled(index, args) {
 
   if (filteredData.length === 0) {
     console.log('No matching function calls found after filtering.');
+    printTip(optionTestsTip(args, testIdentsLeft, 'identifiers'));
     return;
   }
 
@@ -352,6 +384,7 @@ export function doMostCalled(index, args) {
   console.log('     Use --filter PATTERN to filter by name, --exclude-path to skip folders');
   console.log('     Use --min-name-length N to filter short names, --exclude-tests to skip test files');
   console.log('     ALL_CAPS names (macros) are excluded by default; use --include-macros to show them');
+  printTip(optionTestsTip(args, testIdentsLeft, 'identifiers'));   // part E4: the closing line
 }
 
 

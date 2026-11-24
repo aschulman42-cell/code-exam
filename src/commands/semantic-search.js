@@ -36,7 +36,7 @@ import { loadMechanismsIndex, foldRecords } from '../core/mechanisms-index.js';
 import { FUSE_ARM, FUSE_LABEL_WEIGHT } from '../core/function-text.js';
 import { effectiveCount } from '../argparse.js';
 import { resolveQueries, embedCacheFile, entryEmbedPlan, entryCandidates, loadFunctionPlan, rankFused, CHUNK, mechanismQueryId, entryIndexById, meanVector, mechanismQueryBlock } from './embed-distance.js';
-import { isTestSymbol } from './claim-locate.js';
+import { isTestSymbol, isTestEntry, testsTip, printTip } from '../core/test-paths.js';
 
 const nf = (n) => Number(n).toLocaleString('en-US');
 const plural = (n, one, many = `${one}s`) => `${nf(n)} ${n === 1 ? one : many}`;
@@ -115,22 +115,19 @@ export function sourcePath(file) { return String(file || '').split('!').pop().sp
 export function shortPath(file, keep = 3) { const parts = sourcePath(file).split('/'); return parts.length > keep ? `…/${parts.slice(-keep).join('/')}` : parts.join('/'); }
 
 /**
- * The header's words on test code: groups made only of tests, and test functions inside the
- * groups that were kept. Empty when there is nothing to say.
+ * The header's words on test code: only that it is included, when --include-tests was given.
+ * What was left out is the closing line (testsTip, test-paths.js), not the header.
  */
-export function testLeftOutNote(testGroups, testFnsInKept, includeTests) {
-  if (includeTests) return '; test code included';
-  const parts = [];
-  if (testGroups) parts.push(`${plural(testGroups, 'group')} of test code`);
-  if (testFnsInKept) parts.push(`${plural(testFnsInKept, 'test function')} inside the groups ranked`);
-  return parts.length ? `; ${parts.join(' and ')} left out (--include-tests brings them in)` : '';
+export function testLeftOutNote(includeTests) {
+  return includeTests ? '; test code included' : '';
 }
 
-/** True when every member of the entry is test, mock, benchmark or example code (the --claim-locate gate's rule). */
-export function isTestEntry(e) {
-  const ms = e.members || [];
-  return ms.length > 0 && ms.every((m) => isTestSymbol({ name: m.name, filepath: m.file, test: m.test === true }));
+/** The closing line: groups made only of tests, and test functions inside the groups that were kept. '' when nothing was left out. */
+export function semanticTestsTip(testGroups, testFnsInKept, includeTests) {
+  return includeTests ? '' : testsTip(testGroups, 'groups', { also: [[testFnsInKept, 'functions']] });
 }
+
+export { isTestEntry };   // the one rule for a group (test-paths.js), re-exported for its importers
 
 /**
  * Ranked entries (rankFused's rows) as search rows. An entry's row is the function that
@@ -438,7 +435,7 @@ export async function doSemanticSearch(args) {
     }
     if (multi) console.log(source);
     console.log(`${chosen.note}${missing ? ` (${plural(missing, 'text')} new since the build embedded now)` : ''}`);
-    console.log(`${plural(cands.length, 'group')} of functions ranked, each by its name and its best function's text${testLeftOutNote(testN, testFnsInKept.size, includeTests)}`);
+    console.log(`${plural(cands.length, 'group')} of functions ranked, each by its name and its best function's text${testLeftOutNote(includeTests)}`);
     console.log('A hit is the closest code found for the text, a place to read. It is not a finding that the code does what the text says.');
     if (reworded) console.log(reworded.header);
     for (const line of unusedOptionNotes(args)) console.log(line);
@@ -462,6 +459,7 @@ export async function doSemanticSearch(args) {
     console.log('');
     for (const line of tips) console.log(line);
     console.log(`${tips.length ? '\n' : ''}--verbose shows full paths, every group and the score's parts; --embed-distance prints the same ranking as raw cosines.`);
+    printTip(semanticTestsTip(testN, testFnsInKept.size, includeTests));   // part E4: the closing line
   } finally {
     await embedder.dispose();
   }

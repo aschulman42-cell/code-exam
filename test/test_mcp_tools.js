@@ -604,7 +604,8 @@ module.exports = { initCryptoContextTest };
     const el2 = out.slice(out.indexOf('Element 2'), out.indexOf('Element 3'));
     assert.match(el2, /a\.js@initCryptoContext/, el2);
     assert.doesNotMatch(el2, /initCryptoContextTest/, 'test symbols held back by default: ' + el2);
-    assert.match(el2, /test-file candidate|held back/, 'and says so: ' + el2);
+    // part E4 of test-options-remaining-commands: said once, as the closing line, with the tool's own argument
+    assert.match(out.split('\n').pop(), /^Tip: \d+ symbols? of test, benchmark, mock and example code left out; include_tests: true lists (?:it|them)\.$/, 'and says so: ' + out);
     const el3 = out.slice(out.indexOf('Element 3'), out.indexOf('Element 4'));
     assert.match(el3, /b\.js@sendEncryptedPayload/, el3);
     assert.match(el3, /finishHandshake[^\n]*content/, 'body-only match arrives via the content arm: ' + el3);

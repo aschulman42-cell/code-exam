@@ -1631,21 +1631,33 @@ DISPLAY / FILTERING (query-time, does not affect index build):
   --exclude-tests            Leave test code out of a search or a listing: files under
                              a test, benchmark, mock or example directory, or named
                              like one (test_*, *.test.*, FooTest, bench_*, mock_*).
-                             Read by --search, --regex, --literal, --fast,
-                             --files-search, --folders-search, --multisect-search,
-                             --list-files, --list-functions, --list-classes,
-                             --most-called, --hotspots, --entry-points, --gaps,
-                             --domain-fns, --class-hotspots, --data-structs and the
-                             AI/ML listings (which drop the records their detectors
-                             tagged as test or example code). Off by default: those
-                             commands include test code, and --multisect-search says
-                             so. Given to a command that does not read it, a line on
-                             stderr says it did nothing. The claim tools,
-                             --semantic-search, --mechanisms and --toc work the
-                             other way: they leave test code out unless
-                             --include-tests is given.
+                             For commands that find exactly what was typed: they
+                             list everything unless this option is given, because
+                             a hit dropped silently from a literal search is the
+                             worse error. Read by --search, --regex, --literal,
+                             --fast, --files-search, --folders-search,
+                             --multisect-search, --multisect-analyze,
+                             --claim-search, --claim-analyze, --claims-loop,
+                             --callers, --callees, --list-files, --list-functions,
+                             --list-classes, --most-called, --hotspots,
+                             --entry-points, --gaps, --domain-fns,
+                             --class-hotspots, --data-structs and the AI/ML
+                             listings. Off by default. A function is test code by
+                             its file's path, its name or a test attribute above
+                             it. Not read by
+                             --call-tree (a tree with branches left out would look
+                             complete when it is not). Given to a command that does
+                             not read it, a line on
+                             stderr says it did nothing. A command that left
+                             something out ends with a line "Tip: N ... left out
+                             (--exclude-tests); run without it to list them." The
+                             MCP tools take exclude_tests. The other family ranks or
+                             summarises (--mechanisms, --toc, --carve,
+                             --show-function-text, --semantic-search,
+                             --claim-locate, --claim-chart, --hof): it leaves test
+                             code out unless --include-tests is given.
   --no-tests                 The same as --exclude-tests, in every command that reads
-                             it.
+                             it: the commands that find exactly what was typed.
   --emit-harness <Class>     Emit a runnable PyTorch forward-hook activation
                              harness .py for a detected model class (file@Class
                              to disambiguate). CE never runs it — you do.
@@ -1825,8 +1837,10 @@ MODE:
   --gemini-model <id>        Gemini model id (default gemini-2.5-flash).
 
 CALLERS / CALLEES:
-  --callers <spec>           Find callers of a function (FUNC or FILE@FUNC)
-  --callees <spec>           Find functions called by a function (FUNC or FILE@FUNC)
+  --callers <spec>           Find callers of a function (FUNC or FILE@FUNC);
+                             --exclude-tests leaves out call sites in test files
+  --callees <spec>           Find functions called by a function (FUNC or FILE@FUNC);
+                             --exclude-tests leaves out callees defined in test files
   --call-inventory [spec]    Show call targets partitioned into in-index vs external
                              No argument: scan entire codebase (bill of materials)
                              With function name: single function inventory
@@ -1842,7 +1856,8 @@ CALLERS / CALLEES:
   --defined-only             Only show functions defined in the index
 
 GRAPH:
-  --call-tree <spec>         Show call tree (callers up + callees down)
+  --call-tree <spec>         Show call tree (callers up + callees down); shows test
+                             code too, --exclude-tests is not read
   --class-tree [filter]      Show class inheritance hierarchy
   --file-map [filter]        Show file-level dependency map
   --file-tree <file>         Show file dependency tree
@@ -1861,8 +1876,8 @@ METRICS / DISCOVERY:
                              --max-results caps the list (default 100, 0 =
                              all); -v lists every member as file@name.
                              Rows that are wholly test code are left out
-                             unless --include-tests is given; the line under
-                             the header says how many. Order: --sort-by.
+                             unless --include-tests is given; the last line
+                             says how many. Order: --sort-by.
   --sort-by <order>          The order of --mechanisms and --toc. size (the
                              default): largest row first, the order of the
                              mechanisms file. path: grouped by source
@@ -2534,7 +2549,11 @@ LLM ANALYSIS:
                              the file came from this run's index and claim.
   --hunt-rounds <n>          --claim-locate: max model turns in the hunt (default 8).
   --hunt-calls <n>           --claim-locate: max tool calls in the hunt (default 24).
-  --include-tests            --claim-locate: allow test, mock, benchmark and example
+  --include-tests            For commands that rank or summarise, which leave test code
+                              out unless this is given (the other family, --exclude-tests,
+                              lists everything unless asked): they end with a line
+                              "Tip: N ... left out; --include-tests lists them."
+                              --claim-locate: allow test, mock, benchmark and example
                               symbols as candidates, by directory, file name,
                               symbol name, or a test attribute above the function
                               (Rust #[test]) (excluded by default; a test exercising
@@ -2582,6 +2601,7 @@ LLM ANALYSIS:
                               Local GGUF runs are free and never gated.
   --multisect-analyze <terms> Search for functions matching terms, analyze top hits.
                               Same term syntax as --multisect-search.
+                              --exclude-tests / --no-tests leave test files out.
   --file-analyze <filepath>  Analyze an entire source file with LLM
   --mask-all                 Strip comments and mask string contents before sending to LLM
   --line-numbers             Include source line numbers in LLM prompt. Now the

@@ -36,6 +36,7 @@ import { loadMechanismsIndex, filterRecords, foldRecords, foldNote, notBuiltLine
 import { similarityOrderFor, noSimilarityOrder } from './core/carve.js';
 import { maskCredentials } from './core/credential-mask.js';
 import { displayName, parseFuncSpec } from './utils.js';
+import { withoutTests, testsTip, indexTestFileCount, functionsWithoutTests, isTestPath } from './core/test-paths.js';
 import { doCallTree } from './commands/graph.js';
 import { formatFunctionDigest, formatClassDigest, formatFileDigest } from './commands/digest.js';
 import { splitClaimElements, isPreambleRow, isJepsonPreamble, parseElementWords, candidatesForElement, directionOf, testGateDecision, testGateNote } from './commands/claim-locate.js';
@@ -105,6 +106,12 @@ function ensureIndexLoaded() {
 // Tool definitions
 // ========================================================================
 
+// test-options-remaining-commands (2026-11-23): the MCP face of --exclude-tests / --no-tests (one meaning, src/core/test-paths.js).
+const EXCLUDE_TESTS_PROP = { type: 'boolean', description: 'Leave out results in test, benchmark, mock and example code (default false). The result ends with a line saying how many were left out.' };
+// The closing line of a tool that left test code out (part E4): the same one function as the CLI, with this tool's argument words. '' when nothing was left out.
+const _tipTail = (n, noun, o = {}) => { const t = testsTip(n, noun, { option: 'exclude_tests', ...o }); return t ? `\n\n${t}` : ''; };
+const _tipTailInclude = (n, noun) => { const t = testsTip(n, noun, { include: 'include_tests: true' }); return t ? `\n\n${t}` : ''; };
+
 const TOOLS = [
   {
     name: 'search',
@@ -114,6 +121,7 @@ const TOOLS = [
       properties: {
         query: { type: 'string', description: 'Search string' },
         max: { type: 'number', description: 'Max results (default 25)' },
+        exclude_tests: EXCLUDE_TESTS_PROP,
       },
       required: ['query'],
     },
@@ -126,6 +134,7 @@ const TOOLS = [
       properties: {
         pattern: { type: 'string', description: 'Regex pattern' },
         max: { type: 'number', description: 'Max results (default 25)' },
+        exclude_tests: EXCLUDE_TESTS_PROP,
       },
       required: ['pattern'],
     },
@@ -139,6 +148,7 @@ const TOOLS = [
         terms: { type: 'string', description: 'Semicolon-separated search terms, e.g. "encrypt;certificate;validate". Prefix with NOT to exclude, e.g. "encrypt;NOT test". Use /regex/ for patterns.' },
         min_terms: { type: 'number', description: 'Minimum percentage of terms that must match (0-100, default 80)' },
         max: { type: 'number', description: 'Max results (default 25)' },
+        exclude_tests: EXCLUDE_TESTS_PROP,
       },
       required: ['terms'],
     },
@@ -447,6 +457,11 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} },
   },
 ];
+// The tools whose command-line form reads --exclude-tests / --no-tests take exclude_tests too (part E6); search,
+// regex_search and multisect_search list it in their own schemas above.
+for (const n of ['callers', 'callees', 'most_called', 'hotspots', 'entry_points', 'list_files', 'list_functions', 'list_classes', 'data_structures']) {
+  TOOLS.find((t) => t.name === n).inputSchema.properties.exclude_tests = EXCLUDE_TESTS_PROP;
+}
 
 
 // ========================================================================
@@ -635,6 +650,7 @@ function _claimCandidatesText(index, claimText, args) {
   const sponges = detectSponges(hitsPerElement, LOOP_DEFAULTS.spongeT);
 
   const L = [];
+  let testsHeld = 0;   // test, mock, bench and example symbols held back, summed over the elements (a symbol held back for two elements counts twice)
   const fp = (s) => String(s.filepath || '').split('!').pop();
   if (gate.autoOff) L.push(testGateNote(gate, 'include_tests: true'), '');
   for (const pe of perElement) {
@@ -661,8 +677,7 @@ function _claimCandidatesText(index, claimText, args) {
       });
       if (pe.hiddenContent) L.push(`  (+${pe.hiddenContent} more body-only match(es) not listed: they rank below every name match)`);
     }
-    const tests = pe.nameTests + pe.contentTests;
-    if (tests) L.push(`  (${tests} test, mock, bench or example symbol(s) that would have been offered held back; include_tests: true to admit)`);
+    testsHeld += pe.nameTests + pe.contentTests;   // reported once, as the closing line
     if (pe.armError) L.push(`  ⚠ body search errored and contributed nothing: ${pe.armError.message}`);
     L.push('');
   }
@@ -682,7 +697,7 @@ function _claimCandidatesText(index, claimText, args) {
     + 'callees; claim_candidates again with different words for an element that got nothing. Judge each '
     + 'limitation yourself (PRESENT / PARTIAL / ABSENT) from what you read. The audited chart with '
     + "per-element verdicts and a self-critique is the CLI's --claim-chart, not a tool.");
-  return L.join('\n');
+  return L.join('\n') + _tipTailInclude(testsHeld, 'symbols');
 }
 
 function _capabilitiesText() {
@@ -713,30 +728,34 @@ function handleToolRaw(name, args) {
     case 'search': {
       const query = args.query;
       const max = args.max || 25;
-      const probe = Math.max(max * 5, 200);  // look past `max` to report the true total (#272)
-      const all = index.searchLiteral(query, { maxResults: probe, contextLines: 0 });
-      if (all.length === 0) return _noSearchHits(`"${query}"`);
+      const probe = Math.max(max * 5, args.exclude_tests ? 2000 : 200);  // look past `max` to report the true total (#272); further when test files will be dropped
+      const raw = index.searchLiteral(query, { maxResults: probe, contextLines: 0 });
+      const { kept: all, left } = withoutTests(raw, { exclude_tests: !!args.exclude_tests }, (r) => r.filePath);
+      const tip = _tipTail(left, 'matches', { atLeast: raw.length >= probe });
+      if (all.length === 0) return _noSearchHits(`"${query}"`) + tip;
       const shown = all.slice(0, max);
-      const header = _capNote(shown.length, all.length, all.length >= probe, 'matches', `Raise "max" or refine the query to see the rest.`);
+      const header = _capNote(shown.length, all.length, raw.length >= probe, 'matches', `Raise "max" or refine the query to see the rest.`);
       return header + '\n' + shown.map(r =>
         `${r.filePath}:${r.lineNumber}  ${clipLine(r.lineText)}` +
         (r.functionName ? `  (in ${clipLine(r.functionName, 80)})` : '')
       ).join('\n')
-        + _capFooter(shown.length, all.length, all.length >= probe, 'Raise "max" or refine the query.');
+        + _capFooter(shown.length, all.length, raw.length >= probe, 'Raise "max" or refine the query.') + tip;
     }
 
     case 'regex_search': {
       const max = args.max || 25;
-      const probe = Math.max(max * 5, 200);
-      const all = index.searchLiteral(args.pattern, { useRegex: true, maxResults: probe, contextLines: 0 });
-      if (all.length === 0) return _noSearchHits(`/${args.pattern}/`, true);
+      const probe = Math.max(max * 5, args.exclude_tests ? 2000 : 200);
+      const raw = index.searchLiteral(args.pattern, { useRegex: true, maxResults: probe, contextLines: 0 });
+      const { kept: all, left } = withoutTests(raw, { exclude_tests: !!args.exclude_tests }, (r) => r.filePath);
+      const tip = _tipTail(left, 'matches', { atLeast: raw.length >= probe });
+      if (all.length === 0) return _noSearchHits(`/${args.pattern}/`, true) + tip;
       const shown = all.slice(0, max);
-      const header = _capNote(shown.length, all.length, all.length >= probe, 'matches', `Raise "max" or refine the pattern to see the rest.`);
+      const header = _capNote(shown.length, all.length, raw.length >= probe, 'matches', `Raise "max" or refine the pattern to see the rest.`);
       return header + '\n' + shown.map(r =>
         `${r.filePath}:${r.lineNumber}  ${clipLine(r.lineText)}` +
         (r.functionName ? `  (in ${clipLine(r.functionName, 80)})` : '')
       ).join('\n')
-        + _capFooter(shown.length, all.length, all.length >= probe, 'Raise "max" or refine the pattern.');
+        + _capFooter(shown.length, all.length, raw.length >= probe, 'Raise "max" or refine the pattern.') + tip;
     }
 
     case 'multisect_search': {
@@ -746,9 +765,11 @@ function handleToolRaw(name, args) {
       const minPct = (args.min_terms || 80) / 100;
       const max = args.max || 25;
       const minTerms = Math.max(1, Math.ceil(positiveCount * minPct));
-      const results = index.multisectSearch(terms, { minTerms });
+      const excludeTests = !!args.exclude_tests;   // test-options-remaining-commands
+      const results = index.multisectSearch(terms, { minTerms, excludeTests });
+      const tip = excludeTests ? _tipTail(indexTestFileCount(index), 'files') : '';
       if (!results || !results.function_matches || results.function_matches.length === 0) {
-        return `No functions match terms: ${args.terms}`;
+        return `No functions match terms: ${args.terms}` + tip;
       }
       const fnCount = results.function_matches.length;
       const lines = [`Found ${fnCount} function matches` + (fnCount > max ? ` (showing top ${max}):` : ':')];
@@ -762,7 +783,7 @@ function handleToolRaw(name, args) {
           lines.push(`  ${f.filepath}  (${f.terms_matched}/${positiveCount} terms)`);
         }
       }
-      return lines.join('\n');
+      return lines.join('\n') + tip;
     }
 
     case 'extract': {
@@ -867,9 +888,11 @@ function handleToolRaw(name, args) {
       // same-named definition).
       const { fileHint, funcName } = parseFuncSpec(spec);
       const max = args.max || 50;
-      const probe = Math.max(max * 5, 200);  // count past `max` so "N callers" isn't a capped total (#272)
-      const all = index.findCallers(funcName, probe, { fileHint });
-      if (all.length === 0) return `No callers found for: ${spec}`;
+      const probe = Math.max(max * 5, args.exclude_tests ? 500 : 200);  // count past `max` so "N callers" isn't a capped total (#272)
+      const raw = index.findCallers(funcName, probe, { fileHint });
+      const { kept: all, left } = withoutTests(raw, { exclude_tests: !!args.exclude_tests }, (c) => c.filepath);
+      const tip = _tipTail(left, 'call sites', { atLeast: raw.length >= probe });
+      if (all.length === 0) return (left ? `No callers found outside test code for: ${spec}` : `No callers found for: ${spec}`) + tip;
       const shown = all.slice(0, max);
       const lines = [_capNote(shown.length, all.length, all.length >= probe, `callers of ${spec}`, `Raise "max" to see the rest.`)];
       for (const c of shown) {
@@ -878,15 +901,20 @@ function handleToolRaw(name, args) {
           (c.caller_function ? `  (in ${clipLine(c.caller_function, 80)})` : '  (file scope)'));
       }
       return lines.join('\n')
-        + _capFooter(shown.length, all.length, all.length >= probe, 'Raise "max" to see the rest.');
+        + _capFooter(shown.length, all.length, raw.length >= probe, 'Raise "max" to see the rest.') + tip;
     }
 
     case 'callees': {
       const spec = args.function_name ?? args.target;
       if (!spec) return 'callees requires "function_name" (alias: "target").';
       const { fileHint, funcName } = parseFuncSpec(spec);
-      const callees = index.findCallees(funcName, fileHint);
-      if (callees.length === 0) return `No callees found for: ${spec}`;
+      // a callee whose every definition is in test code is left out under exclude_tests; one with no definition stays
+      const { kept: callees, left } = withoutTests(index.findCallees(funcName, fileHint), { exclude_tests: !!args.exclude_tests }, (ce) => {
+        const defs = ce.definitions || [];
+        return defs.length && defs.every((d) => isTestPath(d.filepath)) ? defs[0].filepath : '';
+      });
+      const tip = _tipTail(left, 'callees');
+      if (callees.length === 0) return (left ? `No callees found outside test code for: ${spec}` : `No callees found for: ${spec}`) + tip;
       const lines = [`${callees.length} callees of ${funcName}:`];
       for (const c of callees) {
         // Same markers as `--callees`: `ambiguous` with no resolved definition is
@@ -900,12 +928,13 @@ function handleToolRaw(name, args) {
             : (nDefs ? `  [${nDefs} defs]` : '  [external]'));
         lines.push(`  ${clipLine(c.display_name || c.name, 80)}  (${c.call_type})${defInfo}`);
       }
-      return lines.join('\n');
+      return lines.join('\n') + tip;
     }
 
     case 'most_called': {
       const n = args.n || 25;
       const callData = index.getCallCountsWithDefinitions(false);
+      let testsLeft = 0;   // identifiers all of whose definitions are test code, under exclude_tests
       let filtered = callData.filter(item => {
         if (item.name.length < 2) return false;
         const bare = item.name.includes('::') ? item.name.split('::').pop() : item.name;
@@ -913,9 +942,11 @@ function handleToolRaw(name, args) {
         if (isIntrinsicName(bare)) return false; // #276 U1: drop built-ins
         if (args.defined_only && item.definitions.length === 0) return false;
         if (args.filter && !item.name.toLowerCase().includes(args.filter.toLowerCase())) return false;
+        if (args.exclude_tests && item.definitions.length > 0 && item.definitions.every((d) => isTestPath(d.filepath))) { testsLeft++; return false; }
         return true;
       });
-      if (filtered.length === 0) return (args.filter && callData.length) ? filteredEmptyNotice('called functions', callData.length, args.filter) : 'No results';
+      const tip = _tipTail(testsLeft, 'identifiers');
+      if (filtered.length === 0) return ((args.filter && callData.length) ? filteredEmptyNotice('called functions', callData.length, args.filter) : 'No results') + tip;
       // `filtered` IS the population here — the full call list, filtered, then
       // sliced. The total was already in hand and was being discarded.
       const lines = [_rankedHeader(Math.min(n, filtered.length), filtered.length,
@@ -926,7 +957,7 @@ function handleToolRaw(name, args) {
           : '  external';
         lines.push(`  ${item.count}\t${item.name}${defNote}`);
       }
-      return lines.join('\n');
+      return lines.join('\n') + tip;
     }
 
     case 'hotspots': {
@@ -945,25 +976,32 @@ function handleToolRaw(name, args) {
         const f = args.filter.toLowerCase();
         results = scored.filter(h => h.name.toLowerCase().includes(f) || h.filepath.toLowerCase().includes(f));
       }
-      if (results.length === 0) return (args.filter && scored.length) ? filteredEmptyNotice('hotspots', scored.length, args.filter) : 'No hotspots found';
+      const hs = withoutTests(results, { exclude_tests: !!args.exclude_tests }, (h) => h.filepath);
+      results = hs.kept;
+      const tip = _tipTail(hs.left, 'functions');
+      if (results.length === 0) return ((args.filter && scored.length) ? filteredEmptyNotice('hotspots', scored.length, args.filter) : 'No hotspots found') + tip;
       const lines = [_rankedHeader(Math.min(n, results.length), results.length,
         'hotspots (score = calls x sqrt(lines))', 'Raise "n" to see more.')];
       for (const h of results.slice(0, n)) {
         lines.push(`  ${h.score.toFixed(1)}\t${h.name}  ${h.filepath}  (${h.lines}L, ${h.calls} calls)`);
       }
-      return lines.join('\n');
+      return lines.join('\n') + tip;
     }
 
     case 'entry_points': {
       const n = args.n || 25;
       const maxCalls = args.max_calls ?? 1;
-      const entries = index.getEntryPoints(n, maxCalls, false);
-      if (entries.length === 0) return 'No entry points found';
+      const want = args.exclude_tests ? n * 3 : n;   // look past n so test entries do not use up the count
+      const fetched = index.getEntryPoints(want, maxCalls, false);
+      const ep = withoutTests(fetched, { exclude_tests: !!args.exclude_tests }, (e) => e.filepath);
+      const entries = ep.kept;
+      const tip = _tipTail(ep.left, 'functions', { atLeast: fetched.length >= want });
+      if (entries.length === 0) return 'No entry points found' + tip;
       const lines = [`${entries.length} functions with <= ${maxCalls} calls (likely entry points):`];
       for (const e of entries.slice(0, n)) {
         lines.push(`  ${e.name}  ${e.filepath}  (${e.lines}L, ${e.calls} calls)`);
       }
-      return lines.join('\n');
+      return lines.join('\n') + tip;
     }
 
     case 'vocabulary': {
@@ -1027,7 +1065,11 @@ function handleToolRaw(name, args) {
           fn.name.toLowerCase().includes(f) || fn.filepath.toLowerCase().includes(f)
         );
       }
-      if (filtered.length === 0) return (args.filter && allFuncs.length) ? filteredEmptyNotice('functions', allFuncs.length, args.filter) : 'No functions found';
+      // exclude_tests: by the one rule for a function (path, name or a test attribute above it)
+      const fnT = functionsWithoutTests(index, filtered, { exclude_tests: !!args.exclude_tests });
+      filtered = fnT.kept;
+      const tip = _tipTail(fnT.left, 'functions');
+      if (filtered.length === 0) return ((args.filter && allFuncs.length) ? filteredEmptyNotice('functions', allFuncs.length, args.filter) : 'No functions found') + tip;
       // #160 A8: same non-selective-filter warning as list_files.
       const unselective = (args.filter && allFuncs.length && filtered.length >= allFuncs.length * 0.9)
         ? ` (note: filter "${args.filter}" matched ${filtered.length}/${allFuncs.length} — not selective; omit it for the whole picture)`
@@ -1041,7 +1083,7 @@ function handleToolRaw(name, args) {
       // from the first entry of a 100-of-1644 result. The total was in the
       // header the whole time; the model was reading the body.
       return lines.join('\n')
-        + _capFooter(Math.min(max, filtered.length), filtered.length, false, 'Raise "max" or use a filter.');
+        + _capFooter(Math.min(max, filtered.length), filtered.length, false, 'Raise "max" or use a filter.') + tip;
     }
 
     case 'list_files': {
@@ -1052,7 +1094,10 @@ function handleToolRaw(name, args) {
         const f = args.filter.toLowerCase();
         files = files.filter(p => p.toLowerCase().includes(f));
       }
-      if (files.length === 0) return (args.filter && all.length) ? filteredEmptyNotice('files', all.length, args.filter) : 'No files found';
+      const fT = withoutTests(files, { exclude_tests: !!args.exclude_tests });
+      files = fT.kept;
+      const tip = _tipTail(fT.left, 'files');
+      if (files.length === 0) return ((args.filter && all.length) ? filteredEmptyNotice('files', all.length, args.filter) : 'No files found') + tip;
       // #160 A8: warn on a non-selective filter — "main" matches every
       // `repo-main.zip!...` path, so a caller mistakes it for structure.
       const unselective = (args.filter && all.length && files.length >= all.length * 0.9)
@@ -1060,7 +1105,7 @@ function handleToolRaw(name, args) {
         : '';
       return `${files.length} files${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, files.length)}):${unselective}\n`
         + files.slice(0, max).join('\n')
-        + _capFooter(Math.min(max, files.length), files.length, false, 'Raise "max" or use a filter.');
+        + _capFooter(Math.min(max, files.length), files.length, false, 'Raise "max" or use a filter.') + tip;
     }
 
     case 'stats': {
@@ -1095,12 +1140,15 @@ function handleToolRaw(name, args) {
         const f = args.filter.toLowerCase();
         filtered = classes.filter(c => c.name.toLowerCase().includes(f));
       }
-      if (filtered.length === 0) return (args.filter && classes.length) ? filteredEmptyNotice('classes', classes.length, args.filter) : 'No classes found';
+      const cT = withoutTests(filtered, { exclude_tests: !!args.exclude_tests }, (c) => c.filepath);
+      filtered = cT.kept;
+      const tip = _tipTail(cT.left, 'classes');
+      if (filtered.length === 0) return ((args.filter && classes.length) ? filteredEmptyNotice('classes', classes.length, args.filter) : 'No classes found') + tip;
       const lines = [`${filtered.length} classes${args.filter ? ` matching "${args.filter}"` : ''}:`];
       for (const c of filtered.slice(0, 50)) {
         lines.push(`  ${c.name}  (${c.methods.length} methods, ${c.filepath})`);
       }
-      return lines.join('\n');
+      return lines.join('\n') + tip;
     }
 
     case 'list_mechanisms': {
@@ -1135,7 +1183,7 @@ function handleToolRaw(name, args) {
       }
       const filtered = orderEntries(matched, order, bySimilarity || {});
       const lines = [`${filtered.length} mechanism(s)${foldNote(filtered)}${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, filtered.length)}): ${coverageLine(data)}`,
-        `  ${listingNote({ testsLeft: testsMatched, order, includeOption: 'include_tests: true', orderOption: 'sort_by', similar: bySimilarity && bySimilarity.similar })}`];
+        `  ${listingNote({ order, orderOption: 'sort_by', similar: bySimilarity && bySimilarity.similar })}`];
       const dn = (n) => (typeof index.getDisplayName === 'function' ? index.getDisplayName(n) : n);
       const heading = headingsOver(filtered, order === 'path');
       for (const r of filtered.slice(0, max)) {
@@ -1153,7 +1201,7 @@ function handleToolRaw(name, args) {
         const names = r.members.slice(0, 8).map((m) => dn(m.name));
         lines.push(`      ${names.join(', ')}${r.members.length > 8 ? ` (+${r.members.length - 8} more; extract <file@name> reads one)` : ''}`);
       }
-      return lines.join('\n') + _capFooter(Math.min(max, filtered.length), filtered.length, false, 'Raise "max" or use a filter.');
+      return lines.join('\n') + _capFooter(Math.min(max, filtered.length), filtered.length, false, 'Raise "max" or use a filter.') + _tipTailInclude(testsMatched, 'mechanisms');
     }
 
     case 'data_structures': {
@@ -1162,14 +1210,17 @@ function handleToolRaw(name, args) {
         const f = args.filter.toLowerCase();
         structs = structs.filter(s => s.name.toLowerCase().includes(f));
       }
-      if (!structs.length) return 'No data structures found';
+      const sT = withoutTests(structs, { exclude_tests: !!args.exclude_tests }, (s) => s.filepath);
+      structs = sT.kept;
+      const tip = _tipTail(sT.left, 'data structures');
+      if (!structs.length) return 'No data structures found' + tip;
       const n = args.n || 50;
       const lines = [`${structs.length} unique data structures (ranked by file spread, then references):`];
       for (const s of structs.slice(0, n)) {
         const spread = s.fileCount > 1 ? `  [${s.fileCount} files]` : '';
         lines.push(`  ${s.refs} refs  ${s.kind}  ${s.name}  (${s.filepath}:${s.line})${spread}`);
       }
-      return lines.join('\n');
+      return lines.join('\n') + tip;
     }
 
     case 'client_server': {

@@ -19,7 +19,7 @@ import { effectiveCount, effectiveMaxResults, capNotice } from '../argparse.js';
 import { extractConcepts, conceptLabel } from '../core/vocabulary.js';
 import { extractDataStructures } from '../core/data-structs.js';
 import { extractClientServer } from '../core/client-server.js';
-import { isTestPath, leavesTestsOut } from '../core/test-paths.js';
+import { isTestPath, leavesTestsOut, optionTestsTip, printTip } from '../core/test-paths.js';
 import { groupSites, groupPipelines, KERNELS_DRILLDOWN, MULTIMODAL_DRILLDOWN, POSTTRAINING_DRILLDOWN, REASONING_DRILLDOWN, MODELS_DRILLDOWN, ARTIFACTS_DRILLDOWN, DATASETS_DRILLDOWN, TOOLS_DRILLDOWN, TRAINING_DRILLDOWN, INFERENCE_DRILLDOWN, LLMCALLS_DRILLDOWN, CHAINS_DRILLDOWN, EMBEDDINGS_DRILLDOWN, STRUCTURED_OUTPUT_DRILLDOWN, EXPLAINABILITY_DRILLDOWN } from '../core/ai-ml-detectors.js';
 
 
@@ -54,6 +54,7 @@ function dropTests(rows, args) {
   if (!leavesTestsOut(args)) return rows;   // --no-tests, and since 2026-11-19 --exclude-tests: one meaning, two spellings
   const kept = rows.filter(r => !r.isTest);
   if (rows.unresolved !== undefined) kept.unresolved = rows.unresolved;  // listModelsUsed tail note
+  kept.testsLeft = rows.length - kept.length;   // for the closing line (noTestsTip)
   return kept;
 }
 
@@ -62,9 +63,11 @@ const testTag = (r) => (r.isTest ? ' [test]' : '');
 // #132 discoverability: the default (grouped) views don't tag individual rows,
 // so when test/example records are present, say so and point at --no-tests / -v.
 function noTestsTip(rows, args, what = 'sites') {
-  if (leavesTestsOut(args)) return;
+  // With the option: the one closing line (part E4), counting the records dropped. Without it: not an
+  // exclusion, a possibility (these rows are listed), so the wording says they are listed.
+  if (leavesTestsOut(args)) { printTip(optionTestsTip(args, (rows && rows.testsLeft) || 0, what.replace(/ \(.*$/, ''))); return; }
   const n = (rows || []).filter(r => r.isTest).length;
-  if (n) console.log(`\n  Tip: ${n} of ${rows.length} ${what} are in test/example code — add --no-tests to hide them.`);
+  if (n) console.log(`\n  Tip: ${n} of ${rows.length} ${what} are in test/example code and are listed; add --no-tests to leave them out.`);
 }
 
 function applyPathFilters(items, args, fpKey = 'filepath') {
@@ -84,9 +87,13 @@ function applyPathFilters(items, args, fpKey = 'filepath') {
   }
   // --exclude-tests / --no-tests, by the shared rule (test-paths.js). Until 2026-11-19 this was
   // "the path contains the letters test", which dropped latest.js and kept examples/.
+  let testsLeft = 0;
   if (leavesTestsOut(args)) {
+    const before = result.length;
     result = result.filter(h => !isTestPath(h[fpKey]));
+    testsLeft = before - result.length;
   }
+  result.testsLeft = testsLeft;   // for the closing line (part E4): printTip(optionTestsTip(args, filtered.testsLeft, noun))
   return result;
 }
 
@@ -140,6 +147,7 @@ export function doHotspots(index, args) {
 
   const note = capNotice(filtered.length, Math.min(n, filtered.length), 'hotspots', '--hotspots <N>');
   if (note) console.log('\n' + note);
+  printTip(optionTestsTip(args, filtered.testsLeft, 'functions'));   // part E4
 }
 
 
@@ -241,9 +249,9 @@ const ENTRY_POINT_PREFIXES = [
 function looksLikeEntryPoint(name, filepath) {
   const bare = bareName(name);
   const bl = bare.toLowerCase();
-  const fpl = filepath.toLowerCase();
-
-  if (fpl.includes('test') || fpl.includes('spec') || fpl.includes('__test')) return true;
+  // test-options-remaining-commands: test code is test code by the shared rule (test-paths.js); the
+  // old test here was "the path contains the letters test or spec", which made latest.js an entry point.
+  if (isTestPath(filepath)) return true;
   if (ENTRY_POINT_PATTERNS.has(bl)) return true;
   for (const prefix of ENTRY_POINT_PREFIXES) {
     if (bl.startsWith(prefix) && bl.length > prefix.length) return true;
@@ -293,6 +301,7 @@ export function doEntryPoints(index, args) {
   if (note) console.log('\n' + note);
 
   console.log('\n  See also: --gaps (suspicious dead code), --call-inventory (external dependencies)');
+  printTip(optionTestsTip(args, filtered.testsLeft, 'functions'));   // part E4
 }
 
 
@@ -408,6 +417,7 @@ export function doDomainFns(index, args) {
 
   const note = capNotice(filtered.length, Math.min(n, filtered.length), 'domain functions', '--domain-fns <N>');
   if (note) console.log('\n' + note);
+  printTip(optionTestsTip(args, filtered.testsLeft, 'functions'));   // part E4
 }
 
 
@@ -1378,6 +1388,7 @@ export function doListModels(index, args) {
 export function doDataStructs(index, args) {
   let structs = extractDataStructures(index);
   structs = applyPathFilters(structs, args);
+  const structTestsLeft = structs.testsLeft;
   if (args.filter) {
     const match = makeFilterMatcher(args.filter);
     structs = structs.filter(s => match(s.name));
@@ -1394,6 +1405,7 @@ export function doDataStructs(index, args) {
   }
   const note = capNotice(structs.length, Math.min(n, structs.length), 'data structures');
   if (note) console.log('\n' + note);
+  printTip(optionTestsTip(args, structTestsLeft, 'data structures'));   // part E4
 }
 
 export function doClientServer(index, args) {
@@ -1458,6 +1470,7 @@ export function doListClasses(index, args) {
   let classes = index.listClasses();
 
   classes = applyPathFilters(classes, args);
+  const classTestsLeft = classes.testsLeft;
 
   const classesBeforeFilter = classes.length;
   if (args.filter) {
@@ -1542,6 +1555,7 @@ export function doListClasses(index, args) {
       console.log(`\nTip: Use --verbose to see .h/.cpp cross-file method associations`);
     }
   }
+  printTip(optionTestsTip(args, classTestsLeft, 'classes'));   // part E4
 }
 
 
@@ -1580,6 +1594,7 @@ export function doClassHotspots(index, args) {
 
   const note = capNotice(filtered.length, Math.min(n, filtered.length), 'classes', '--class-hotspots <N>');
   if (note) console.log('\n' + note);
+  printTip(optionTestsTip(args, filtered.testsLeft, 'classes'));   // part E4
 }
 
 

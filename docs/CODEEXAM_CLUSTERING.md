@@ -554,8 +554,9 @@ ce --index-path <index> --carve calls
   mechanisms that call each other go together. It needs no embeddings.
 
 Neither uses a language model. Each listing opens with a header that says what was done,
-the settings and the options that change them, what was left out and why, and how many
-sections came out.
+the settings and the options that change them, what could not be placed, and how many
+sections came out; test mechanisms left out are counted on the closing Tip line, the last
+line of the output.
 
 **One feature under each.** The feature list puts five mechanisms under "vocabulary":
 `m111`, `m114`, `m115`, `m197` and `m270`. Under `clusters` all five are in one sub-section

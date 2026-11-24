@@ -227,7 +227,12 @@ and many of the words are not models (`multimodal` is 216 of LlamaIndex's 268 ro
   The quoted-prose test alone was not enough: CodeExam's own index got CLIP, ResNet and
   SSD rows from its help text, a test and the detector's own word list. With the
   used-as-code rule it gets one, ResNet, from a test that passes 'resnet50' as a value;
-  the CLI marks that row [test] and --no-tests hides it.
+  the CLI marks that row [test] and --no-tests hides it. (A site is tagged test or example
+  code by the rule in `src/core/test-paths.js`, the one `--exclude-tests` reads in the file
+  listings and the searches (a `test`, `mock`, `bench` or `example` directory), plus a `demo` or `demos` directory, or a
+  name like `test_x.py`, `FooTest.java` or `fake_machine.py`. Before 2026-11-23 the detectors
+  used a pattern of their own. The Tier-B `.fit()` and `.predict()` gates inside the training
+  and inference detectors still use their narrower one, so that a plain listing does not change.)
 - **A family joins the concrete model that carries it** as a second cell, with no second
   row: on Bram, `ggml-small.en.bin (Whisper)  artifact,multimodal`.
 - **Otherwise one row for the family**, shown as `Whisper (family named, no model id)`,

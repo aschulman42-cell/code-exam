@@ -47,7 +47,9 @@ import {
 import { findCallersMany, invertedScanStats } from '../core/calls.js';
 import { contentWords, stem } from '../core/claim-terms.js';
 import { isTestAttributedIn } from '../core/test-attribute.js';
-import { testPathClass } from '../core/test-paths.js';
+import { testSymbolClass, isTestSymbol, testsTip, printTip } from '../core/test-paths.js';
+// The symbol rule lives in test-paths.js (test-options-remaining-commands part E1); re-exported so every import keeps working.
+export { testSymbolClass, isTestSymbol };
 // The scavenger hunt reuses the local tool-loop's hard-won guards rather than
 // reinventing them: budget-with-synthesize-now-stop, special-token
 // neutralization, Gemma's strict framing, and the zero-tool-call fabrication
@@ -1076,42 +1078,8 @@ export async function retrievePerElement({ draft, elements, symbols, opts = {} }
 // Grep the symbol table for model-supplied words. Ranked by how many DISTINCT
 // element words a symbol's name contains, then by the rarity of those words
 // (a word matching half the index says nothing), then by brevity.
-// Test/mock/fake code, by symbol name OR by living under a test source root.
-// Matches "Test" at a segment END too (`DrmPlaybackTest::clearkeyPlayback_…`),
-// which an earlier segment-START-only pattern missed.
-// claim-locate-test-filter-by-filename (2026-10-22). The gate was keyed on a
-// `test/` directory or a Test|Mock|Fake|Stub token at the END of a name
-// segment, so a project that keeps its tests, benches, mocks and examples
-// beside the sources (secp256k1: src/tests.c, src/testutil.h, src/bench.c,
-// examples/examples_util.h) had them chosen as implementers (Foundry 1-11
-// blind, 2026-10-21: four of sixteen), and a marker at the START of a segment
-// passed (`FakeGroup::size`, `TestToken.sol`, 2026-10-22). Every pattern is
-// anchored at a token boundary so look-alikes stay in: attest, latest,
-// contest, testimony, benchley, mockingbird, exampleless, Testament, Fakespot.
-// `testSymbolClass` returns the class that holds a symbol back — test, bench,
-// mock or example — or null; `isTestSymbol` is the boolean every gate uses.
-// The directory and file-name patterns are in src/core/test-paths.js (testPathClass),
-// where --exclude-tests and --no-tests read the same rule for a listing's files.
-// On each `::`-separated segment of the symbol name: a marker at the end
-// (RateChooserTest), at the start followed by a capital (FakeGroup), or as a
-// snake_case word (test_sign, run_test, bench_sign_run).
-const TEST_NAME_RE = {
-  test: /(?:^|::)(?:[A-Za-z0-9_]*Tests?|Tests?[A-Z][A-Za-z0-9_]*|tests?_[A-Za-z0-9_]*|[A-Za-z0-9_]*_tests?)(?:$|::)/,
-  bench: /(?:^|::)(?:bench_[A-Za-z0-9_]*|[A-Za-z0-9_]*_bench)(?:$|::)/,
-  mock: /(?:^|::)(?:[A-Za-z0-9_]*(?:Mock|Fake|Stub)|(?:Mock|Fake|Stub)[A-Z][A-Za-z0-9_]*|(?:mock|fake|stub)_[A-Za-z0-9_]*|[A-Za-z0-9_]*_(?:mock|fake|stub))(?:$|::)/,
-};
-export function testSymbolClass(s) {
-  // Marked where the symbol was made (the symbol table, the function corpus, a
-  // mechanisms member): a test attribute stands above it in a source file, the
-  // one kind of test neither a name nor a path gives away (test-attribute.js).
-  if (s && s.test === true) return 'test';
-  const name = s.name || '';
-  for (const c of ['test', 'mock', 'bench']) if (TEST_NAME_RE[c].test(name)) return c;
-  return testPathClass(s.filepath);
-}
-export function isTestSymbol(s) {
-  return testSymbolClass(s) !== null;
-}
+// (The rule for a test, mock, bench or example symbol, TEST_NAME_RE, testSymbolClass and
+// isTestSymbol, is in src/core/test-paths.js and re-exported at the top of this file.)
 
 // claim-locate-stem-bridge (2026-10-22). A predicted word is matched as a raw
 // substring of the lowercased name, so a word in one inflection cannot reach a
@@ -2108,7 +2076,15 @@ export function buildTargetsProvenance({
   return lines;
 }
 
+// The test, mock, bench and example candidates --claim-locate held back, by element (the most over its runs):
+// the closing line (test-options-remaining-commands part E4) sums them. A symbol held back for two elements counts twice.
+let _locateHeld = new Map();
 export async function doClaimLocate(index, args, opts = {}) {
+  _locateHeld = new Map();
+  try { return await _doClaimLocate(index, args, opts); }
+  finally { printTip(testsTip([..._locateHeld.values()].reduce((a, b) => a + b, 0), 'symbols')); }
+}
+async function _doClaimLocate(index, args, opts = {}) {
   const spec = args.claim_locate;
   let claimText = spec;
   if (typeof spec === 'string' && spec.startsWith('@')) {
@@ -2313,10 +2289,8 @@ export async function doClaimLocate(index, args, opts = {}) {
           onElement: ({ element, words, hits, nameTotal, capBound, more }) => {
             const viaStem = hits.filter((h) => h.bridged && h.bridged.length).length;
             const held = hits.heldTests;
-            const heldNote = held && held.total
-              ? ` (${held.total} held back: ${['test', 'mock', 'bench', 'example']
-                .filter((c) => held[c]).map((c) => `${held[c]} ${c}`).join(', ')})`
-              : '';
+            if (held && held.total) _locateHeld.set(element, Math.max(_locateHeld.get(element) || 0, held.total));
+            const heldNote = '';   // reported once, as the closing line
             const capNote = capBound
               ? ` (cap: ${nameTotal} matched, ${(more || []).length} more offered by name)` : '';
             console.log(`  element ${element}: words [${words.join(', ')}] -> ${hits.length} candidate(s)`

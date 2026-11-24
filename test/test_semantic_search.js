@@ -400,7 +400,8 @@ describe('--semantic-search and --build-embeddings: the command line', () => {
     assert.equal(r.status, 0, r.stderr.slice(-400));
     assert.match(r.stdout, /^Semantic search of \.CE for: refuse to send code to a cloud model/);
     assert.match(r.stdout, /using the gemma embeddings already built for this index/);
-    assert.match(r.stdout, /groups? of test code(?: and [\d,]+ test functions? inside the groups ranked)? left out \(--include-tests brings them in\)/);
+    // the closing line (part E4 of test-options-remaining-commands), the last line of the output, not a clause of the header
+    assert.match(r.stdout.trim().split('\n').pop(), /^Tip: [\d,]+ groups?(?: and [\d,]+ functions?)? of test, benchmark, mock and example code left out; --include-tests lists (?:it|them)\.$/);
     assert.match(r.stdout, /\n {2}HITS\n\s+1\. 0\.\d{3} {2}\S+ {3}\S+:\d+-\d+\n/);
     assert.match(r.stdout, /It is not a finding that the code does what the text says\./);
     assert.doesNotMatch(r.stdout, /cosine \d|distance \d/);
@@ -427,13 +428,15 @@ describe('semantic search: tests marked in the index, not only by name and path'
     assert.equal(isTestEntry(allTests), true);
     assert.equal(isTestEntry(mixed), false);
   });
-  it('the header counts whole test groups and the test functions left out of the groups kept', async () => {
-    const { testLeftOutNote } = await import('../src/commands/semantic-search.js');
-    assert.equal(testLeftOutNote(5, 0, false), '; 5 groups of test code left out (--include-tests brings them in)');
-    assert.equal(testLeftOutNote(5, 71, false), '; 5 groups of test code and 71 test functions inside the groups ranked left out (--include-tests brings them in)');
-    assert.equal(testLeftOutNote(0, 1, false), '; 1 test function inside the groups ranked left out (--include-tests brings them in)');
-    assert.equal(testLeftOutNote(0, 0, false), '');
-    assert.equal(testLeftOutNote(5, 71, true), '; test code included');
+  it('the closing line counts whole test groups and the test functions left out of the groups kept; the header says only that tests are included', async () => {
+    const { testLeftOutNote, semanticTestsTip } = await import('../src/commands/semantic-search.js');
+    assert.equal(semanticTestsTip(5, 0, false), 'Tip: 5 groups of test, benchmark, mock and example code left out; --include-tests lists them.');
+    assert.equal(semanticTestsTip(5, 71, false), 'Tip: 5 groups and 71 functions of test, benchmark, mock and example code left out; --include-tests lists them.');
+    assert.equal(semanticTestsTip(0, 1, false), 'Tip: 1 function of test, benchmark, mock and example code left out; --include-tests lists it.');
+    assert.equal(semanticTestsTip(0, 0, false), '');
+    assert.equal(semanticTestsTip(5, 71, true), '', 'with --include-tests nothing is left out');
+    assert.equal(testLeftOutNote(false), '');
+    assert.equal(testLeftOutNote(true), '; test code included');
   });
   it('the function corpus marks a function under a test attribute', () => {
     const lines = ['fn settle_ledger() {', '}', '', '#[test]', 'fn posting_does_not_settle() {', '}'];

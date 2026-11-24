@@ -109,12 +109,24 @@ By default CodeExam **shows** them (marked, not hidden) and lets you drop them:
 - **GUI:** a row whose every site is test/example code is **dimmed**, and its tooltip notes
   `[test/example code]`. There is no inline text badge in the GUI — the dimming is the signal.
 - **CLI:** the same row carries an inline **`[test]`** tag, and CodeExam prints a tip, e.g.
-  *"Tip: 4 of 12 tool sites are in test/example code — add --no-tests to hide them."*
+  *"Tip: 4 of 12 tool sites are in test/example code and are listed; add --no-tests to leave them out."*
 - **Drop them:** `--no-tests` or `--exclude-tests` (the same thing since 2026-11-19) removes
   AI/ML rows whose every site is test/example code, and leaves test files out of the text
-  searches, `--multisect-search` and the listings that read it
-  ([`cli.md`](cli.md), `--exclude-tests`). (In the GUI, **View → Exclude Tests** hides the AI/ML
-  rows only.)
+  searches, `--multisect-search`, `--callers`, `--callees` and the listings that read it
+  ([`cli.md`](cli.md), `--exclude-tests`). A site is test/example code by the one rule the file
+  listings use (since 2026-11-23): a `test`, `tests`, `spec`, `bench`, `mock`, `fakes`, `stubs`,
+  `example` or `samples` directory, or a name like `test_x.py`, `x_test.go`, `FooTest.java`,
+  `bench_x`, `fake_machine.py` or `conftest.py`, plus, for these rows only, a `demo` or `demos`
+  directory. The AI/ML detectors used a pattern of their own before that: it knew `demos/` and
+  `conftest` and not `mocks/`, `bench/` or `FooTest.java`.
+  (In the GUI, **View → Exclude Tests** hides the AI/ML rows only.)
+- **The closing Tip:** whenever a command leaves test code out, whether you asked (`--exclude-tests`)
+  or it does so unasked (`--mechanisms`, `--toc`, `--carve`, `--semantic-search`,
+  `--show-function-text`), its last line says how many things and what lists them, for example
+  *"Tip: 63 mechanisms of test, benchmark, mock and example code left out; --include-tests lists them."*
+  or *"Tip: 19 call sites of test, benchmark, mock and example code left out (--exclude-tests); run
+  without it to list them."* Nothing is printed when nothing was left out. The rule and the two
+  families of command are in [`cli.md`](cli.md), "Test code: when it is listed and when it is left out".
 
 - **`(test)` after a member** in `ce --mechanisms -v`: that function is a test, in a test
   file or under a test attribute in a source file (Rust `#[test]`). The record it is in may

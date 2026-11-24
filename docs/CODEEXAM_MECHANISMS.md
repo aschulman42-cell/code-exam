@@ -162,9 +162,10 @@ first:
 363 mechanisms (372 records, 9 folded as the same functions under another label)
   (showing 100): a cover of 1,754 of 1,754 functions (100%), 149 of 149 files;
   built 2026-11-06 by --build-mechanisms, described by Claude API
-  4 test rows left out (--include-tests lists them). Largest first; --sort-by path groups the
-  rows by source directory. Each row: its number in this list, then the mechanism's id (the
-  name --mechanisms shows).
+  Largest first; --sort-by path groups the rows by source directory. Each row: its number in
+  this list, then the mechanism's id (the name --mechanisms shows).
+  ...
+  Tip: 63 mechanisms of test, benchmark, mock and example code left out; --include-tests lists them.
 ```
 
 **Order.** Both listings print the largest row first, the order of the mechanisms file.
@@ -189,11 +190,14 @@ app; on CodeExam `public/` and `scripts/` ahead of `src/`), and it reads as a di
 listing, not as a list of what the code does. The measurements are on
 [`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md).
 
-**Test rows.** A row whose every function is test code (tagged `test`) is left out of both
-listings unless `--include-tests` is given; the line under the header counts them. On an
-index that keeps its code under a `tests/` directory this hides most of the listing (190 of
-the 209 rows of ethereum/consensus-specs), and the line is how a reader finds out. A row
-that mixes tests with the code they test is listed.
+**Test rows.** A row whose every function is test code (by path, name or a test attribute
+above it, the one rule in [`cli.md`](cli.md), "Test code: when it is listed and when it is
+left out", decided when the listing is made; the `test` tag the build wrote is still shown
+on a row but no longer decides) is left out of both listings unless `--include-tests` is
+given; the closing Tip, the last line of the output, counts them. On an index that keeps its
+code under a `tests/` directory this hides most of the listing (190 of the 209 rows of
+ethereum/consensus-specs), and the Tip is how a reader finds out. A row that mixes tests with
+the code they test is listed.
 
 Both listings cap at 100 rows; `--max-results N` sets the cap and `--all-results` lifts it.
 The filter is a substring or a `/regex/` matched against a row's label, text, files and

@@ -32,6 +32,7 @@
 // ============================================================================
 
 import fs from 'node:fs';
+import { leavesTestsOut, optionTestsTip, indexTestFileCount, printTip } from '../core/test-paths.js';
 import { resolveModel, makeDrafter, claimsCostGate, actualCostLine, resetCloudUsage, printShownPrompts } from '../core/llm-runner.js';
 import { buildClaimAnalyzePrompt } from './analyze.js';
 import {
@@ -329,6 +330,10 @@ export function emptyChartTable(prose) {
 // --- the command ------------------------------------------------------------
 
 export async function doClaimsLoop(index, args, opts = {}) {
+  try { return await _doClaimsLoop(index, args, opts); }
+  finally { printTip(optionTestsTip(args, indexTestFileCount(index), 'files')); }   // part E4: the closing line
+}
+async function _doClaimsLoop(index, args, opts = {}) {
   const chartPath = args.claims_loop;
   const candPath = args.candidates;
   if (!chartPath || !candPath) {
@@ -474,7 +479,8 @@ export async function doClaimsLoop(index, args, opts = {}) {
     const terms = tight ? parseMultisectTerms(tight) : null;
     if (!terms) return [];
     const pos = terms.filter((t) => !t.negated).length;
-    const res = index.multisectSearch(terms, { minTerms: Math.max(2, Math.floor(pos * LOOP_DEFAULTS.minTermsFrac)) });
+    // test-options-remaining-commands: --exclude-tests / --no-tests reach the core; the gate below is a different one (it is about the cited rows)
+    const res = index.multisectSearch(terms, { minTerms: Math.max(2, Math.floor(pos * LOOP_DEFAULTS.minTermsFrac)), excludeTests: leavesTestsOut(args) });
     return (res?.function_matches || []).filter((f) => f.function !== '(global)')
       .map((f) => ({ name: f.function, filepath: f.filepath, k: f.terms_matched }));
   };

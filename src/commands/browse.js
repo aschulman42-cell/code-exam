@@ -19,7 +19,16 @@ import { displayName, eprint, pasteToken, quotePathIfNeeded } from '../utils.js'
 import { CodeSearchIndex } from '../core/CodeSearchIndex.js';
 import { skippedExtensionCensus } from '../core/extension-census.js';
 import { makeFilterMatcher, filteredEmptyNotice } from '../core/filter-match.js';
-import { withoutTests } from '../core/test-paths.js';
+import { withoutTests, optionTestsTip, printTip, functionsWithoutTests as _functionsWithoutTests } from '../core/test-paths.js';
+
+// test-options-remaining-commands (parts C and E). The function listings leave out a function by the
+// one rule for a function (test-paths.js): its file's path, its name (test_x, FooTest, MockClock) or
+// a test attribute above it (`#[test]` in a source file whose path says nothing).
+// Returns { kept, tip }: `tip` is the closing line saying how many were left out ('' if none).
+function functionsWithoutTests(index, functions, args) {
+  const { kept, left } = _functionsWithoutTests(index, functions, args);
+  return { kept, tip: optionTestsTip(args, left, 'functions') };
+}
 
 
 // Keep head + tail of a path, eliding the middle with `ell`, rather than the
@@ -630,10 +639,13 @@ export function doListFiles(index, args) {
   if (args.exclude_path) {
     files = files.filter(f => !args.exclude_path.some(p => f.toLowerCase().includes(p.toLowerCase())));
   }
-  files = withoutTests(files, args).kept;   // --exclude-tests / --no-tests
+  const fileTests = withoutTests(files, args);   // --exclude-tests / --no-tests
+  files = fileTests.kept;
+  const fileTip = optionTestsTip(args, fileTests.left, 'files');   // part E4: the closing line
 
   if (files.length === 0) {
     console.log('No files' + (pattern ? ` matching '${pattern}'` : '') + '.');
+    printTip(fileTip);
     return;
   }
 
@@ -684,6 +696,7 @@ export function doListFiles(index, args) {
     }
     console.log(`\n  Use --verbose for line/function counts per file`);
   }
+  printTip(fileTip);
 }
 
 
@@ -1045,11 +1058,13 @@ export function doListFunctions(index, args) {
     functions = functions.filter(f =>
       !args.exclude_path.some(p => f.filepath.toLowerCase().includes(p.toLowerCase())));
   }
-  functions = withoutTests(functions, args, (f) => f.filepath).kept;   // --exclude-tests / --no-tests
+  const fnTests = functionsWithoutTests(index, functions, args);   // --exclude-tests / --no-tests
+  functions = fnTests.kept;
 
   if (functions.length === 0) {
     // A filter that matched nothing is not absence (asus-CC, #330).
     console.log(args.filter && totalFunctions ? filteredEmptyNotice('functions', totalFunctions, args.filter) : 'No functions found.');
+    printTip(fnTests.tip);
     return;
   }
 
@@ -1107,6 +1122,7 @@ export function doListFunctions(index, args) {
       console.log(`\nTip: ${collisions} name${collisions === 1 ? '' : 's'} appear in more than one file. Add --full-path to print file@function tokens you can paste into --extract.`);
     }
   }
+  printTip(fnTests.tip);
 }
 
 
@@ -1126,11 +1142,13 @@ export function doListFunctionsAlpha(index, args) {
     functions = functions.filter(f =>
       !args.exclude_path.some(p => f.filepath.toLowerCase().includes(p.toLowerCase())));
   }
-  functions = withoutTests(functions, args, (f) => f.filepath).kept;   // --exclude-tests / --no-tests
+  const fnTests = functionsWithoutTests(index, functions, args);   // --exclude-tests / --no-tests
+  functions = fnTests.kept;
 
   if (functions.length === 0) {
     // A filter that matched nothing is not absence (asus-CC, #330).
     console.log(args.filter && totalFunctions ? filteredEmptyNotice('functions', totalFunctions, args.filter) : 'No functions found.');
+    printTip(fnTests.tip);
     return;
   }
 
@@ -1157,6 +1175,7 @@ export function doListFunctionsAlpha(index, args) {
       console.log(`${dn.padEnd(45)} ${String(f.lines).padStart(6)}  ${filepath.padEnd(50)}`);
     }
   }
+  printTip(fnTests.tip);
 }
 
 
@@ -1179,11 +1198,13 @@ export function doListFunctionsSize(index, args) {
     functions = functions.filter(f =>
       !args.exclude_path.some(p => f.filepath.toLowerCase().includes(p.toLowerCase())));
   }
-  functions = withoutTests(functions, args, (f) => f.filepath).kept;   // --exclude-tests / --no-tests
+  const fnTests = functionsWithoutTests(index, functions, args);   // --exclude-tests / --no-tests
+  functions = fnTests.kept;
 
   if (functions.length === 0) {
     // A filter that matched nothing is not absence (asus-CC, #330).
     console.log(args.filter && totalFunctions ? filteredEmptyNotice('functions', totalFunctions, args.filter) : 'No functions found.');
+    printTip(fnTests.tip);
     return;
   }
 
@@ -1210,4 +1231,5 @@ export function doListFunctionsSize(index, args) {
       console.log(`${String(f.lines).padStart(6)}  ${dn.padEnd(45)} ${filepath.padEnd(50)}`);
     }
   }
+  printTip(fnTests.tip);
 }

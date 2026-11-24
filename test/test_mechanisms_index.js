@@ -647,9 +647,11 @@ describe('the mechanisms index', () => {
       const tool = TOOLS.find((t) => t.name === 'list_mechanisms');
       assert.deepEqual(Object.keys(tool.inputSchema.properties), ['filter', 'max', 'include_tests', 'sort_by']);
       const out = handleTool('list_mechanisms', {});
-      assert.match(out, /^  1 test row left out \(include_tests: true lists it\)\. Largest first; sort_by path groups the rows by source directory\.$/m, out);
+      // part E4 of test-options-remaining-commands: the header note gives the order only; what was left out is the closing line
+      assert.match(out, /^  Largest first; sort_by path groups the rows by source directory\.$/m, out);
+      assert.equal(out.split('\n').pop(), 'Tip: 1 mechanism of test, benchmark, mock and example code left out; include_tests: true lists it.', out);
       const byPath = handleTool('list_mechanisms', { sort_by: 'path' });
-      assert.match(byPath, /^  1 test row left out \(include_tests: true lists it\)\. Grouped by source directory, then by file; rows spread over several directories come last\. sort_by size lists the largest first\.$/m, byPath);
+      assert.match(byPath, /^  Grouped by source directory, then by file; rows spread over several directories come last\. sort_by size lists the largest first\.$/m, byPath);
       assert.doesNotMatch(out, /test_parser\.py/);
       assert.match(handleTool('list_mechanisms', { include_tests: true }), /\[file\] test_parser\.py/);
       const first = (s) => s.split('\n').find((l) => /^\[|^m\d+/.test(l.trim()) || /\(\d+ fns?, \d+ files?\)/.test(l));
@@ -680,13 +682,13 @@ describe('the mechanisms index', () => {
       const t = runCLI(IDX2, ['--toc', '--sort-by', 'similarity']);
       assert.equal(t.code, 0, t.out);
       assert.deepEqual(ids(t.out), [...saved, missing], 'the saved order, then the row it does not hold');
-      assert.match(t.out, /^  1 test row left out \(--include-tests lists it\)\. By similarity: rows whose text is alike are next to each other, in the order --carve clusters saved \(model some-model\); a suggestion, not a finding\. 1 row is not in that order and comes last\. --sort-by size lists the largest first, --sort-by path by source directory\./m, t.out);
+      assert.match(t.out, /^  By similarity: rows whose text is alike are next to each other, in the order --carve clusters saved \(model some-model\); a suggestion, not a finding\. 1 row is not in that order and comes last\. --sort-by size lists the largest first, --sort-by path by source directory\./m, t.out);
       assert.doesNotMatch(t.out, /^--- /m, 'no directory headings in this order');
       const m = runCLI(IDX2, ['--mechanisms', '--sort-by', 'similarity']);
       assert.equal(m.code, 0);
       assert.match(m.out, /By similarity: rows whose text is alike/);
       const tool = handleTool('list_mechanisms', { sort_by: 'similarity' });
-      assert.match(tool, /^  1 test row left out \(include_tests: true lists it\)\. By similarity: .*sort_by size lists the largest first, sort_by path by source directory\.$/m, tool);
+      assert.match(tool, /^  By similarity: .*sort_by size lists the largest first, sort_by path by source directory\.$/m, tool);
       // an order saved for another build of the mechanisms is used and said to be old
       write({ mechanisms: '2001-01-01T00:00:00.000Z' });
       assert.match(runCLI(IDX2, ['--toc', '--sort-by', 'similarity']).out, /The order was saved for an earlier build of the mechanisms; --carve clusters makes it again\./);
@@ -700,12 +702,13 @@ describe('the mechanisms index', () => {
       // mechanisms-listing-order-and-test-rows. Red before it: [file] test_parser.py was listed and there was one order.
       // Directory order was the default for a few hours on 2026-11-20 and is now --sort-by path.
       const dflt = runCLI(IDX2, ['--toc']);
-      assert.match(dflt.out, /^  1 test row left out \(--include-tests lists it\)\. Largest first; --sort-by path groups the rows by source directory\. Each row: its number in this list, then the mechanism's id \(the name --mechanisms shows\)\.$/m, dflt.out);
+      assert.match(dflt.out, /^  Largest first; --sort-by path groups the rows by source directory\. Each row: its number in this list, then the mechanism's id \(the name --mechanisms shows\)\.$/m, dflt.out);
       assert.match(dflt.out, /^ ?1\. m\d+\s+\[file\] jobs\.js \/ queue  \(7 fns, 1 file\)/m, 'the largest row leads by default');
       assert.doesNotMatch(dflt.out, /^--- /m, 'no headings largest first');
       assert.doesNotMatch(dflt.out, /test_parser\.py/, 'the test row is not listed');
+      assert.equal(dflt.stdout.trim().split('\n').pop(), 'Tip: 1 mechanism of test, benchmark, mock and example code left out; --include-tests lists it.', 'the closing line is the last line');
       const t = runCLI(IDX2, ['--toc', '--sort-by', 'path']);
-      assert.match(t.out, /^  1 test row left out \(--include-tests lists it\)\. Grouped by source directory, then by file; rows spread over several directories come last. --sort-by size lists the largest first\. Each row: its number in this list, then the mechanism's id \(the name --mechanisms shows\)\.$/m, t.out);
+      assert.match(t.out, /^  Grouped by source directory, then by file; rows spread over several directories come last. --sort-by size lists the largest first\. Each row: its number in this list, then the mechanism's id \(the name --mechanisms shows\)\.$/m, t.out);
       assert.doesNotMatch(t.out, /test_parser\.py/, 'the test row is not listed');
       assert.match(t.out, /^--- \S+.*  \(\d+ rows?\) ---$/m, 'a heading where the directory changes');
       assert.doesNotMatch(t.out, /^ ?1\. m\d+\s+\[file\] jobs\.js \/ queue/m, 'the largest row no longer leads');
@@ -715,18 +718,20 @@ describe('the mechanisms index', () => {
       assert.ok(at('[file] jobs.js / queue') >= 0 && at('[file] jobs.js / run') === at('[file] jobs.js / queue') + 1 && at('[file] jobs.js / retire') === at('[file] jobs.js / run') + 1, `a file's pieces are neighbours, by line: ${inOrder.join(' | ')}`);
       assert.ok(Math.abs(at('[class] Tokenizer') - at('[file] parser.py')) === 1, 'a class sits beside its file');
       const m = runCLI(IDX2, ['--mechanisms', '--sort-by', 'path']);
-      assert.match(m.out, /^  1 test row left out \(--include-tests lists it\)\. Grouped by source directory/m, m.out);
+      assert.match(m.out, /^  Grouped by source directory/m, m.out);
+      assert.equal(m.stdout.trim().split('\n').pop(), 'Tip: 1 mechanism of test, benchmark, mock and example code left out; --include-tests lists it.');
       assert.match(m.out, /^--- \S+.*  \(\d+ rows?\) ---$/m, m.out);
       assert.match(handleTool('list_mechanisms', { sort_by: 'path' }), /^  --- \S+.*  \(\d+ rows?\) ---$/m, 'the tool prints the same headings');
       assert.doesNotMatch(handleTool('list_mechanisms', {}), /^  --- /m);
       const withTests = runCLI(IDX2, ['--toc', '--include-tests', '--sort-by', 'path']);
       assert.match(withTests.out, /^\s*\d+\. m\d+\s+\[file\] test_parser\.py  \(2 fns, 1 file\)/m, withTests.out);
       assert.match(withTests.out, /^  Grouped by source directory, then by file; rows spread over several directories come last. /m, 'nothing left out, so the line gives the order only');
+      assert.doesNotMatch(withTests.out, /Tip:/, 'with --include-tests nothing is left out, so no closing Tip');
       assert.equal(rows(withTests.out).length, inOrder.length + 1);
       const bySize = runCLI(IDX2, ['--toc', '--sort-by', 'size']);
       assert.match(bySize.out, /^ ?1\. m\d+\s+\[file\] jobs\.js \/ queue  \(7 fns, 1 file\)/m, bySize.out);
       assert.doesNotMatch(bySize.out, /^--- /m, 'no headings largest first');
-      assert.match(bySize.out, /^  1 test row left out \(--include-tests lists it\)\. Largest first; --sort-by path groups the rows by source directory\. Each row: its number in this list, then the mechanism's id \(the name --mechanisms shows\)\.$/m);
+      assert.match(bySize.out, /^  Largest first; --sort-by path groups the rows by source directory\. Each row: its number in this list, then the mechanism's id \(the name --mechanisms shows\)\.$/m);
       const bad = runCLI(IDX2, ['--toc', '--sort-by', 'nearest']);
       assert.match(bad.out, /--sort-by: 'nearest' is not an order; use path, size or similarity\./);
       assert.equal(bad.code, 1);
@@ -802,13 +807,18 @@ describe('the mechanisms index', () => {
       // With --mechanisms in the same command the outcome is the listing's last
       // line, where a reader of a long list looks, and the how-to line yields.
       const both = runCLI(IDX2, ['--mechanisms', '--describe']);
-      assert.match(both.stdout.trim().split('\n').pop(), /^No descriptions written: --describe needs a model/, both.stdout);
+      // the outcome stays under the listing; the closing Tip (test-options-remaining-commands part E4) is the last line, so the outcome is the one before it
+      const bothLines = both.stdout.trim().split('\n').filter((l) => l.trim() !== '');
+      assert.match(bothLines.pop(), /^Tip: \d+ mechanisms? of test, benchmark, mock and example code left out; --include-tests lists/, both.stdout);
+      assert.match(bothLines.pop(), /^No descriptions written: --describe needs a model/, both.stdout);
       assert.match(both.stdout, /^m1\s/m, 'the listing still prints');
       assert.doesNotMatch(both.stdout, /^No model descriptions yet/m, 'the how-to line yields to the outcome');
       // --all-results lifts the cap, as on every listing; the footer names it.
       const all = runCLI(IDX2, ['--mechanisms', '--all-results']);
       assert.doesNotMatch(all.stdout, /of \d+ shown;/, '--all-results lifts the cap');
-      assert.match(all.stdout.trim().split('\n').pop(), /^No model descriptions yet: /, 'an undescribed file ends with the how-to line');
+      const allLines = all.stdout.trim().split('\n').filter((l) => l.trim() !== '');
+      assert.match(allLines.pop(), /^Tip: \d+ mechanisms? of test/, 'the closing Tip is the last line');
+      assert.match(allLines.pop(), /^No model descriptions yet: /, 'an undescribed file ends with the how-to line, above the Tip');
       const one = runCLI(IDX2, ['--mechanisms', '--max-results', '1']);
       assert.match(one.stdout, /^1 of \d+ shown; --all-results or --max-results 0 shows all/m, one.stdout);
     });
@@ -1070,11 +1080,12 @@ describe('a listing orders the entries by place in the source and leaves test ro
     assert.equal(k.kept, all);
   });
 
-  it('the note under the header says what was left out, the order, and the option that changes each', () => {
-    assert.equal(listingNote({ testsLeft: 2432, order: 'path' }), '2,432 test rows left out (--include-tests lists them). Grouped by source directory, then by file; rows spread over several directories come last. --sort-by size lists the largest first.');
-    assert.equal(listingNote({ testsLeft: 1, order: 'size' }), '1 test row left out (--include-tests lists it). Largest first; --sort-by path groups the rows by source directory.');
+  it('the note under the header says the order and the option that changes it; what was left out is the closing line (part E4)', () => {
+    assert.equal(listingNote({ order: 'path' }), 'Grouped by source directory, then by file; rows spread over several directories come last. --sort-by size lists the largest first.');
+    assert.equal(listingNote({ order: 'size' }), 'Largest first; --sort-by path groups the rows by source directory.');
     assert.equal(listingNote({}), 'Largest first; --sort-by path groups the rows by source directory.');
-    assert.match(listingNote({ testsLeft: 3, includeOption: 'include_tests: true', orderOption: 'sort_by' }), /^3 test rows left out \(include_tests: true lists them\)\. Largest first; sort_by path groups/);
+    assert.equal(listingNote({ testsLeft: 3 }), 'Largest first; --sort-by path groups the rows by source directory.', 'a count passed by an old caller is ignored');
+    assert.match(listingNote({ orderOption: 'sort_by' }), /^Largest first; sort_by path groups/);
     assert.equal(onlyTestsNotice('alpha_test', 1), "No mechanisms match 'alpha_test' outside test code; 1 test row does: --include-tests lists it.");
   });
 });

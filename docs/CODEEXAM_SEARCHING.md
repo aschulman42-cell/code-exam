@@ -55,7 +55,7 @@ a term matched in **code** weighs more than one matched only in **comments or do
 Sites in **test / benchmark / mock / example** code are searched like any other and are not
 down-weighted; when the index holds such files the header says how many and that
 `--exclude-tests` leaves them out (`--no-tests` means the same). With either option those files
-are not searched and the header says how many were left out. `--in <path>` keeps the search to a
+are not searched and the last line of the output, a Tip, says how many were left out. `--in <path>` keeps the search to a
 path and `--exclude-path <path>` leaves one out (finer comment/doc match controls are proposed
 in #138).
 The result is the tightest scope first, widening only as needed.

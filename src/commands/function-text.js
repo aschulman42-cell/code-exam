@@ -25,14 +25,14 @@ import { cut } from '../core/embed.js';
 import { buildCorpus, functionText, functionTextParts, memberId, memberResolver, FUSE_ARM } from '../core/function-text.js';
 import { loadMechanismsIndex, foldRecords } from '../core/mechanisms-index.js';
 import { makeFilterMatcher, filteredEmptyNotice } from '../core/filter-match.js';
-import { isTestPath } from '../core/test-paths.js';
+import { isTestSymbol, testsTip, printTip } from '../core/test-paths.js';
 import { mechanismQueryId, entryIndexById } from './embed-distance.js';
 
 const nf = (n) => Number(n).toLocaleString('en-US');
 const idNumber = (id) => Number(String(id).replace(/^m/, '')) || 0;
 
 /** A function the listing leaves out by default: one in a test file, or a test inside a source file (buildCorpus's mark). */
-export const isTestFunction = (f) => !!(f && (f.test || isTestPath(f.file)));
+export const isTestFunction = (f) => !!(f && isTestSymbol({ name: f.name, filepath: f.file, test: f.test === true }));   // the one rule for a function (test-paths.js): path, name or attribute
 
 /**
  * Which mechanism entries hold which functions, two ways. `byId`: function id (`file@name`)
@@ -105,7 +105,7 @@ export function formatFunctionTexts(sel, { indexPath = '', filter = null, textFi
   L.push(`${count} in ${indexPath}: what --semantic-search and --embed-distance --function-text embed for each function.`);
   L.push(`  Built from the index with no model (the "${FUSE_ARM}" form): the name as words, a colon, the body's ranked identifiers, the function's comments, then "Text:" and the words of its string literals.`);
   const s = lengthStats(rows);
-  L.push(`  Characters: shortest ${nf(s.shortest)}, median ${nf(s.median)}, longest ${nf(s.longest)}; under ${s.short}: ${nf(s.under)}.${testsLeft ? ` ${nf(testsLeft)} test function${testsLeft === 1 ? '' : 's'} left out (--include-tests lists ${testsLeft === 1 ? 'it' : 'them'}).` : ''}`);
+  L.push(`  Characters: shortest ${nf(s.shortest)}, median ${nf(s.median)}, longest ${nf(s.longest)}; under ${s.short}: ${nf(s.under)}.`);
   // The two commands embed a text only for a function some mechanism holds; the rest are
   // listed all the same (the text is what would be embedded) and marked, so the header's
   // "what they embed" is not read as covering them.
@@ -180,4 +180,5 @@ export function doShowFunctionText(index, args, { exe = 'ce' } = {}) {
   const max = effectiveMaxResults(args, 50);
   if (args.verbose) for (const r of sel.rows.slice(0, Number.isFinite(max) ? max : sel.rows.length)) r.parts = functionTextParts(r.f, corpus);
   console.log(formatFunctionTexts(sel, { indexPath: args.index_path, filter, textFilter, of, mechs: entries ? mechanismsOfFunctions(entries, idOf) : null, max, verbose: !!args.verbose, exe }).join('\n'));
+  printTip(testsTip(sel.testsLeft, 'function texts'));   // part E4: the closing line
 }

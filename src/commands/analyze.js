@@ -48,6 +48,7 @@ import { makeDrafter, ggufDescriptor, resolveModel, claimsCostGate } from '../co
 import { buildSymbolTable } from '../core/symbol-verify.js';
 import { analyzeClaimSet } from '../core/dep-claims.js';
 import { splitClaimElements, retrievePerElement } from './claim-locate.js';
+import { leavesTestsOut, optionTestsTip, indexTestFileCount, printTip } from '../core/test-paths.js';
 
 
 // ============================================================================
@@ -2076,7 +2077,13 @@ export function perElementModel(args, termModelPath) {
   return (m && m.kind !== 'error') ? m : null;
 }
 
+// The closing line of --claim-analyze and --multisect-analyze when --exclude-tests / --no-tests left test files out
+// (test-options-remaining-commands part E4): last on stdout, whichever way the command ends.
 export async function doClaimAnalyze(index, args) {
+  try { return await _doClaimAnalyze(index, args); }
+  finally { printTip(optionTestsTip(args, indexTestFileCount(index), 'files')); }
+}
+async function _doClaimAnalyze(index, args) {
   // --- Step 1: Resolve claim text ---
   const claimTextRaw = _resolveClaimText(args, args.claim_analyze);
   if (!claimTextRaw) return;
@@ -2315,10 +2322,14 @@ export async function doClaimAnalyze(index, args) {
 
   console.log(`[Step 2/4] Multisect search (min_terms=${minTerms}/${positiveTerms.length})...`);
 
+  // test-options-remaining-commands: --exclude-tests / --no-tests reach the multisect core at every call here
+  // (the per-element arm below has its own gate, which --include-tests lifts).
+  const excludeTests = leavesTestsOut(args);
   let results = index.multisectSearch(terms, {
     minTerms,
     includePath: args.include_path || null,
     excludePath: args.exclude_path || null,
+    excludeTests,
   });
 
   // BROAD: MERGED, not a fallback.
@@ -2344,6 +2355,7 @@ export async function doClaimAnalyze(index, args) {
         minTerms: broadMin,
         includePath: args.include_path || null,
         excludePath: args.exclude_path || null,
+        excludeTests,
       });
       if (!tightFuncCount) {
         // Nothing from TIGHT — BROAD becomes the result outright, as before.
@@ -2415,7 +2427,7 @@ export async function doClaimAnalyze(index, args) {
     let hoodResults = null;
     try {
       hoodResults = index.multisectSearch(terms, {
-        minTerms: hoodMin, includePath: hood, excludePath: args.exclude_path || null,
+        minTerms: hoodMin, includePath: hood, excludePath: args.exclude_path || null, excludeTests,
       });
     } catch (e) { console.log(`  [#307 ladder] neighbourhood search failed: ${e.message}`); }
     const hoodFuncs = ((hoodResults && hoodResults.function_matches) || [])
@@ -2779,6 +2791,10 @@ async function _doClaimFileAnalyze(index, args, filepath, claimText, maskAll, sh
  * Handle --multisect-analyze TERMS: search for functions, then analyze best hits.
  */
 export async function doMultisectAnalyze(index, args) {
+  try { return await _doMultisectAnalyze(index, args); }
+  finally { printTip(optionTestsTip(args, indexTestFileCount(index), 'files')); }
+}
+async function _doMultisectAnalyze(index, args) {
   const termsStr = args.multisect_analyze;
   if (!termsStr) return;
 
@@ -2819,11 +2835,13 @@ export async function doMultisectAnalyze(index, args) {
   if (minTerms === positiveTerms.length && positiveTerms.length > 10) {
     console.log(`  (Tip: ${positiveTerms.length} required terms is very restrictive. Try min=${Math.floor(positiveTerms.length * 0.6)} for partial matching.)`);
   }
+  const excludeTests = leavesTestsOut(args);   // test-options-remaining-commands
   try {
     results = index.multisectSearch(terms, {
       minTerms,
       includePath: args.include_path || null,
       excludePath: args.exclude_path || null,
+      excludeTests,
     });
   } catch (e) {
     console.log(`Multisect search failed: ${e.message}`);

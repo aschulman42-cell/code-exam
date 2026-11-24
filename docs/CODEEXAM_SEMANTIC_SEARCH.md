@@ -94,7 +94,7 @@ ce --ndx .CE --semantic-search "refuse to send code to a cloud model"
 
 Semantic search of .CE for: refuse to send code to a cloud model
 using the gemma embeddings already built for this index; --embed-model <name> chooses another
-363 groups of functions ranked, each by its name and its best function's text; 63 groups of test code left out (--include-tests brings them in)
+363 groups of functions ranked, each by its name and its best function's text
 A hit is the closest code found for the text, a place to read. It is not a finding that the code does what the text says.
 
 refuse to send code to a cloud model
@@ -156,7 +156,7 @@ the top row of any one.
 
 **Options you may want.** `--max-results N` (rows per tier, default 10; `0` for all),
 `--verbose` (full paths, every group, the score's two parts), `--include-tests` (test, mock,
-benchmark and example code is left out by default, with a count; a test is told by its
+benchmark and example code is left out by default, and the last line of the output, a Tip, says how many groups and functions; a test is told by its
 directory, file or name, or by a test attribute above it, as Rust's `#[test]`),
 `--embed-model <name>`.
 An option that does nothing here, such as `--function-text`, is named in the header and not

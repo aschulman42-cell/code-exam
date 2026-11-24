@@ -13,7 +13,7 @@
 import path from 'path';
 import { SearchResult, displayName, quotePathIfNeeded } from '../utils.js';
 import { effectiveMaxResults } from '../argparse.js';
-import { isTestPath, leavesTestsOut } from '../core/test-paths.js';
+import { isTestPath, leavesTestsOut, optionTestsTip, printTip } from '../core/test-paths.js';
 
 
 // ========================================================================
@@ -238,10 +238,11 @@ export function filterResultsByPath(results, args) {
   const noTests = leavesTestsOut(args);
   if (!args.include_path && !args.exclude_path && !args.vocab_in && !noTests) return results;
 
-  return results.filter(r => {
+  let testsLeft = 0;   // the hits only the test rule dropped (part E4's closing line); on the array as `testsLeft`
+  const kept = results.filter(r => {
     const pathLower = r.filePath.toLowerCase();
-    // --exclude-tests / --no-tests: test, benchmark, mock and example files (test-paths.js)
-    if (noTests && isTestPath(r.filePath)) return false;
+    // --exclude-tests / --no-tests: test, benchmark, mock and example files (test-paths.js); decided last so the count is of hits that would have been shown
+    const testDrop = noTests && isTestPath(r.filePath);
 
     // --in filter (universal path filter)
     if (args.vocab_in) {
@@ -260,8 +261,11 @@ export function filterResultsByPath(results, args) {
         return false;
       }
     }
+    if (testDrop) { testsLeft++; return false; }
     return true;
   });
+  kept.testsLeft = testsLeft;
+  return kept;
 }
 
 
@@ -297,7 +301,9 @@ export function doSearch(index, args) {
       contextLines: args.context,
     });
   }
+  const pool = results.length;
   results = filterResultsByPath(results, args);
+  const tip = optionTestsTip(args, results.testsLeft || 0, 'matches', { atLeast: pool >= args.max_results * 5 });   // part E4
   const totalFound = results.length;
   results = results.slice(0, args.max_results);
   printResults(results, {
@@ -310,6 +316,7 @@ export function doSearch(index, args) {
     find: expansion.expanded ? queryFinder(expansion.query, { regex: true, caseSensitive: true }) : queryFinder(args.search),
     fullLines: !!args.full_lines,
   });
+  printTip(tip);
 }
 
 export function doLiteral(index, args) {
@@ -330,7 +337,9 @@ export function doLiteral(index, args) {
     maxResults: args.max_results * 5,
     contextLines: args.context,
   });
+  const pool = results.length;
   results = filterResultsByPath(results, args);
+  const tip = optionTestsTip(args, results.testsLeft || 0, 'matches', { atLeast: pool >= args.max_results * 5 });   // part E4
   const totalFound = results.length;
   results = results.slice(0, args.max_results);
   printResults(results, {
@@ -343,6 +352,7 @@ export function doLiteral(index, args) {
     find: queryFinder(expansion.query, { regex: !!expansion.expanded, caseSensitive: !!expansion.expanded }),
     fullLines: !!args.full_lines,
   });
+  printTip(tip);
 }
 
 export function doFast(index, args) {
@@ -370,7 +380,9 @@ export function doFast(index, args) {
       maxResults: args.max_results * 5,
     });
   }
+  const pool = results.length;
   results = filterResultsByPath(results, args);
+  const tip = optionTestsTip(args, results.testsLeft || 0, 'matches', { atLeast: pool >= args.max_results * 5 });   // part E4
   const totalFound = results.length;
   results = results.slice(0, args.max_results);
   printResults(results, {
@@ -383,6 +395,7 @@ export function doFast(index, args) {
     find: queryFinder(args.fast),
     fullLines: !!args.full_lines,
   });
+  printTip(tip);
 }
 
 export function doRegex(index, args) {
@@ -404,7 +417,9 @@ export function doRegex(index, args) {
     maxResults: Number.isFinite(effectiveMax) ? Math.max(effectiveMax * 5, 1000) : 1000000,
     contextLines: args.context,
   });
+  const pool = results.length;
   results = filterResultsByPath(results, args);
+  const tip = optionTestsTip(args, results.testsLeft || 0, 'matches', { atLeast: pool >= (Number.isFinite(effectiveMax) ? Math.max(effectiveMax * 5, 1000) : 1000000) });   // part E4
   const totalFound = results.length;
   results = results.slice(0, effectiveMax);
   printResults(results, {
@@ -416,6 +431,7 @@ export function doRegex(index, args) {
     find: queryFinder(pattern, { regex: true, caseSensitive }),
     fullLines: !!args.full_lines,
   });
+  printTip(tip);
 }
 
 export function doFilesSearch(index, args) {
@@ -428,10 +444,13 @@ export function doFilesSearch(index, args) {
     maxResults: 50000,
     contextLines: 0,
   });
+  const pool = results.length;
   results = filterResultsByPath(results, args);
+  const tip = optionTestsTip(args, results.testsLeft || 0, 'matches', { atLeast: pool >= 50000 });   // part E4
 
   if (results.length === 0) {
     console.log(`No hits for '${args.files_search}'`);
+    printTip(tip);
     return;
   }
 
@@ -460,6 +479,7 @@ export function doFilesSearch(index, args) {
   if (sorted.length > n) {
     console.log(`\n  ... ${sorted.length - n} more files (use --max-results or --all-results to see more)`);
   }
+  printTip(tip);
 }
 
 export function doFoldersSearch(index, args) {
@@ -472,10 +492,13 @@ export function doFoldersSearch(index, args) {
     maxResults: 50000,
     contextLines: 0,
   });
+  const pool = results.length;
   results = filterResultsByPath(results, args);
+  const tip = optionTestsTip(args, results.testsLeft || 0, 'matches', { atLeast: pool >= 50000 });   // part E4
 
   if (results.length === 0) {
     console.log(`No hits for '${args.folders_search}'`);
+    printTip(tip);
     return;
   }
 
@@ -508,4 +531,5 @@ export function doFoldersSearch(index, args) {
   if (sorted.length > n) {
     console.log(`\n  ... ${sorted.length - n} more folders (use --max-results or --all-results to see more)`);
   }
+  printTip(tip);
 }

@@ -22,6 +22,7 @@
  */
 
 import { makeFilterMatcher } from './filter-match.js';
+import { isTestPath } from './test-paths.js';
 
 // ---------------------------------------------------------------------------
 // AI/ML model-base classification (#84) — SINGLE source for listModels() and
@@ -1138,6 +1139,9 @@ class _AIMLMethods {
     // thousands of times. Exclude test files from the heuristic Tier B so the
     // library-vs-consumer noise doesn't drown real signal. (Tier A mechanical
     // markers are trustworthy enough to keep regardless.)
+    // A precision gate for the heuristic Tier-B hits, not the display tag (that is reTestExamplePath below,
+    // which reads isTestPath). Left as it was in test-options-remaining-commands: reading the shared rule here
+    // dropped one heuristic .fit site from a plain --training on .sr_gh, a change with no option given.
     const reTestPath = /(?:^|[\\/])(?:tests?|conftest)(?:[\\/]|\.)|(?:^|[\\/])test_[^\\/]*$|_test\.[A-Za-z0-9]+$/i;
     const out = [];
     for (const [filepath, lines] of this._scanLines()) {
@@ -1245,6 +1249,9 @@ class _AIMLMethods {
     const reEval     = /\b(\w+)\.eval\s*\(\s*\)/;
     const reParam    = /\b(temperature|top_p|top_k)\b/;
     const reGenAny   = /\bmax_new_tokens\b|\bdo_sample\b|\bnum_beams\b|\bGenerationConfig\b|\bSamplingParams\b|\.generate\s*\(/;
+    // A precision gate for the heuristic Tier-B hits, not the display tag (that is reTestExamplePath below,
+    // which reads isTestPath). Left as it was in test-options-remaining-commands: reading the shared rule here
+    // dropped one heuristic .fit site from a plain --training on .sr_gh, a change with no option given.
     const reTestPath = /(?:^|[\\/])(?:tests?|conftest)(?:[\\/]|\.)|(?:^|[\\/])test_[^\\/]*$|_test\.[A-Za-z0-9]+$/i;
     const reComment  = (t) => t.startsWith('//') || t.startsWith('#') || t.startsWith('*') || t.startsWith('/*');
 
@@ -2767,7 +2774,16 @@ class _AIMLMethods {
 // heuristic Tier-B hits, not a display tag) and the example/demo axis:
 // tests, __tests__, spec, examples, benchmarks, demos, samples dirs;
 // conftest / test_* / *_test.* / *.test.* / *.spec.* files.
-export const reTestExamplePath = /(?:^|[\\/])(?:tests?|__tests__|spec|examples?|benchmarks?|demos?|samples?|conftest)(?:[\\/]|\.|$)|(?:^|[\\/])test_[^\\/]*$|_test\.[A-Za-z0-9]+$|\.(?:test|spec)\.[A-Za-z0-9]+$/i;
+//
+// test-options-remaining-commands (2026-11-23): the tag now comes from the one rule in
+// test-paths.js (isTestPath), so --exclude-tests / --no-tests drop the same records the
+// file listings and the searches drop. The old pattern knew demos/ and conftest (now in the
+// shared rule) and not mocks/, bench/ or FooTest.java. The name stays, with the one method
+// its importers (server.js, exports.js, imports-from.js) call. `demo/` and `demos/` stay
+// tagged here, as before, but are not in the shared rule: the claim tools' own demo corpus
+// is a directory named demo/, and the rule is also their test gate.
+const reDemoDir = /(?:^|[\\/!])demos?(?:[\\/]|$)/i;
+export const reTestExamplePath = { test: (p) => isTestPath(p) || reDemoDir.test(String(p || '')) };
 
 // Stamp `isTest` on every record a listX returns. Three row grains:
 // marker cells carry `filepath`; Pipelines rows carry `location` (file or

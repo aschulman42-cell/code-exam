@@ -283,7 +283,7 @@ describe('--carve: the whole output', () => {
     assert.match(L[0], /^\.idx: 13 mechanisms carved by CALLS \(experimental: the groups are a suggestion and not a finding; they move when the index or the seed changes\)$/);
     assert.match(L[1], /^How: mechanisms that call each other go together\..*No embedding is read and no model is used\.$/);
     assert.match(L[2], /^Settings: resolution 1 .*seed 5 /);
-    assert.match(L[3], /^Left out: 2 mechanisms that are wholly test code \(--include-tests keeps them\)\. 1 of the 13 make or receive no call/);
+    assert.match(L[3], /^1 of the 13 make or receive no call/);   // what was left out is the closing line (test-paths.js testsTip), printed by doCarve after the listing
     assert.match(L[4], /^Result: 3 sections of 2 or more, the largest 4; 1 mechanisms standing alone\./);
     assert.match(L[5], /^Descriptions: shown under 3 of the 13 mechanisms; a language model wrote them/);
     assert.match(L[6], /^Purpose: shown under 12 of the 13 mechanisms, on lines starting "purpose:"\..*no model.*cut at 240 characters\.$/);

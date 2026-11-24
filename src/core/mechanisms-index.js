@@ -382,8 +382,12 @@ export function orderEntries(entries, order = DEFAULT_LISTING_ORDER, { similarId
   return keyed.map((k) => k.r);
 }
 
-/** True for an entry every member of which is test code (the grouper's `test` tag). An entry that mixes tests with the code they test is not one. */
-export const isTestEntry = (r) => !!(r && (r.tags || []).includes('test'));
+// An entry is test code when it has members and every member is, by the one rule (test-paths.js),
+// decided when the listing is made. It used to read the `test` tag --build-mechanisms wrote by a
+// pattern of its own, which found 2,432 test mechanisms on ExoPlayer 3 where the rule finds 3,333.
+// The tag stays in the file and on the row; it no longer decides what a listing leaves out.
+export { isTestEntry } from './test-paths.js';
+import { isTestEntry } from './test-paths.js';
 
 /** The entries a listing shows by default: those that are not test entries. Returns { kept, left }; with `includeTests`, everything and 0. */
 export function withoutTestEntries(entries, includeTests = false) {
@@ -394,13 +398,13 @@ export function withoutTestEntries(entries, includeTests = false) {
 }
 
 /**
- * The line a listing prints under its header: how many test entries were left
- * out and how to see them, and the order with the option that changes it.
- * `includeOption` and `orderOption` are the words of the surface (the CLI's
- * flags by default; the MCP tool passes its argument names).
+ * The line a listing prints under its header: the order and the option that
+ * changes it. `orderOption` is the word of the surface (the CLI's flag by
+ * default; the MCP tool passes its argument name). How many test entries were
+ * left out is not here: it is the closing line (testsTip, test-paths.js).
  */
-export function listingNote({ testsLeft = 0, order = DEFAULT_LISTING_ORDER, includeOption = '--include-tests', orderOption = '--sort-by', similar = null } = {}) {
-  const tests = testsLeft ? `${nf(testsLeft)} test row${testsLeft === 1 ? '' : 's'} left out (${includeOption} lists ${testsLeft === 1 ? 'it' : 'them'}). ` : '';
+export function listingNote({ order = DEFAULT_LISTING_ORDER, orderOption = '--sort-by', similar = null } = {}) {
+  const tests = '';
   if (order === SIMILARITY_ORDER) {
     // `similar`: { model, unplaced, stale } from the listing that read the saved order
     const s = similar || {};

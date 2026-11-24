@@ -170,7 +170,7 @@ describe('--show-function-text: the listing', () => {
     const lines = formatFunctionTexts(selectFunctionTexts(corpus), { indexPath: '.x', mechs });
     assert.match(lines[0], /^3 function texts in \.x: what --semantic-search and --embed-distance --function-text embed for each function\.$/);
     assert.match(lines[1], /no model \(the "comments" form\): the name as words/);
-    assert.match(lines[2], /Characters: shortest \d+, median \d+, longest \d+; under 40: \d+\. 1 test function left out \(--include-tests lists it\)\./);
+    assert.match(lines[2], /Characters: shortest \d+, median \d+, longest \d+; under 40: \d+\.$/);   // the count of test functions left out is the closing line, printed by doShowFunctionText
     assert.match(lines[3], /ids of the mechanisms that hold it \(as --mechanisms shows them\)\. For 1 of these the two commands embed no text \(1 in no mechanism\); they are marked\./);
     const text = lines.join('\n');
     assert.match(text, /^src\/gate\.js@assertLocalOnly {2}\(L2-5; in m1 m12\)\n {4}assert local only: /m);

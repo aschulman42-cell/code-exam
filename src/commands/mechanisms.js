@@ -18,6 +18,7 @@ import { harvestPurpose } from './pseudo-claims.js';
 import { describeMechanisms } from '../core/mechanisms-describe.js';
 import { effectiveMaxResults } from '../argparse.js';
 import { filteredEmptyNotice } from '../core/filter-match.js';
+import { testsTip, printTip } from '../core/test-paths.js';
 
 const nf = (x) => Number(x || 0).toLocaleString('en-US');
 const indexNameOf = (args) => String(args.index_path || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '?';
@@ -172,7 +173,7 @@ function listedEntries(index, args, flag, exe) {
     bySimilarity = similarityOrderFor(path.dirname(mechanismsPath(index)), data.generated || '', matched, fs, path);
     if (!bySimilarity) { console.error(`--sort-by similarity: ${noSimilarityOrder(`${exe} --index-path ${args.index_path} --carve clusters --brief`)}`); process.exitCode = 1; return null; }
   }
-  return { data, entries, kept: orderEntries(matched, order, bySimilarity || {}), filter, order, note: listingNote({ testsLeft: testsMatched, order, similar: bySimilarity && bySimilarity.similar }) };
+  return { data, entries, kept: orderEntries(matched, order, bySimilarity || {}), filter, order, testsLeft: testsMatched, note: listingNote({ order, similar: bySimilarity && bySimilarity.similar }) };
 }
 
 /**
@@ -194,6 +195,7 @@ export function doMechanisms(index, args, { exe = 'ce', describe = null } = {}) 
   });
   console.log(lines.join('\n'));
   if (describe && describe.outcome) console.log(`\n${describe.outcome}`);
+  printTip(testsTip(l.testsLeft, 'mechanisms'));   // the closing line (test-options-remaining-commands part E4)
 }
 
 /**
@@ -217,6 +219,7 @@ export function doToc(index, args, { exe = 'ce', describe = null } = {}) {
   });
   console.log(lines.join('\n'));
   if (describe && describe.outcome) console.log(`\n${describe.outcome}`);
+  printTip(testsTip(l.testsLeft, 'mechanisms'));
 }
 
 // ---------------------------------------------------------------------------

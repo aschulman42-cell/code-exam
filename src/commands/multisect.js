@@ -25,7 +25,7 @@ import path from 'path';
 import { quotePathIfNeeded } from '../utils.js';
 import { effectiveMaxResults } from '../argparse.js';
 import { COMMENT_MATCH_WEIGHT } from '../core/multisect.js';
-import { isTestPath, leavesTestsOut, testsLeftOutLine } from '../core/test-paths.js';
+import { isTestPath, leavesTestsOut, optionTestsTip, printTip } from '../core/test-paths.js';
 
 // ========================================================================
 // Term parser
@@ -837,8 +837,8 @@ export function doMultisect(index, args) {
   // --exclude-tests / --no-tests: say what was left out, or, without them, that test code is in
   // the results and which option leaves it out (the options were accepted and ignored until 2026-11-19).
   const testFiles = [...index.files.keys()].filter(isTestPath).length;
-  if (excludeTests) console.log(`  ${testsLeftOutLine(args, testFiles) || `${args.exclude_tests ? '--exclude-tests' : '--no-tests'}: the index has no test, benchmark, mock or example files to leave out`} (of ${totalFiles} in the index)`);
-  else if (testFiles) console.log(`  Test code is searched too: ${testFiles} of the index's ${totalFiles} files are test, benchmark, mock or example code; --exclude-tests leaves them out.`);
+  // With the option the count is the closing line (part E4); without it, this is a possibility, not an exclusion.
+  if (!excludeTests && testFiles) console.log(`  Test code is searched too: ${testFiles} of the index's ${totalFiles} files are test, benchmark, mock or example code; --exclude-tests leaves them out.`);
   if (matchRenames) {
     console.log(`  Match-renames: ON (matching against rename-rendered source)`);
   }
@@ -848,4 +848,5 @@ export function doMultisect(index, args) {
 
   // Show results
   displayMultisectResults(results, args, totalFiles);
+  printTip(optionTestsTip(args, testFiles, 'files'));
 }

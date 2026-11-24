@@ -25,7 +25,8 @@ import { readCache, embedAll, sha } from '../core/embed.js';
 import { FUSE_ARM } from '../core/function-text.js';
 import { loadMechanismsIndex, foldRecords } from '../core/mechanisms-index.js';
 import { embedCacheFile, entryEmbedPlan, loadFunctionPlan } from './embed-distance.js';
-import { chooseSearchModel, isTestEntry } from './semantic-search.js';
+import { chooseSearchModel } from './semantic-search.js';
+import { isTestEntry, testsTip, printTip } from '../core/test-paths.js';
 import { CARVE_HOWS, CALLS_RESOLUTION, CALLS_SUB_RESOLUTION, CALLS_SEED, CALLS_MIN_SUB, CLUSTERS_MAX, PURPOSE_MAX, mechanismVectors, carveClusters, carveCalls, callEdges, carveListing, carveUsage, CARVE_TREE_FORMAT } from '../core/carve.js';
 
 const nf = (n) => Number(n).toLocaleString('en-US');
@@ -70,7 +71,8 @@ export function carveUnusedNotes(args, how) {
   return notes;
 }
 
-const testsLine = (tests, includeTests) => (includeTests ? 'Test mechanisms are included (--include-tests).' : `Left out: ${nf(tests)} mechanism${tests === 1 ? '' : 's'} that ${tests === 1 ? 'is' : 'are'} wholly test code (--include-tests keeps them).`);
+// What was left out is the closing line (testsTip); the header says only that tests are included, when they are.
+const testsLine = (tests, includeTests) => (includeTests ? 'Test mechanisms are included (--include-tests).' : '');
 const textLines = (rows, { description, purpose }) => {
   const out = [];
   if (description) { const have = rows.filter((r) => r.description).length; out.push(have ? `Descriptions: shown under ${nf(have)} of the ${nf(rows.length)} mechanisms; a language model wrote them (--describe) and they are not checked.` : 'Descriptions: none in this index. A language model writes them when asked (--mechanisms --describe; see --help describe). --purpose shows the text harvested with no model.'); }
@@ -93,7 +95,7 @@ export function renderCalls({ ndx, entries, fnIds, fnById, tests = 0, includeTes
     `${ndx}: ${nf(n)} mechanisms carved by CALLS (experimental: the groups are a suggestion and not a finding; they move when the index or the seed changes)`,
     'How: mechanisms that call each other go together. Louvain community detection on the calls between their functions, matched by name. No embedding is read and no model is used.',
     `Settings: resolution ${resolution} (--resolution X; higher gives more, smaller sections); sub-sections at resolution ${CALLS_SUB_RESOLUTION} inside sections of ${CALLS_MIN_SUB} or more; seed ${seed} (--seed N gives another run; the same seed gives the same listing).`,
-    `${testsLine(tests, includeTests)} ${nf(n - touched.size)} of the ${nf(n)} make or receive no call that could be matched; they are listed at the end.`,
+    `${testsLine(tests, includeTests)} ${nf(n - touched.size)} of the ${nf(n)} make or receive no call that could be matched; they are listed at the end.`.trimStart(),
     `Result: ${nf(body.sections)} sections of 2 or more, the largest ${nf(body.largest)}; ${nf(body.alone)} mechanisms standing alone. Each row ends with its section number.`,
     ...textLines(entries, { description, purpose }), ...notes, '', ...body.lines,
   ].join('\n');
@@ -114,7 +116,7 @@ export function renderClusters({ ndx, entries, vectors, modelBase, tests = 0, in
     `${ndx}: ${nf(n)} mechanisms carved by CLUSTERS (experimental: the groups are a suggestion and not a finding; they move when the index or its embeddings change)`,
     `How: mechanisms whose text is alike go together. Ward's method on one vector per mechanism, made from its functions' saved text embeddings (model ${modelBase}), a function weighted by its lines and by how few mechanisms hold it. No model is run.`,
     `Settings: ${nf(c.top)} sections, ${nf(c.sub)} sub-sections (--sections N, --sub N). The same index and embeddings always give the same listing.`,
-    `${testsLine(tests, includeTests)} ${nf(unplaced.length)} of the ${nf(n)} have no embedded text and are listed at the end, not placed.${behind ? ` ${nf(behind)} function texts are not embedded (the index changed since --build-embeddings); their mechanisms are placed by the rest.` : ''}`,
+    `${testsLine(tests, includeTests)} ${nf(unplaced.length)} of the ${nf(n)} have no embedded text and are listed at the end, not placed.${behind ? ` ${nf(behind)} function texts are not embedded (the index changed since --build-embeddings); their mechanisms are placed by the rest.` : ''}`.trimStart(),
     `Result: ${nf(body.sections)} sections of 2 or more, the largest ${nf(body.largest)}; ${nf(body.alone)} mechanisms in a section of their own. Each row ends with its section number.`,
     ...textLines(entries, { description, purpose }), ...notes, '', ...body.lines,
   ].join('\n');
@@ -156,6 +158,7 @@ export async function doCarve(args, { exe = process.env.CODEEXAM_INVOKED_AS || '
 
   if (how === 'calls') {
     console.log(renderCalls({ ndx, entries, fnIds, fnById, tests, includeTests, numbers, notes, ...shown }));
+    printTip(testsTip(tests, 'mechanisms'), true);   // part E4: the closing line; the listing already ends with a blank line
     process.stderr.write(`# ${((Date.now() - t0) / 1000).toFixed(1)} s\n`);
     return;
   }
@@ -186,5 +189,6 @@ export async function doCarve(args, { exe = process.env.CODEEXAM_INVOKED_AS || '
     catch (e) { process.stderr.write(`# the tree could not be saved (${e.message}); the next run builds it again\n`); }
   }
   console.log(r.text);
+  printTip(testsTip(tests, 'mechanisms'), true);   // part E4: the closing line; the listing already ends with a blank line
   process.stderr.write(`# ${((Date.now() - t0) / 1000).toFixed(1)} s${fresh ? '' : ' (tree read from the index)'}\n`);
 }

@@ -134,7 +134,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/rename.js` — persists and applies the display-name rename map, and infers names for opaque minified identifiers
 - `src/core/stack-detectors.js` — detects the ops stack (Containers, Kubernetes, IaC, Cloud, CI/CD), tagging hits mechanical or heuristic
 - `src/core/structural-fingerprint.js` — normalizes function bodies to funcstrings, hashes them exact/tight, and diffs near-dupes by word holes
-- `src/core/test-paths.js` — the one rule for "this file is test code" (directory and file-name patterns, shared with the claim tools' test gate), --exclude-tests and --no-tests as one meaning for every listing that reads them, and the stderr note for a run in which no command does
+- `src/core/test-paths.js` — the one rule for test code (a file by its path, a function by path, name or test attribute, a mechanism when every member is; shared with the claim tools' test gate and the mechanism listings), --exclude-tests and --no-tests as one meaning for every command that reads them, the closing `Tip:` line every command that leaves test code out ends with, and the stderr note, per command, for a run in which a command does not read the options
 - `src/core/symbol-verify.js` — verifies a model's proposed symbol names against the index and navigates one hop from survivors (`claim-locate` takes a bounded second hop from the callees it promotes, resolving a bare callee to its seed's class first)
 - `src/core/vocabulary.js` — TF-IDF vocabulary discovery with noise-doc exclusion, concept extraction, and LLM-prompt formatting
 

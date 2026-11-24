@@ -23,6 +23,7 @@
 
 import { parseMultisectTerms, displayMultisectResults, printSelectivityReport, filterLowSelectivity } from './multisect.js';
 import { effectiveMaxResults } from '../argparse.js';
+import { leavesTestsOut, optionTestsTip, indexTestFileCount, printTip } from '../core/test-paths.js';
 // See the cycle note in claim-locate.js: analyze.js imports from this file, so
 // this edge closes a cycle. Safe because readClaimFile is only referenced inside
 // function bodies. `utils.js` is its proper home; that move is a follow-up.
@@ -63,6 +64,7 @@ const _LOW_DISCRIMINATION_STOPWORDS = new Set([
   'group', 'session', 'key', 'message',
 ]);
 export { _LOW_DISCRIMINATION_STOPWORDS as LOW_DISCRIMINATION_STOPWORDS };
+export { _runClaimTier as runClaimTier };   // test-options-remaining-commands: the test hands it a spy index
 
 const _CLAIM_EXTRACTION_PROMPT = `\
 You are a technical-prose-to-source-code keyword extractor with expertise in \
@@ -1180,6 +1182,7 @@ function _runClaimTier(index, tierName, termsStr, minTermsOverride, opts) {
     minTerms,
     includePath: opts.includePath,
     excludePath: opts.excludePath,
+    excludeTests: !!opts.excludeTests,   // test-options-remaining-commands: --exclude-tests / --no-tests
   });
 
   if (!results) {
@@ -1222,6 +1225,10 @@ function _runClaimTier(index, tierName, termsStr, minTermsOverride, opts) {
  *   BROAD - implementation-level synonyms, alternative mechanisms
  */
 export async function doClaimSearch(index, args) {
+  try { return await _doClaimSearch(index, args); }
+  finally { printTip(optionTestsTip(args, indexTestFileCount(index), 'files')); }   // part E4: the closing line
+}
+async function _doClaimSearch(index, args) {
   // -- Resolve claim text --
   let claimText = null;
   let sourceLabel = null;
@@ -1475,6 +1482,7 @@ export async function doClaimSearch(index, args) {
   const searchOpts = {
     includePath: args.include_path || args.in || null,
     excludePath: args.exclude_path || null,
+    excludeTests: leavesTestsOut(args),   // test-options-remaining-commands
     maxResults: effectiveMaxResults(args, 10),
     verbose,
   };
