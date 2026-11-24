@@ -135,6 +135,19 @@ describe('the embed options each have a help entry, and --embed-model list', () 
     assert.ok(line >= 0);
     assert.match(r.stdout.split(/\r?\n/).slice(line, line + 4).join(' '), /examined code[\s\S]*--embed-model list/);
   });
+  it('--help lists --carve and its options, and --help carve gathers them (carve-command-clusters-and-calls)', () => {
+    const r = run('--help');
+    assert.equal(r.status, 0);
+    for (const flag of ['--carve <clusters|calls>', '--sections <N>', '--sub <N>', '--resolution <X>', '--seed <N>', '--brief', '--description', '--purpose']) assert.ok(r.stdout.split(/\r?\n/).some((l) => l.startsWith(`  ${flag} `) || l === `  ${flag}`), flag);
+    const h = run('--help', 'carve');
+    assert.equal(h.status, 0);
+    for (const flag of ['--carve', '--sections', '--sub', '--resolution', '--seed', '--brief', '--description', '--purpose']) assert.match(h.stdout, new RegExp(`^  ${flag}\\b`, 'm'), flag);
+    // the entry opens by saying what carving is and what it is for (Andrew, 2026-11-23: "Same mechanisms as what?")
+    assert.match(h.stdout, /Experimental\. Carves an indexed codebase along\s+its joints: it divides the codebase's mechanisms\s+\(the rows --toc and --mechanisms list\) into\s+numbered sections and sub-sections/);
+    assert.match(h.stdout, /seeing a codebase's major pieces, and for\s+finding what the codebase calls a piece you\s+are looking for/);
+    assert.match(h.stdout, /calls: mechanisms that call each other go\s+together \(Louvain community detection; needs no\s+embeddings\)/);
+    assert.match(h.stdout, /suggestion, not a finding/);
+  });
   it('--embed-model list names every known model, needs no index, and marks the default', () => {
     const r = run('--embed-model', 'list');
     assert.equal(r.status, 0, r.stderr);

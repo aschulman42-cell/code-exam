@@ -1,8 +1,8 @@
 # Clustering: can CodeExam sort a codebase into its features automatically?
 
-*A status report on work in progress, as of 2026-11-22. No CodeExam command yet produces the
-clusters described here. The experiments were run with scratch scripts that are not part of
-the product.*
+*A status report on work in progress, as of 2026-11-23. One experimental command, `--carve`,
+prints the listings described here ([How to run it](#how-to-run-it)). The experiments and
+the scores were made with scratch scripts that are not part of the product.*
 
 When CodeExam examines a codebase, it finds **mechanisms**: small sets of functions that
 together do one thing, such as the methods of one class or a command's handler and its
@@ -34,12 +34,19 @@ far better than chance on the one hand, and on the other hand well short of what
 They may be good enough as a first map of an unfamiliar codebase. That has not been tested with
 readers.
 
+A second technique, first tried on 2026-11-23, works from which mechanisms call which and
+not from their text. In its one test so far it did better on both measures. It is described
+under [A second technique](#a-second-technique-carving-by-who-calls-whom), and the rest of
+this page is about the first.
+
 Two limits apply to everything below:
 
 - **Only one codebase has been scored against a hand-made feature list.** A method that
   does best on CodeExam's own code may not do best elsewhere.
-- **None of this is in the product.** The figures come from scratch scripts, named
-  [at the end](#where-the-figures-come-from), that have no tests of their own.
+- **The figures come from scratch scripts**, named
+  [at the end](#where-the-figures-come-from), that have no tests of their own. The `--carve`
+  command, added on 2026-11-23, makes the same groups and is tested, but it reports no
+  scores.
 
 ## Contents
 
@@ -53,7 +60,7 @@ Two limits apply to everything below:
 - [What is wanted from clustering, and where each point stands](#what-is-wanted-from-clustering-and-where-each-point-stands)
 - [Questions not yet answered](#questions-not-yet-answered)
 - [Known weaknesses](#known-weaknesses)
-- [What you can run today](#what-you-can-run-today)
+- [How to run it](#how-to-run-it)
 - [Related published work](#related-published-work)
 - [Where the figures come from](#where-the-figures-come-from)
 - [Related](#related)
@@ -108,30 +115,31 @@ they are interested in?
 
 ## What a clustered listing looks like
 
-These are five of the 12 broad clusters made for CodeExam's own code (scratch output,
-2026-11-21). Each line gives the cluster's heading, how many mechanisms it holds (the
-output calls them "groups"), and where they sit in the source tree.
+These are five of the 12 broad clusters made for CodeExam's own code, as
+`--carve clusters --brief` prints them (2026-11-23). Each line gives the cluster's number,
+its heading and how many mechanisms it holds. The command calls a broad cluster a section.
 
 ```
- 3. claim, element, format, chart       (39 groups; 64% in src/commands/, 4 directories)
- 4. pane, init, render, renderers       (25 groups; 96% in public/, 2 directories)
- 5. struct, dupes, matcher, diff        (13 groups; 77% in src/commands/, 3 directories)
- 7. extract, name, find, string         (84 groups; 36% in src/commands/, 6 directories)
- 9. collect, caller, graph, callees     (21 groups; 62% in src/commands/, 3 directories)
+1. sitter, archive, prompts, tree   (84 mechanisms)
+4. claim, chart, locate, split   (39 mechanisms)
+6. renderers, list, render, app   (25 mechanisms)
+8. calls, graph, tree, call   (21 mechanisms)
+12. dupes, diff, struct, string   (13 mechanisms)
 ```
 
-Someone who knows CodeExam recognises several of these. Cluster 3 is the claim-chart work,
-cluster 4 is the browser interface, cluster 5 is the finding of duplicate functions, and
-cluster 9 is the following of calls between functions.
+Someone who knows CodeExam recognises several of these. Cluster 4 is the claim-chart work,
+cluster 6 is the browser interface, cluster 12 is the finding of duplicate functions, and
+cluster 8 is the following of calls between functions.
 
-Cluster 7 is the failure. It holds 84 of the 363 mechanisms under four words that say
+Cluster 1 is the failure. It holds 84 of the 363 mechanisms under four words that say
 nothing. It is a "junk drawer": the things that did not clearly belong anywhere else.
 
 Two more points about this listing:
 
-- The headings are only the words that are common in a cluster's function names and rare
-  outside it. No one wrote them, and they are not descriptions.
-- No command prints this listing yet.
+- The headings are only the words that are common in the names of a cluster's mechanisms
+  and rare outside it. No one wrote them, and they are not descriptions.
+- Under each heading the command lists the cluster's narrow clusters and their
+  mechanisms. [How to run it](#how-to-run-it) shows one.
 
 ## How the clusters are made
 
@@ -156,7 +164,8 @@ because CodeExam is often used on confidential code.
 5. **Choosing how many clusters.** Stopping the merging early gives many narrow clusters.
    Stopping late gives a few broad ones. The experiments stop at 12 and at 45 for CodeExam,
    and at several numbers between for comparison.
-6. **Headings.** Each cluster is headed with the words that set its function names apart.
+6. **Headings.** Each cluster is headed with the words that set the names of its
+   mechanisms apart.
 
 ## How the clusters are judged
 
@@ -233,7 +242,7 @@ Between 20 and 60 clusters the agreement score hardly moves: 0.37 at 28 clusters
 mechanisms are together and clusters are about 70% to 75% one feature. The author's guess
 before any measurement was 35 to 40 clusters, and his own list has 41 features.
 
-### The method already in use was the best of those tried
+### Of the techniques that work from embeddings, the one already in use was best
 
 Each of these standard clustering techniques was run on the same mechanism embeddings.
 
@@ -294,6 +303,67 @@ says about itself. Another signal uses no words at all: which mechanisms call wh
   and the next.
 - Favouring mechanisms in the same directory makes the result worse. CodeExam's features
   cut across its directories.
+
+### A second technique: carving by who calls whom
+
+This is one test, run on 2026-11-23. It is reported here because it did better than
+everything above, and it should be read as a first result.
+
+**What the technique is.** The clustering described so far gives each mechanism a position,
+its embedding, and merges the mechanisms that sit nearest each other. The second technique
+starts from links. Draw a line between two mechanisms whenever a function in one calls a
+function in the other, and make the line heavier the more such calls there are. Then look
+for **communities**: sets of mechanisms with many lines among themselves and few to the
+outside. This is called community detection, and the standard method used here is the
+[Louvain method](https://en.wikipedia.org/wiki/Louvain_method).
+
+**How it differs from what was used before.**
+
+| | clustering by embeddings (above) | community detection on calls |
+|---|---|---|
+| works from | the function texts, turned into embeddings | which mechanisms call which; no text and no model of any kind |
+| puts two mechanisms together when | their texts are similar | they call each other more than they call the rest |
+| number of clusters | chosen directly | not chosen directly; a "resolution" setting makes communities larger or smaller |
+| same result every run | yes | nearly; it varies a little, so the figures are averages of ten runs |
+| typical failure | scatters a feature whose parts are worded differently | merges features that share the same underlying code |
+
+**What it scored.** Each row is at its best resolution setting.
+
+| what is carved | communities | together | pure | agreement |
+|---|---|---|---|---|
+| clustering by embeddings, Ward's method (from above) | 40 | 60% | 74% | 0.39 |
+| calls between mechanisms | 34 | 76% | 70% | 0.57 |
+| calls between single functions | 45 | 67% | 63% | 0.39 |
+| text similarity only, each mechanism linked to its 5 nearest | 25 | 73% | 69% | 0.51 |
+| calls and text links together | 21 | 82% | 73% | 0.62 |
+
+- Community detection does better than Ward's method even when given only text. So part of
+  the gain is the technique and not the calls.
+- Calls alone are a little ahead of text alone, by not much more than the difference
+  between one run and the next (about 0.04).
+- Calls and text together did best.
+- Mechanisms again beat single functions.
+
+**An example.** The feature list puts 19 mechanisms under imports, exports, bill of
+materials and copyrights. Community detection on calls put all 19 into one community of 24.
+Ward's method spread them over four clusters, the largest holding 13. The other five
+members of the community show what calls bring along: the argument parser and the main
+entry file are there because those commands call them, and not because they are about
+imports.
+
+**Where it does worse.** One community of 46 mechanisms joins structural search to plain
+text search and file browsing, because all of them use the same index lookup code. Another,
+of 22, holds digests, vocabulary, AI/ML detection and general utilities.
+
+**Reasons to be careful.**
+
+- The best of nine resolution settings was picked for every row after seeing the scores,
+  which flatters all of them. Across settings that give 20 to 60 communities, calls between
+  mechanisms scored 0.40 to 0.57 and Ward's method 0.35 to 0.39.
+- It has been run on CodeExam only.
+- Eight mechanisms have no calls to or from another mechanism, and each comes out as a
+  community of one.
+- Calls are matched by name only.
 
 ### Functions that are copies of each other usually land together
 
@@ -359,7 +429,8 @@ mechanisms are found. None of the changes below has been made or tested.
   a mechanism when its functions' embeddings fall into separate sets, are the two obvious
   repairs.
 - **A mechanism's embedding should not be a plain average.** Step 3's weighting, by
-  function length and against shared helpers, exists only in the scratch scripts.
+  function length and against shared helpers, is used by `--carve clusters` and nowhere
+  else.
   When a mechanism is the query (`id:m70`), `--embed-distance` and `--semantic-search`
   still use the plain average of its functions' embeddings.
 - **Some functions are in no mechanism**, as listed under
@@ -370,8 +441,8 @@ mechanisms are found. None of the changes below has been made or tested.
 | what is wanted | status | why |
 |---|---|---|
 | Works by embedding, and can run with no network connection | **met** | A small embedding model on your own machine. No language model is used anywhere. Only one embedding model, EmbeddingGemma, has been tested. |
-| Uses known machine-learning (ML) clustering techniques | **partly** | Hierarchical clustering (four variants), k-means and DBSCAN were tried. HDBSCAN, spectral clustering and community detection on the call graph were not. |
-| Is not thrown off by synonyms or rewording, since it should reflect what code does and not how it is named | **largely untested** | No test has renamed the code and clustered it again. One indirect sign: clustering by calls alone uses no words and scores the same. |
+| Uses known machine-learning (ML) clustering techniques | **partly** | Hierarchical clustering (four variants), k-means and DBSCAN were tried, and community detection has had one test. HDBSCAN and spectral clustering were not tried. |
+| Is not thrown off by synonyms or rewording, since it should reflect what code does and not how it is named | **largely untested** | No test has renamed the code and clustered it again. One indirect sign: clustering by calls alone uses no words and scores at least as well. |
 | Gives a reasonable number of clusters: not one huge cluster, and not one for every file | **open** | The scores are flat from 20 to 60 clusters, so the data does not choose a number. One broad cluster is too large. |
 | Keeps loosely coupled collections of code apart | **partly** | Narrow clusters do on all five collections measured. Broad clusters do on four and barely beat chance on the fifth. See "Other codebases" above. |
 | Tells the user something that was not obvious from the directory structure | **met by broad clusters** | Low agreement with directories on three codebases. |
@@ -396,14 +467,20 @@ mechanisms are found. None of the changes below has been made or tested.
   some functions are in no mechanism.
 - **Is clustering the right approach at all?** The mechanisms form a continuum with no
   natural gaps, and calls do as well as embeddings. Carving a codebase by who calls whom is
-  the older approach, and on this evidence it is as good. It has been tried here only in
-  the simplest form: the same Ward's method, fed call counts in place of embeddings.
-  Methods made for the purpose, which look for sets of functions that call each other more
-  than they call outside, have not been tried and should be.
+  the older approach, and on this evidence it is at least as good. A technique made for
+  that purpose has had one test, described under
+  [A second technique](#a-second-technique-carving-by-who-calls-whom), and did better than
+  clustering by embeddings. The two need not be rivals: calls and text used together scored
+  best.
 
 ## Known weaknesses
 
-- **One broad cluster is a junk drawer**: 84 of the 363 mechanisms, as shown above.
+- **One broad cluster is a junk drawer**: 84 of the 363 mechanisms, as shown above. Under
+  the second technique the largest community holds 30 to 45.
+- **The clusters are not stable.** When they were made again from 80% of the mechanisms,
+  on three codebases, the result agreed with the full run only 0.50 to 0.67, where 1 is
+  the same clusters (2026-11-19). The same has not been measured for the second technique,
+  where two runs differ unless they are given the same seed.
 - **Not every function takes part.** Of CodeExam's 2,797 functions outside test code, 803
   have no embedding. 709 of them are one to three lines long and are left out by rule. 62
   have a generic name (`main`, `init`, `get`, `run`, a class constructor) and are left out
@@ -423,14 +500,101 @@ mechanisms are found. None of the changes below has been made or tested.
 What has not been tried:
 
 - a second codebase with its own hand-made feature list
-- the three other clustering techniques named in the table above
+- HDBSCAN and spectral clustering
+- scoring the second technique on any codebase other than CodeExam (it has been run on
+  three others, which have no feature list to score it against)
 - a test that renames the code
 - descriptions written by a language model as the text that is embedded
 - removing generic identifiers from the function texts
 
-## What you can run today
+## How to run it
 
-No command prints clusters. These commands show the pieces the clusters are built from:
+`--carve` (experimental, since 2026-11-23) prints an index's mechanisms under numbered
+sections and sub-sections. The name says what it attempts: to take an indexed codebase and
+carve it along its joints into pieces, giving a list you can run your eye down to find the
+codebase's major parts, or the codebase's own words for a part you are looking for. Its
+value chooses the technique, which is to say where the cuts are made:
+
+```
+ce --index-path <index> --carve clusters
+ce --index-path <index> --carve calls
+```
+
+- **`clusters`** is the technique most of this page is about: mechanisms whose text is
+  alike go together. Sections are the broad clusters and sub-sections the narrow ones (12
+  and 45 on CodeExam). It needs the embeddings `--build-embeddings` makes.
+- **`calls`** is [the second technique](#a-second-technique-carving-by-who-calls-whom):
+  mechanisms that call each other go together. It needs no embeddings.
+
+Neither uses a language model. Each listing opens with a header that says what was done,
+the settings and the options that change them, what was left out and why, and how many
+sections came out.
+
+**One feature under each.** The feature list puts five mechanisms under "vocabulary":
+`m111`, `m114`, `m115`, `m197` and `m270`. Under `clusters` all five are in one sub-section
+of eight:
+
+```
+5. multisect, vocabulary, census, copyrights   (28 mechanisms)
+   5.1 vocabulary, vocab, extraction   (8)
+       m114   vocab (buildLocalExtractionPromptWithVocab) / vocab [5.1]
+       m115   vocab (buildLocalExtractionPromptWithVocab) / vocabulary [5.1]
+       m382   [file] build-claim-genre-df.mjs [5.1]
+       m326   [file] claim-terms.js [5.1]
+       m327   [file] CodeSearchIndex.js / bare [5.1]
+       m270   [file] vocabulary.js / corpus [5.1]
+       m111   [file] vocabulary.js / other [5.1]
+       m197   [file] vocabulary.js / vocabulary [5.1]
+```
+
+Under `calls` four of the five are in one sub-section of five:
+
+```
+8. vocabulary, digest, infrastructure, server   (22 mechanisms)
+   8.2 vocabulary   (5)
+       m115   vocab (buildLocalExtractionPromptWithVocab) / vocabulary [8.2]
+       m177   [file] utils.js [8.2]
+       m270   [file] vocabulary.js / corpus [8.2]
+       m111   [file] vocabulary.js / other [8.2]
+       m197   [file] vocabulary.js / vocabulary [8.2]
+```
+
+The fifth, `m114`, is the vocabulary handed to the prompt that reads a patent claim, and
+`calls` puts it in sub-section 3.2 with the claim-search code that calls it. The extras
+differ in the same way. Under `clusters` they are other code about terms and how often
+they occur. Under `calls` it is a helper file that the vocabulary code calls. This is the
+usual difference between the two: `clusters` gathers code that talks about the same thing,
+and `calls` gathers code that works together.
+
+Each row ends with its section number in brackets, so that a search of the output for a
+name shows which section the row is in.
+
+| option | with | what it does |
+|---|---|---|
+| `--description` | both | under each row, the sentence a language model wrote for the mechanism (`--describe`), where the index has one |
+| `--purpose` | both | under each row, on a line starting `purpose:`, text gathered from comments, strings and call names with no model; often noisy |
+| `--brief` | both | headings only |
+| `--include-tests` | both | keep mechanisms that are wholly test code |
+| `--sections N`, `--sub N` | `clusters` | how many sections and sub-sections |
+| `--embed-model <name>` | `clusters` | which embedding model's vectors to use |
+| `--resolution X` | `calls` | higher gives more, smaller sections (default 2) |
+| `--seed N` | `calls` | another run; one seed always gives one listing |
+
+Things to know before relying on a listing:
+
+- **Which is better is not settled.** On the one feature list, `calls` scores higher
+  (above). When three features were compared by hand (the vocabulary one here, and two
+  others), `clusters` matched the list as well or better at the level of sub-sections. The
+  author ran both on CodeExam, on Bram and on a collection of five repositories, looked for
+  code he knew, and found both usable. That is a reading by one person, not a score.
+- **The settings were chosen by eye on CodeExam.** On ExoPlayer 3 (7,495 mechanisms)
+  `calls` at its default gives a largest section of 550; `--resolution 6` gives 102
+  sections with a largest of 268.
+- **A large index takes time under `clusters`.** ExoPlayer 3 took 260 seconds the first
+  time and 44 after, because the tree is saved in the index.
+- **There is no control for it in the browser interface, and no MCP tool.**
+
+These older commands show the pieces the clusters are built from:
 
 | command | what it shows |
 |---|---|
@@ -439,8 +603,8 @@ No command prints clusters. These commands show the pieces the clusters are buil
 | `--embed-distance id:m70` | the mechanisms most similar to one mechanism. This is one line of the comparison that clustering makes for all of them |
 | `--semantic-search` | the same embeddings, searched with your own text |
 
-All four are described in [`cli.md`](cli.md). The last three need embeddings, which
-`--build-embeddings` makes.
+All of these, and `--carve`, are described in [`cli.md`](cli.md). The last three need
+embeddings, which `--build-embeddings` makes.
 
 ## Related published work
 
@@ -509,6 +673,8 @@ so that a later session can find them.
 | `cluster-methods.mjs` | the comparison of techniques |
 | `cluster-functions.mjs` | mechanisms against single functions |
 | `cluster-mixes.mjs` | texts, calls and directories |
+| `call-communities.mjs`, `call-communities-show.mjs` | the second technique, and one run of it written out |
+| `carve.mjs` | both techniques as one listing; `--carve` was made from it, and on four indexes (CodeExam, Bram, the five-repository collection, ExoPlayer 3) the command's listings are the same as its, line for line |
 | `sections-vs-dirs.mjs`, `sections-vs-collections.mjs`, `dupes-vs-sections.mjs`, `commingle-probe.mjs`, `claim-size-in-tree.mjs` | the duplicates measurement and the other codebases |
 
 The feature list is the author's working file and is not reproduced here.

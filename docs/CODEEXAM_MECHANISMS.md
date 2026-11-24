@@ -381,8 +381,10 @@ Dated one-line results; the tables are on the linked pages.
 
 Whether the mechanisms can be put automatically into a few dozen clusters, each one feature
 of the codebase, and how close that comes to a hand-made list of features, is reported in
-[`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md). That is work in progress and nothing in
-it is in the product.
+[`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md). That is work in progress. One command
+came of it, `--carve clusters|calls` (experimental, since 2026-11-23), which prints the
+mechanisms under sections and sub-sections; the measurements on that page were made with
+scratch scripts.
 
 Results about mechanisms themselves that have no section yet (the grouper's cover and split
 measurements, the two describers compared as a table of contents, the no-match calibration

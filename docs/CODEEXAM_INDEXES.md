@@ -88,7 +88,7 @@ embedding-based retrieval is a layer *on top* of the lexical index (#201 / #202)
 replacement. Two optional
 files join the index's own after later steps: `mechanisms.json`, the cover of the index's
 functions in mechanism records that `--build-mechanisms` writes and `--describe` adds sentences
-to, and `embeddings/`, the vectors `--build-embeddings` writes and `--embed-distance` caches; both are explained on
+to, and `embeddings/`, the vectors `--build-embeddings` writes and `--embed-distance` caches (and, since 2026-11-23, the tree `--carve clusters` builds from those vectors, one `<model>_carve-tree.json` per model); both are explained on
 [`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md) and both go with the directory. The fuller
 argument is in
 [`STRUCTURAL_SEARCH.md`](STRUCTURAL_SEARCH.md). And a vector store useful *here* is a tall order:

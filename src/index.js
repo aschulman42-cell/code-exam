@@ -491,6 +491,13 @@ if (args.embed_distance) {
   await doEmbedDistance(args);
   process.exit(process.exitCode || 0);
 }
+// carve-command-clusters-and-calls: the mechanisms under sections and sub-sections;
+// like the two above, it reads the index itself and is dispatched before it is constructed.
+if (args._explicit.has('carve')) {
+  const { doCarve } = await import('./commands/carve.js');
+  await doCarve(args, { exe: exeBase() });
+  process.exit(process.exitCode || 0);
+}
 
 if (args.extract_js_from_binary) {
   doExtractJsFromBinary(args);

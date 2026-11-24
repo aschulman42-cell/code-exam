@@ -240,9 +240,11 @@ independently-operable panels that redesign is built toward.
   ([`CODEEXAM_SEMANTIC_SEARCH.md`](CODEEXAM_SEMANTIC_SEARCH.md), "What your text is compared
   to"). The exact searches (`--search`, `--regex`, multisect) are not affected.
 - **`--toc` and `--mechanisms` are flat lists** — a few hundred to several thousand rows,
-  ordered by size or by directory, with no clustering into a shorter list of features. Work
-  on that, and how far it is from a hand-made list of features, is reported in
-  [`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md); none of it is in the product.
+  ordered by size or by directory, with no clustering into a shorter list of features. An
+  experimental command, `--carve clusters|calls` (since 2026-11-23), prints the same
+  mechanisms under sections and sub-sections; its groups are a suggestion and not a
+  finding, and how far they are from a hand-made list of features is reported in
+  [`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md). It has no GUI control and no MCP tool.
 - **For other limitations, see the open issues** —
   [open CodeExam issues](https://github.com/aschulman42-cell/code-exam/issues?q=is%3Aissue+state%3Aopen),
   and the consolidated GUI/engine field-test triage in

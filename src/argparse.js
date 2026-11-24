@@ -141,6 +141,17 @@ export function parseArgs() {
     // mechanisms-listing-order-and-test-rows: the order of --toc and
     // --mechanisms; null is the default, `path`. The other is `size`.
     sort_by: null,
+    // carve-command-clusters-and-calls (2026-11-23): --carve clusters|calls lists the
+    // mechanisms under sections and sub-sections. The numbers are null until given, so
+    // the command's own defaults apply (and it can say which options were not used).
+    carve: null,
+    sections: null,          // --carve clusters: how many sections
+    sub: null,               // --carve clusters: how many sub-sections
+    resolution: null,        // --carve calls: Louvain's resolution
+    seed: null,              // --carve calls: the seed of the run
+    brief: false,            // --carve: headings only
+    description: false,      // --carve: each mechanism's model-written sentence under its row
+    purpose: false,          // --carve: each mechanism's harvested purpose under its row
     rename_min_lines: 0,
     file_bookends: null,
     bundle_seams: null,
@@ -614,6 +625,15 @@ export function parseArgs() {
     ['show_function_text',   'optional_value', ['--show-function-text']],
     ['text_has',             'value',          ['--text-has']],
     ['sort_by',              'value',          ['--sort-by']],
+    // carve-command-clusters-and-calls (2026-11-23)
+    ['carve',                'optional_value', ['--carve']],
+    ['sections',             'int',            ['--sections']],
+    ['sub',                  'int',            ['--sub']],
+    ['resolution',           'float',          ['--resolution']],
+    ['seed',                 'int',            ['--seed']],
+    ['brief',                'flag',           ['--brief']],
+    ['description',          'flag',           ['--description', '--descriptions']],
+    ['purpose',              'flag',           ['--purpose']],
     ['data_structs',         'flag',           ['--data-structs'], ['--structs']],
     ['client_server',        'flag',           ['--client-server'], ['--routes']],
     ['referenced_resources', 'optional_value', ['--referenced-resources', '--resources']],
@@ -1857,6 +1877,49 @@ METRICS / DISCOVERY:
                              the label and a short quote of the purpose; same
                              filter, cap and fold as --mechanisms; -v adds
                              each row's block with its members.
+  --carve <clusters|calls>   Experimental. Carves an indexed codebase along
+                             its joints: it divides the codebase's mechanisms
+                             (the rows --toc and --mechanisms list) into
+                             numbered sections and sub-sections, and prints
+                             them as a list to run an eye down. Good for
+                             seeing a codebase's major pieces, and for
+                             finding what the codebase calls a piece you
+                             are looking for. The value says where to cut.
+                             clusters: mechanisms whose text is alike go
+                             together (the vectors --build-embeddings saved;
+                             Ward's method; --embed-model chooses the model).
+                             calls: mechanisms that call each other go
+                             together (Louvain community detection; needs no
+                             embeddings). No language model is used and
+                             headings are words from the mechanisms' labels.
+                             Each row is the mechanism's id, its label and
+                             its section number in brackets ([11.5]), so a
+                             search of the output shows where a row sits.
+                             Rows that are wholly test code are left out
+                             unless --include-tests. The groups are a
+                             suggestion, not a finding; the two techniques
+                             give different groups (CODEEXAM_CLUSTERING.md).
+                             Bare --carve explains the two and picks neither.
+  --sections <N>             With --carve clusters: how many sections
+                             (default 0.65 x the square root of the number
+                             of mechanisms, at least 6).
+  --sub <N>                  With --carve clusters: how many sub-sections
+                             (default the number of mechanisms / 8).
+  --resolution <X>           With --carve calls: higher gives more, smaller
+                             sections (default 2; a large index may read
+                             better at 4 to 6).
+  --seed <N>                 With --carve calls: another run. Community
+                             detection visits mechanisms in a random order;
+                             one seed always gives one listing (default 5).
+  --brief                    With --carve: section and sub-section headings
+                             only, no mechanism rows.
+  --description              With --carve: under each row, the sentence a
+                             language model wrote for the mechanism
+                             (--describe), where the index has one.
+  --purpose                  With --carve: under each row, on a line starting
+                             "purpose:", the text harvested from comments,
+                             strings and call names with no model; often
+                             noisy, cut at 240 characters.
   --data-structs             List data structures (struct/enum/union/typedef/
                              trait/interface/record) ranked by reference count
                              (alias: --structs)
