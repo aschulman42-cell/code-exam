@@ -234,8 +234,10 @@ export function _vocabularyPath(idx) {
  * not counted, so a cache written as 7 still holds a holder's name and a project handle as vocabulary.
  * 9 (same item, revised the same day): a header is the notice paragraphs of the head comment, not the rest
  * of its run, so a cache written as 8 also left out descriptions that follow a notice.
+ * 10 (issue-351-base64-fragments-as-concepts, 2026-11-24): long base64 runs are left out of the text, so a
+ * cache written as 9 still holds the pieces of embedded images as vocabulary where notebooks are indexed.
  */
-export const VOCAB_CACHE_VERSION = 9;
+export const VOCAB_CACHE_VERSION = 10;
 
 /**
  * The text of a file with its copyright and licence header lines left out (issue-351-header-words-out-of-vocabulary).
@@ -251,6 +253,38 @@ export function withoutHeaderLines(content) {
   if (!header.size) return text;
   for (const i of header) lines[i] = '';
   return lines.join('\n');
+}
+
+/**
+ * The text of a file with its long base64 runs left out (issue-351-base64-fragments-as-concepts, 2026-11-24).
+ *
+ * WHY THE RUN AND NOT THE TOKEN. The tokenizer (`[A-Za-z_]\w*`) cuts a base64 payload at every `+`, `/`
+ * and `=`. What it yields are middle pieces of 12 to 62 characters: under looksLikeBase64Blob's
+ * 64-character gate, with no image signature because they are not the start, and vowel-rich enough
+ * (23% to 35% on the pieces probed) for looksLikeRandomToken to pass them before it reaches entropy.
+ * Two earlier rules judged the token (0fe09a8, 0c115dd) and each was got round by where the cut fell.
+ * The run has not been cut, so it is judged here, before tokenizing. Each run becomes one space: the
+ * rest of its line and every line number stay.
+ *
+ * MEASURED 2026-11-24 with the scratch probe base64-run-probe.mjs, vocabulary and concepts built both
+ * ways with no cache written. `.AI_Manning_recent` (226 files, notebooks with embedded images):
+ * vocabulary 22,035 to 9,702 tokens; 142 of 299 concepts gone, every one read and every one a fragment
+ * (`dqxevfp`, `kqrq8p`, `xqqaabbbnc8haaaaam`), among them `aaaaa`, 11th, inside the Overview's twelve;
+ * 10 concepts take their place (`calibration`, `hellaswag`, `word2number`, `llm`). The figures for the
+ * other indexes are in the item's draft.
+ *
+ * WHY 200. Runs of 64 to 199 characters are mostly not payloads: package integrity hashes (88
+ * characters, 1,455 of them in `.sr_gh`), URL paths (`com/huggingface/transformers/blob/main/src/…`, 71
+ * to 100), rows of slashes in comment banners. At 64 the rule gave the same concepts on every index
+ * measured and removed those; at 200 it removes none of them. A payload of under 200 characters is not
+ * caught: a short key, one line of a PEM body (64 characters a line). Those are looksLikeRandomToken's.
+ */
+export const BASE64_RUN_MIN = 200;
+const _BASE64_RUN_RE = new RegExp(`[A-Za-z0-9+/]{${BASE64_RUN_MIN},}={0,2}`, 'g');
+export function withoutBase64Runs(content) {
+  const text = String(content);
+  if (text.length < BASE64_RUN_MIN) return text;
+  return text.replace(_BASE64_RUN_RE, ' ');
 }
 
 // ----------------------------------------------------------------
@@ -591,7 +625,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
 
     if (skipDoc(docId, content)) continue;
 
-    const text = stripHeaders(docId) ? withoutHeaderLines(content) : content;
+    const text = withoutBase64Runs(stripHeaders(docId) ? withoutHeaderLines(content) : content);
     const seenInDoc = new Set();
     let m;
     identRe.lastIndex = 0;
@@ -687,7 +721,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
 
     if (skipDoc(docId, content)) continue;
 
-    const text = stripHeaders(docId) ? withoutHeaderLines(content) : content;
+    const text = withoutBase64Runs(stripHeaders(docId) ? withoutHeaderLines(content) : content);
     let m;
     identRe.lastIndex = 0;
 

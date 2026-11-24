@@ -561,3 +561,57 @@ test('issue-351 header words: a description paragraph after the notice paragraph
   assert.ok(v.has('Plumbago') && v.has('compares'), [...v.keys()].slice(0, 20).join(' '));
   assert.ok(!v.has('Licensed'));
 });
+
+// issue-351-base64-fragments-as-concepts (2026-11-24). The tokenizer cuts a base64 run at every `+`,
+// `/` and `=`, so the tokens it yields are middle pieces: under looksLikeBase64Blob's 64-character
+// gate, with no image signature, and vowel-rich enough to pass looksLikeRandomToken. On
+// .AI_Manning_recent (notebooks with embedded images) they were 142 of 299 concepts and more than
+// half the vocabulary. The run still shows what it is, so the run is left out of the text.
+import { withoutBase64Runs, BASE64_RUN_MIN } from '../src/core/vocabulary.js';
+
+// pieces as the tokenizer cut them from notebook images in that index; each passes both token tests
+const B64_PIECES = ['MUvAAATJkxAZGQkysvLsWPHDqxevfpOuKqrq8PMmTNRVlaGiIgI3HfffVAUBZ9', 'AgCA0o2gGwCACHrm0eejXQQAABBBNC8HAAAAAMAnBN0AAAAAAPiEoBsAAAAAAJ', 'CggIUKZMmdSsWTOdPXv2MUUMAAAAPB3SVWKxevVqvf', 'NKuxoOCguzeFgAAAED6wXSzAAAAABzmcGIRGxurgQMHqmDBgvL29la', 'KyuKVFFXqgoiIhCNlqdYiJUu53Wb'];
+const B64_RUN = B64_PIECES.join('+').replace(/\+(?=Cgg|Kyu)/g, '/') + '==';
+const LONG_PATH = 'com/huggingface/transformers/blob/main/src/transformers/models/qwen3/modeling';
+function notebookFixture() {
+  const files = {};
+  for (let i = 0; i < 8; i++) {
+    files[`nb/chapter${i}.ipynb`] = [`{ "cells": [ { "outputs": [ { "data": {`, `   "image/png": "${B64_RUN}",`, `   "text/plain": [ "computeQuibbleMargin(frobnicateWidget) # see https://github.${LONG_PATH}" ]`, `} } ] } ] }`].join('\n');
+    files[`src/plain${i}.py`] = `def helper_${i}(x):\n    return x + ${i}\n`;   // keeps the notebook's words under the frequency cutoff
+  }
+  return files;
+}
+
+test('issue-351 base64 fragments: the fixture is the defect (each piece passes both token tests)', () => {
+  assert.ok(B64_RUN.length >= BASE64_RUN_MIN, `the run is ${B64_RUN.length} characters`);
+  for (const p of B64_PIECES) assert.ok(!looksLikeBase64Blob(p) && !looksLikeRandomToken(p), `${p.slice(0, 12)}… passes the token tests, which is why the run has to be judged`);
+});
+
+test('issue-351 base64 fragments: withoutBase64Runs leaves out a long run and nothing else', () => {
+  const text = `a = 1\n"image/png": "${B64_RUN}",\nb = computeQuibbleMargin()\n`;
+  const out = withoutBase64Runs(text);
+  assert.ok(!out.includes('MUvAAATJ') && !out.includes('KyuKVFF'));
+  assert.ok(out.includes('"image/png"') && out.includes('computeQuibbleMargin'), 'the rest of the line and the other lines stay');
+  assert.equal(out.split('\n').length, text.split('\n').length, 'line numbers are kept');
+  // shorter than the minimum: a URL path, a package integrity hash, a row of slashes, a long name
+  const keep = [`https://github.${LONG_PATH}`, 'sha512-SFy8S9plRPbIcxlJ8A6mT/CxFdJx/c04JEctz4jf8YZaVS2px34j7NXRrlGlHkN/M2gnpL37ZpGRGVFLd3l8Ng==', '/'.repeat(120), 'kCVPixelFormatType_420YpCbCr10BiPlanarFullRange'];
+  for (const k of keep) assert.equal(withoutBase64Runs(k), k, k.slice(0, 30));
+  assert.equal(withoutBase64Runs('no payload here'), 'no payload here');
+});
+
+test('issue-351 base64 fragments: pieces of an embedded image are not vocabulary; the words beside it are', () => {
+  const v = vocabOf(stubIdx(notebookFixture(), tmpIndexDir()));
+  const got = B64_PIECES.filter((p) => v.has(p));
+  assert.deepEqual(got, [], 'pieces of the base64 run in the vocabulary');
+  assert.ok(v.has('computeQuibbleMargin') && v.has('frobnicateWidget'), [...v.keys()].slice(0, 12).join(' '));
+  assert.ok(v.has('huggingface'), 'a long URL path is not a base64 run');
+});
+
+test('issue-351 base64 fragments: no concept is a fragment of an embedded image', () => {
+  const idx = stubIdx(notebookFixture(), tmpIndexDir());
+  const concepts = extractConcepts(idx, { maxConcepts: Infinity, catalog: null });
+  const bad = concepts.filter((c) => B64_PIECES.includes(c.example));
+  assert.deepEqual(bad.map((c) => c.concept), [], 'concepts whose example is a piece of the run');
+  for (const frag of ['dqxevfp', 'kqrq8p', 'xqqaabbbnc8haaaaam']) assert.ok(!concepts.some((c) => c.concept === frag), frag);
+  assert.ok(concepts.some((c) => c.concept === 'quibble'), concepts.map((c) => c.concept).join(' '));
+});

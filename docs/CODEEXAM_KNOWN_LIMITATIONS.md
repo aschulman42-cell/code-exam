@@ -230,6 +230,17 @@ independently-operable panels that redesign is built toward.
   in the Bram index's top 200), so on a tree that indexes transcripts or fixtures an
   `id (prefix_…)` row can still appear under "Potentially important concepts". The
   withheld tokens are reported with a redacted fingerprint; the ones that pass are not.
+- **Embedded image data is left out of the vocabulary only where it is 200 characters or more
+  in one piece**: since 2026-11-24 (#351) a run of 200 or more base64 characters (letters,
+  digits, `+`, `/`) in a file is not counted when the vocabulary is built, so the pieces of an
+  image embedded in a notebook no longer rank as concepts (`dqxevfp`, `kqrq8p`). Before this,
+  on one index of notebooks they were 142 of its 299 concepts and more than half of its
+  vocabulary. The run is left out of the count only; the file is indexed and searched as
+  before. What the rule does not reach: a payload shorter than 200 characters, such as a
+  notebook cell id (`NtWBooYfVaS5`), a short key, or the body of a certificate, which is
+  wrapped at 64 characters a line; those are left to the test of the token described in the
+  entry above. Runs left out are not counted in the report of withheld tokens. An index built
+  earlier rebuilds its `vocabulary.json` on first use.
 - **The vocabulary leaves out header lines by a rule that can miss, and can take a little too
   much**: since 2026-11-23 (#351 part a) the words of copyright and licence header lines are
   not counted, so a holder's name or a project handle no longer ranks as a concept. The rule
