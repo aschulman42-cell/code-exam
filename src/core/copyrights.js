@@ -122,6 +122,130 @@ export function holderKey(holder) {
     .replace(/\s+/g, ' ').trim() || holder.toLowerCase();
 }
 
+// issue-351-header-words-out-of-vocabulary (#351 part a, 2026-11-23): which lines of a file are
+// copyright or licence header lines, for the vocabulary, which does not count their words
+// (CodeExam's own index had its holder's name and its GitHub handle as the 14th and 35th
+// vocabulary tokens, from the two lines at the head of every file). One definition, here with
+// the reader of notices: the window is HEADER_LINES, and a notice line is what holderFromLine
+// or licenseOf recognises, or "All rights reserved". A header line is
+//   - in a comment run (`//`, `#` or `--` lines, one `/* */` or `<!-- -->` block, one
+//     triple-quoted docstring) that starts in the window, in a paragraph (split at blank
+//     comment lines) that has a notice line: from its first notice line to its end. A paragraph
+//     with no notice line is not header, so a description after a blank comment line counts.
+//     Licence text over several paragraphs goes by its own wording (LICENSE_BOILERPLATE_RE), or
+//   - a comment line in the window that is a bare URL and nothing else (the project's address).
+// A line before the first notice line of its run (the file's own description) is not a header
+// line, a sentence that merely holds a URL is not, and a notice line outside the window is not.
+const C_DIRECTIVE_RE = /^#\s*(?:include|define|if|ifdef|ifndef|else|endif|pragma|import|undef|elif|error|line|region|endregion|!)/;
+const BARE_URL_RE = /^https?:\/\/\S+$/i;
+const COMMENT_TEXT_LEAD_RE = /^\s*(?:\/\/+|#+|--+|\/\*+|\*+|<!--|"""|''')?\s*/;
+const COMMENT_TEXT_TAIL_RE = /\s*(?:\*+\/|-->|"""|''')?\s*$/;
+
+// Standard licence boilerplate that holderFromLine and licenseOf do not name: the later paragraphs of
+// the Apache, MIT and BSD notices. Each phrase is one that ordinary code comments do not use (they are
+// the licences' own wording), and is matched on text with quotes removed and lines joined, since the
+// notices wrap in the middle of a phrase. Used only inside a comment run at the head of a file.
+export const LICENSE_BOILERPLATE_RE = new RegExp([
+  'unless required by applicable law',
+  'distributed on an as is basis',
+  'without warranties or conditions of any kind',
+  'governing permissions and limitations under the license',
+  'licensed under the [\\w .,-]{0,60}licen[cs]e',
+  'permission is hereby granted, free of charge',
+  'the above copyright notice and this permission notice',
+  'the software is provided as is',
+  'without warranty of any kind',
+  'redistribution and use in source and binary forms',
+  'redistributions? of source code must retain',
+  'redistributions? in binary form must reproduce',
+  'this software is provided by the .{0,80}as is',
+  'in no event shall .{0,100}? be liable for any',
+  'neither the name of .{0,80} nor the names of its contributors',
+  'this program is free software',
+].join('|'), 'i');
+const normalizeNotice = (s) => String(s || '').replace(/["'“”‘’]/g, '').replace(/\s+/g, ' ').trim();
+
+/** True when a line states a copyright holder or a licence, or says "All rights reserved". */
+export function isNoticeLine(line) {
+  const s = String(line || '');
+  return holderFromLine(s) !== null || licenseOf(s) !== null || /\ball rights reserved\b/i.test(s) || LICENSE_BOILERPLATE_RE.test(normalizeNotice(s));
+}
+
+// A comment line's text with its leader and a closing `*/`, `-->` or quotes taken off.
+function commentText(line) {
+  return String(line || '').replace(COMMENT_TEXT_TAIL_RE, '').replace(COMMENT_TEXT_LEAD_RE, '').trim();
+}
+
+// Marks, in `out`, the lines of the paragraph lines[a..b] from its first notice line to its end. A
+// phrase of the boilerplate list that wraps across two lines marks from the line it starts on.
+function markNoticeParagraph(lines, a, b, out) {
+  let start = -1;
+  for (let j = a; j <= b; j++) if (isNoticeLine(lines[j])) { start = j; break; }
+  const norm = [];
+  const offsets = [];
+  let pos = 0;
+  for (let j = a; j <= b; j++) { const t = normalizeNotice(commentText(lines[j])); offsets.push(pos); norm.push(t); pos += t.length + 1; }
+  const m = LICENSE_BOILERPLATE_RE.exec(norm.join(' '));
+  if (m) {
+    let k = 0;
+    while (k + 1 < offsets.length && offsets[k + 1] <= m.index) k++;
+    if (start < 0 || a + k < start) start = a + k;
+  }
+  if (start >= 0) for (let j = start; j <= b; j++) out.add(j);
+}
+
+function lineCommentLeader(t) {
+  if (t.startsWith('//')) return '//';
+  if (t.startsWith('#')) return C_DIRECTIVE_RE.test(t) ? '' : '#';
+  if (/^--(?:\s|$)/.test(t)) return '--';
+  return '';
+}
+
+// The last line of the block that opens on line i and closes with `closer` (the end of the
+// file when it never closes), and whether anything but the closer follows it on a one-line block.
+function blockEnd(lines, i, opener, closer) {
+  const first = String(lines[i] || '');
+  const at = first.indexOf(opener);
+  const closeOnFirst = first.indexOf(closer, at + opener.length);
+  if (closeOnFirst >= 0) return { end: i, codeAfter: first.slice(closeOnFirst + closer.length).trim() !== '' };
+  for (let j = i + 1; j < lines.length; j++) if (String(lines[j] || '').includes(closer)) return { end: j, codeAfter: false };
+  return { end: lines.length - 1, codeAfter: false };
+}
+
+/** The 0-based indexes of the lines of `lines` that are header lines, as defined above. */
+export function headerLineIndexes(lines, { headerLines = HEADER_LINES } = {}) {
+  const out = new Set();
+  const n = (lines || []).length;
+  let i = 0;
+  while (i < n && i < headerLines) {
+    const t = String(lines[i] || '').trim();
+    let end = -1;
+    if (t.startsWith('/*')) { const b = blockEnd(lines, i, '/*', '*/'); if (!b.codeAfter) end = b.end; else { i++; continue; } }
+    else if (t.startsWith('<!--')) { const b = blockEnd(lines, i, '<!--', '-->'); if (!b.codeAfter) end = b.end; else { i++; continue; } }
+    else if (t.startsWith('"""') || t.startsWith("'''")) { const q = t.slice(0, 3); const b = blockEnd(lines, i, q, q); if (!b.codeAfter) end = b.end; else { i++; continue; } }
+    else {
+      const lead = lineCommentLeader(t);
+      if (lead) { end = i; while (end + 1 < n && lineCommentLeader(String(lines[end + 1] || '').trim()) === lead) end++; }
+    }
+    if (end < 0) { i++; continue; }
+    // Paragraphs of the run, split at blank comment lines. A paragraph with a notice line is header
+    // from its first notice line to its end; one without is not, wherever it sits in the run, so
+    // a description after a blank comment line is still counted.
+    let p0 = i;
+    for (let j = i; j <= end + 1; j++) {
+      const text = j <= end ? commentText(lines[j]) : '';
+      if (j <= end && text !== '') {
+        if (j < headerLines && BARE_URL_RE.test(text)) out.add(j);
+        continue;
+      }
+      if (j > p0) markNoticeParagraph(lines, p0, j - 1, out);
+      p0 = j + 1;
+    }
+    i = end + 1;
+  }
+  return out;
+}
+
 /**
  * The harvest over a loaded index. Returns
  *   { scanned, withNotice, noNotice, holders: [{ holder, key, files, sites, example,

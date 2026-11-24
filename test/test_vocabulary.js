@@ -397,3 +397,167 @@ test('cachedVocabularyWords: no cache, an unreadable one or another version name
   fs.writeFileSync(path.join(dir, 'vocabulary.json'), JSON.stringify({ _version: VOCAB_CACHE_VERSION, tokens: {} }));
   assert.throws(() => cachedVocabularyWords(dir), /empty or from another version/);
 });
+
+// issue-351-header-words-out-of-vocabulary (#351 part a, 2026-11-23). The words of a copyright or
+// licence header are not vocabulary: the holder's name and the handle in the project URL were the
+// 14th and 35th vocabulary tokens of CodeExam's own index and its 6th and 11th concepts, with no
+// function named for either. The header is in 16 of the 40 files of this fixture, a share the
+// document-frequency cutoff (three-fifths) does not hide, as on CodeExam's index (147 of 265).
+import { ensureVocabulary, buildDocInclusiveVocabulary } from '../src/core/vocabulary.js';
+import { GROUPER_DEFAULTS } from '../src/core/mechanism-grouper.js';
+
+const HOLDERS = ['Wilhelmina Quixotry', 'Zaphod Beeblebrox', 'Ottoline Marmaduke'];
+function headerFixture() {
+  const files = {};
+  const body = (i, extra = '') => {
+    const w = ['Ledger', 'Gasket', 'Hopper', 'Sprocket', 'Tumbler'][i % 5];
+    return `export function compute${w}Total${i % 3}(x) {\n  return x + ${i};\n}\n${extra}`;
+  };
+  for (let i = 0; i < 40; i++) {
+    // an ordinary comment, set apart from any header by a blank line, in ten files
+    const plain = i % 4 === 1 ? '\n// plumbago keeps the running balance of the ledger\n' : '';
+    // headered files: eight with `//`, four Python with `#`, four JavaScript with a block comment
+    if (i < 8) {
+      files[`src/a${i}.js`] = `// Copyright (c) 2026 ${HOLDERS[0]}\n// https://github.com/quixotry99-labs/frobnicator\n${plain}${i < 3 ? '\nconst frobnicator = { Wilhelmina: ' + i + ' };\nconst wilhelminaPad = frobnicator;\n' : ''}${body(i)}`;
+    } else if (i < 12) {
+      files[`src/b${i}.py`] = `# Copyright 2026 ${HOLDERS[1]}\n# https://example.org/beeblebrox\n${plain.replace(/\/\//g, '#')}\ndef ${'compute_total_' + (i % 3)}(x):\n    return x + ${i}\n${i < 10 ? 'Zaphod = 1\nZaphod2 = Zaphod\n' : ''}`;
+    } else if (i < 16) {
+      files[`src/c${i}.js`] = `/*\n * Copyright (c) 2026 ${HOLDERS[2]}\n * Licensed under the Apache License, Version 2.0\n * see https://example.org/marmaduke-licence\n */\n${plain}${i < 14 ? '\nconst Ottoline = 1;\nconst ottolineTwice = Ottoline * 2;\n' : ''}${body(i)}`;
+    } else {
+      files[`src/d${i}.js`] = `${plain}${i === 17 ? '// the file of Quixotry-free text, Zaphod and Wilhelmina in an ordinary comment\n' : ''}${body(i)}`;
+    }
+  }
+  return files;
+}
+function stubIdx(files, indexPath) {
+  const idx = { indexPath, files: new Map(), fileLines: new Map(), _ensureFunctionIndex() {}, functionIndex: {} };
+  for (const [fp, text] of Object.entries(files)) { idx.files.set(fp, text); idx.fileLines.set(fp, text.split('\n')); }
+  return idx;
+}
+const tmpIndexDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'vocab-header-'));
+const vocabOf = (idx) => ensureVocabulary(idx, false);
+
+test('issue-351 header words: a holder and a project handle that occur only on header lines are not vocabulary', () => {
+  const v = vocabOf(stubIdx(headerFixture(), tmpIndexDir()));
+  for (const t of ['Quixotry', 'quixotry99', 'Beeblebrox', 'beeblebrox', 'Marmaduke', 'marmaduke']) assert.ok(!v.has(t), `${t} is a header word and not vocabulary`);
+  assert.ok(![...v.keys()].some((t) => /quixotry|beeblebrox|marmaduke/i.test(t)), [...v.keys()].filter((t) => /quixotry|beeblebrox|marmaduke/i.test(t)).join(' '));
+  // the licence sentence of the block header goes too: its words are in no code
+  assert.ok(!v.has('Apache') && !v.has('Licensed'));
+  // and the words the code is about stay
+  assert.ok(v.has('plumbago'));
+});
+
+test('issue-351 header words: a word on header lines and in code stays, its header occurrences not counted', () => {
+  const v = vocabOf(stubIdx(headerFixture(), tmpIndexDir()));
+  // `//` header and code: frobnicator is in the URL of 8 files and declared in 3 (twice each in those)
+  const f = v.get('frobnicator');
+  assert.ok(f, 'frobnicator is also code');
+  assert.equal(f.doc_freq, 3);
+  assert.equal(f.total_count, 6);
+  // `#` header (Python): Zaphod is in the holder of 4 files and in code in 2 of them (twice), and in one ordinary comment
+  const z = v.get('Zaphod');
+  assert.ok(z, 'Zaphod is also code');
+  assert.equal(z.doc_freq, 3);
+  assert.equal(z.total_count, 2 * 2 + 1);
+  // `/* */` block header: Ottoline is in the holder of 4 files and in code in 2 (twice each)
+  const o = v.get('Ottoline');
+  assert.ok(o, 'Ottoline is also code');
+  assert.equal(o.doc_freq, 2);
+  assert.equal(o.total_count, 4);
+  // top_files carry the same counts: no header file is named for a word it only has in its header
+  for (const e of o.top_files) assert.ok(/c1[23]\.js$/.test(e.path), e.path);
+});
+
+test('issue-351 header words: a word in an ordinary comment, with or without a header in the file, is counted as before', () => {
+  const v = vocabOf(stubIdx(headerFixture(), tmpIndexDir()));
+  const p = v.get('plumbago');
+  assert.equal(p.doc_freq, 10);
+  assert.equal(p.total_count, 10);
+  // a holder's name written in an ordinary comment of a file that has no header counts
+  assert.equal(v.get('Wilhelmina').doc_freq, 4);   // 1 ordinary comment + 3 code declarations; the 8 holder lines are not counted
+  assert.equal(v.get('Wilhelmina').total_count, 4);
+});
+
+test('issue-351 header words: the concepts and the grouper\'s seeds do not include the header words', () => {
+  const idx = stubIdx(headerFixture(), tmpIndexDir());
+  const entries = getTopVocabulary(idx, 200);
+  const concepts = extractConcepts(idx, { entries, maxConcepts: Infinity, catalog: null }).map((c) => c.concept);
+  // the grouper's token seeds are extractConcepts' first GROUPER_DEFAULTS.concepts concepts of the same vocabulary
+  const seeds = extractConcepts(idx, { maxConcepts: GROUPER_DEFAULTS.concepts, catalog: null }).map((c) => c.concept);
+  for (const list of [concepts, seeds]) {
+    for (const w of ['quixotry', 'quixotry99', 'beeblebrox', 'marmaduke', 'licensed', 'apache']) assert.ok(!list.includes(w), `${w} in ${list.join(',')}`);
+  }
+  assert.ok(concepts.includes('plumbago') || concepts.includes('frobnicator'), concepts.join(','));
+});
+
+test('issue-351 header words: the doc-inclusive vocabulary the grouper builds with --use-docs leaves the header out of code files too', () => {
+  const v = buildDocInclusiveVocabulary(stubIdx(headerFixture(), tmpIndexDir()), false);
+  assert.ok(!v.has('Quixotry') && !v.has('quixotry99') && !v.has('Beeblebrox'));
+  assert.ok(v.has('plumbago'));
+});
+
+test('issue-351 header words: a vocabulary.json written before the header rule (version 7) is rebuilt, one of the current version is read', () => {
+  const dir = tmpIndexDir();
+  const idx = stubIdx(headerFixture(), dir);
+  const stale = { _version: 7, _file_count: idx.files.size, _generated: '2026-11-09T00:00:00.000Z', tokens: { quixotry99: { doc_freq: 8, total_count: 8, score: 99, top_files: [] }, Quixotry: { doc_freq: 8, total_count: 8, score: 98, top_files: [] } } };
+  fs.writeFileSync(path.join(dir, 'vocabulary.json'), JSON.stringify(stale));
+  assert.ok(VOCAB_CACHE_VERSION > 7, 'the mark moved with the header rule');
+  const v = vocabOf(idx);
+  assert.ok(!v.has('quixotry99') && !v.has('Quixotry'), 'the stale cache was not used');
+  const rewritten = JSON.parse(fs.readFileSync(path.join(dir, 'vocabulary.json'), 'utf8'));
+  assert.equal(rewritten._version, VOCAB_CACHE_VERSION);
+  assert.ok(!('quixotry99' in rewritten.tokens));
+  // a cache that carries the mark is read as it is
+  const dir2 = tmpIndexDir();
+  const idx2 = stubIdx(headerFixture(), dir2);
+  fs.writeFileSync(path.join(dir2, 'vocabulary.json'), JSON.stringify({ _version: VOCAB_CACHE_VERSION, _file_count: idx2.files.size, _generated: '2026-11-23T00:00:00.000Z', tokens: { cachedonly: { doc_freq: 5, total_count: 5, score: 50, top_files: [] } } }));
+  const v2 = vocabOf(idx2);
+  assert.ok(v2.has('cachedonly') && v2.size === 1);
+});
+
+test('issue-351 header words: a copyright line in a docstring header, and a bare URL line in the header window, are header lines', () => {
+  const files = {};
+  for (let i = 0; i < 12; i++) {
+    files[`src/p${i}.py`] = `"""Copyright 2026 Rumpelstiltskin Holdings\nAll rights reserved.\n"""\n# https://example.org/rumpelstiltskin-docs\ndef compute_${i % 4}(x):\n    return x\n`;
+    files[`src/q${i}.js`] = `// see https://example.org/needle for the reason this is here\nexport function f${i}(x) { return x; }\n`;
+  }
+  const v = vocabOf(stubIdx(files, tmpIndexDir()));
+  assert.ok(!v.has('Rumpelstiltskin') && !v.has('rumpelstiltskin') && !v.has('Holdings'), [...v.keys()].filter((t) => /rumpel|holdings/i.test(t)).join(' '));
+  // a line with a sentence and a URL is not a bare URL line: its words count
+  assert.ok(v.has('reason'));
+});
+
+// issue-351-header-words-out-of-vocabulary, revised: a header is the notice paragraphs of the head
+// comment, not the rest of its run.
+import { headerLineIndexes } from '../src/core/copyrights.js';
+
+const APACHE = ['Copyright 2021 Google LLC', '', 'Licensed under the Apache License, Version 2.0 (the "License");', 'you may not use this file except in compliance with the License.', 'You may obtain a copy of the License at', '', '     http://www.apache.org/licenses/LICENSE-2.0', '', 'Unless required by applicable law or agreed to in writing, software', 'distributed under the License is distributed on an "AS IS" BASIS,', 'WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.', 'See the License for the specific language governing permissions and', 'limitations under the License.'];
+const MIT = ['Copyright (c) 2020 Some Body', '', 'Permission is hereby granted, free of charge, to any person obtaining a copy', 'of this software and associated documentation files (the "Software"), to deal', 'in the Software without restriction.', '', 'The above copyright notice and this permission notice shall be included in', 'all copies or substantial portions of the Software.', '', 'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR', 'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY.', 'IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,', 'DAMAGES OR OTHER LIABILITY.'];
+const BSD = ['Copyright (c) 2019, Some Body', 'All rights reserved.', '', 'Redistribution and use in source and binary forms, with or without', 'modification, are permitted provided that the following conditions are met:', '', '1. Redistributions of source code must retain the above notice, this list of', '   conditions and the following disclaimer.', '', '2. Redistributions in binary form must reproduce the above notice in the', '   documentation.', '', '3. Neither the name of the organization nor the names of its', '   contributors may be used to endorse products derived from this software.', '', 'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"', 'AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.'];
+const asRun = (kind, paras) => {
+  if (kind === 'line') return paras.map((l) => (l === '' ? '//' : '// ' + l));
+  if (kind === 'hash') return paras.map((l) => (l === '' ? '#' : '# ' + l));
+  return ['/*', ...paras.map((l) => (l === '' ? ' *' : ' * ' + l)), ' */'];
+};
+
+test('issue-351 header words: the Apache, MIT and BSD headers are header lines to the last paragraph, in every comment style', () => {
+  for (const [name, text] of [['Apache', APACHE], ['MIT', MIT], ['BSD', BSD]]) {
+    for (const kind of ['line', 'hash', 'block']) {
+      const run = asRun(kind, text);
+      const h = headerLineIndexes([...run, '', 'export const x = 1;']);
+      const missed = run.filter((l, i) => !h.has(i) && /[A-Za-z]/.test(l.replace(/^\s*(\/\/|#|\/\*|\*)/, '')));
+      assert.deepEqual(missed, [], `${name} ${kind}`);
+      assert.ok(!h.has(run.length + 1), 'the code after it is not header');
+    }
+  }
+});
+
+test('issue-351 header words: a description paragraph after the notice paragraph of one comment run is counted; a line above the notice in its paragraph is not header', () => {
+  const lines = ['// semantic-search.js: one-line description', '// Copyright (c) 2026 Some Body', '// https://example.org/some-body/project', '// Licensed under the Apache License, Version 2.0; see LICENSE.', '//', '// The command compares a sentence with one short text per function.', '// Plumbago lists the functions.', 'export function f() {}'];
+  assert.deepEqual([...headerLineIndexes(lines)].sort((a, b) => a - b), [1, 2, 3]);
+  const files = Object.fromEntries([...Array(8).keys()].map((i) => [`src/s${i}.js`, [...lines, `export function g${i}() { return ${i}; }`].join('\n')]));
+  for (let i = 0; i < 8; i++) files[`src/t${i}.js`] = `export function h${i}() { return ${i}; }`;   // keeps the words under the frequency cutoff
+  const v = vocabOf(stubIdx(files, tmpIndexDir()));
+  assert.ok(v.has('Plumbago') && v.has('compares'), [...v.keys()].slice(0, 20).join(' '));
+  assert.ok(!v.has('Licensed'));
+});

@@ -31,6 +31,7 @@ import { STRUCTURE_KEYWORDS } from './structural-fingerprint.js';
 import { _computeTokenRelevance, isMinified } from './CSI-helpers.js';
 import { makeFilterMatcher } from './filter-match.js';
 import { isPseudoSource } from '../binstrings.js';
+import { headerLineIndexes } from './copyrights.js';
 
 
 /**
@@ -227,8 +228,30 @@ export function _vocabularyPath(idx) {
   return path.join(idx.indexPath, 'vocabulary.json');
 }
 
-/** The format of vocabulary.json; a cache of another version is rebuilt, or refused by a reader that cannot rebuild. */
-export const VOCAB_CACHE_VERSION = 7;
+/**
+ * The format of vocabulary.json; a cache of another version is rebuilt, or refused by a reader that cannot rebuild.
+ * 8 (issue-351-header-words-out-of-vocabulary, 2026-11-23): the words of copyright and licence header lines are
+ * not counted, so a cache written as 7 still holds a holder's name and a project handle as vocabulary.
+ * 9 (same item, revised the same day): a header is the notice paragraphs of the head comment, not the rest
+ * of its run, so a cache written as 8 also left out descriptions that follow a notice.
+ */
+export const VOCAB_CACHE_VERSION = 9;
+
+/**
+ * The text of a file with its copyright and licence header lines left out (issue-351-header-words-out-of-vocabulary).
+ * The lines are emptied and not removed, so the rest keeps its line numbers. What a header line is, is copyrights.js's
+ * definition (headerLineIndexes), shared with the notice reader. Text with no notice-like word is returned as it is.
+ */
+const _HEADER_HINT_RE = /copyright|©|\(c\)|licen[cs]|spdx|all rights reserved|https?:\/\//i;
+export function withoutHeaderLines(content) {
+  const text = String(content);
+  if (!_HEADER_HINT_RE.test(text)) return text;
+  const lines = text.split('\n');
+  const header = headerLineIndexes(lines);
+  if (!header.size) return text;
+  for (const i of header) lines[i] = '';
+  return lines.join('\n');
+}
 
 // ----------------------------------------------------------------
 // #180: cross-corpus down-weighting. A token in MANY indexes (function, the,
@@ -411,6 +434,7 @@ export function ensureVocabulary(idx, showProgress = true, pathFilter = null) {
       const fl = idx.fileLines.get(fp);
       return fl ? fl.length : 100;
     },
+    stripHeaders: () => true,   // issue-351-header-words-out-of-vocabulary
   });
 
   // Automatic fallback: a single-file (or otherwise tiny) corpus collapses
@@ -482,6 +506,8 @@ export function buildDocInclusiveVocabulary(idx, showProgress = false) {
       const fl = idx.fileLines.get(fp);
       return fl ? fl.length : 100;
     },
+    // issue-351-header-words-out-of-vocabulary: a code file's header is out; a prose document's lines are its text
+    stripHeaders: (fp) => !TEXT_EXTENSIONS.has(path.extname(fp).toLowerCase()),
   });
 }
 
@@ -530,10 +556,14 @@ export function _functionVocabDocs(idx, pathFilter = null) {
  * @param {(docId: string) => boolean} [opts.skipDoc] - skip a document entirely
  * @param {(docId: string) => number} [opts.tokenCountOf] - document size, used
  *        for the top-document concentration metric
+ * @param {(docId: string) => boolean} [opts.stripHeaders] - leave a document's
+ *        copyright and licence header lines out of its text, as an uncounted
+ *        part of the file (issue-351-header-words-out-of-vocabulary); not by default
  * @returns {Map}
  */
 export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgress, opts = {}) {
   const skipDoc = opts.skipDoc || (() => false);
+  const stripHeaders = opts.stripHeaders || (() => false);
   const tokenCountOf = opts.tokenCountOf || (() => 100);
   const kw = STRUCTURE_KEYWORDS;
   const stopwords = PROGRAMMING_STOPWORDS;
@@ -561,7 +591,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
 
     if (skipDoc(docId, content)) continue;
 
-    const text = content;
+    const text = stripHeaders(docId) ? withoutHeaderLines(content) : content;
     const seenInDoc = new Set();
     let m;
     identRe.lastIndex = 0;
@@ -657,7 +687,7 @@ export function _buildVocabularyFromDocs(idx, docEntries, totalDocs, showProgres
 
     if (skipDoc(docId, content)) continue;
 
-    const text = content;
+    const text = stripHeaders(docId) ? withoutHeaderLines(content) : content;
     let m;
     identRe.lastIndex = 0;
 

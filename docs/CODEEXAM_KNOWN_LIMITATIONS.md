@@ -230,6 +230,19 @@ independently-operable panels that redesign is built toward.
   in the Bram index's top 200), so on a tree that indexes transcripts or fixtures an
   `id (prefix_…)` row can still appear under "Potentially important concepts". The
   withheld tokens are reported with a redacted fingerprint; the ones that pass are not.
+- **The vocabulary leaves out header lines by a rule that can miss, and can take a little too
+  much**: since 2026-11-23 (#351 part a) the words of copyright and licence header lines are
+  not counted, so a holder's name or a project handle no longer ranks as a concept. The rule
+  reads the comment at the head of a file (a run of `//`, `#` or `--` lines, one block comment
+  or docstring that starts in the first 60 lines), splits it into paragraphs at blank comment
+  lines, and takes a paragraph that has a notice line (a Copyright line with a holder, a
+  licence statement, the wording of the Apache, MIT and BSD notices, "All rights reserved")
+  from that line to its end, plus any bare-URL comment line in those 60 lines. It misses a
+  notice line further down a file, and a notice written in other words. It takes too much when
+  a file's description is in the same paragraph as the notice, after it, with no blank comment
+  line between: those words are not counted. The rest of #351 (words of
+  comments such as `distinctive`, language built-ins, the key-files roll-up) is not done, and
+  the index's own name still ranks (`exam`, from `CodeExam`).
 - **Some functions cannot be returned by `--semantic-search`** — a search compares your text
   with one short text per function, and for some functions no text is embedded: always, a
   function of one to three lines; and, on an index whose mechanisms file was built before

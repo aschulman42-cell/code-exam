@@ -61,9 +61,14 @@ FILES['tests/test_zorble.js'] = VERBS.map((v) => `export function test_${v}Zorbl
 // function names does, so `--toc quibbit` lists it and --concepts does not count it.
 FILES['src/quibbit/helpers.js'] = ['One', 'Two', 'Three', 'Four'].map((n) => `export function plain${n}(a, b) {\n  // adds two numbers\n  const r = a + b;\n  return r * 3;\n}\n`).join('\n');
 
-// A word that is in many files and names nothing: the holder in a header comment. It ranks as a
-// concept because it is widespread (the defect of #351), and no mechanism is named for it. Half
+// A word that is in many files and names nothing: a word in an ordinary comment at the head of
+// the file. It ranks as a concept because it is widespread, and no mechanism is named for it. Half
 // the files carry it: put in every file of this fixture it did not come out as a concept.
+// issue-351-header-words-out-of-vocabulary (2026-11-23): this line used to stand for a holder's name
+// in a header, the defect of #351 (a), which is now not counted. The line has no notice marker
+// (Copyright, (c) and a year, SPDX, Licensed under) and is not a bare URL, so it is an ordinary
+// comment and still ranks; the test keeps the behaviour it tests (a concept that names nothing)
+// without depending on the header rule. test_vocabulary.js has the header cases.
 Object.keys(FILES).forEach((k, i) => { if (i % 2 === 0) FILES[k] = `// kept by Glorfindus.\n${FILES[k]}`; });
 
 function runCLI(indexDir, args) {

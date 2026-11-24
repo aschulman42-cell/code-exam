@@ -101,6 +101,11 @@ Two details worth knowing:
   that recur across many different codebases — `function`, `handler`, `data`,
   `manager` — and *demotes* them, so genuinely distinctive terms surface. Delete the
   file and results simply revert to the plain TF-IDF baseline; nothing else changes.
+- **Copyright and licence header lines are not counted** (since 2026-11-23). A holder's
+  name or a project's address that sits only in the header comment of many files would
+  otherwise rank as a term, and then as an Overview concept that no function is named for
+  (CodeExam's own index had its author's name and GitHub handle there). A word that is also
+  in the code stays, with the header occurrences left out of its count.
 - **`--bare`** drops the formatting and prints a plain term list, for pasting into a
   search, a claim expression, or a note.
 
