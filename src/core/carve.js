@@ -106,6 +106,31 @@ export function wardMerges(P, n, dim, onProgress = null) {
   return merges.sort((x, y) => x[2] - y[2]);
 }
 
+/**
+ * The leaves of the tree in an order to read down: the items of a cluster are together,
+ * and at each merge the two clusters are laid end to end with the closer pair of ends
+ * meeting (each may be turned round), so that neighbours in the list are alike. `P` holds
+ * the n unit vectors the tree was built from. Returns the n row indexes in that order.
+ * `--sort-by similarity` lists mechanisms in it.
+ */
+export function leafOrder(n, merges, P, dim) {
+  const cos = (i, j) => { let s = 0; const a = i * dim, b = j * dim; for (let d = 0; d < dim; d++) s += P[a + d] * P[b + d]; return s; };
+  const root = Array.from({ length: n }, (_, i) => i), seq = Array.from({ length: n }, (_, i) => [i]);
+  const find = (x) => { while (root[x] !== x) { root[x] = root[root[x]]; x = root[x]; } return x; };
+  for (const [x, y] of merges) {
+    const a = find(x), b = find(y);
+    if (a === b) continue;
+    const A = seq[a], B = seq[b], a0 = A[0], a1 = A[A.length - 1], b0 = B[0], b1 = B[B.length - 1];
+    // the four ways to lay A and B end to end, by which ends meet
+    const ways = [[cos(a1, b0), 0], [cos(a1, b1), 1], [cos(a0, b0), 2], [cos(a0, b1), 3]];
+    let best = ways[0]; for (const w of ways) if (w[0] > best[0]) best = w;
+    const rev = (s) => [...s].reverse();
+    seq[a] = best[1] === 0 ? A.concat(B) : best[1] === 1 ? A.concat(rev(B)) : best[1] === 2 ? rev(A).concat(B) : B.concat(A);
+    seq[b] = null; root[b] = a;
+  }
+  return n ? seq[find(0)] : [];
+}
+
 /** The tree of `merges` cut into `k` clusters: a cluster label per item (equal labels, same cluster). */
 export function cutTree(n, merges, k) {
   const p = Array.from({ length: n }, (_, i) => i);
@@ -194,16 +219,18 @@ const groupBy = (items, labelOf) => { const m = new Map(); for (const x of items
 export function carveClusters(vectors, { sections = null, sub = null, merges = null, onProgress = null } = {}) {
   const placed = []; vectors.forEach((v, i) => { if (v) placed.push(i); });
   const n = placed.length;
-  if (!n) return { placed, sections: [], subsOf: () => null, merges: [], top: 0, sub: 0 };
+  if (!n) return { placed, sections: [], subsOf: () => null, merges: [], top: 0, sub: 0, order: [] };
   const dim = vectors[placed[0]].length;
-  if (!merges) { const P = new Float32Array(n * dim); placed.forEach((i, r) => P.set(vectors[i], r * dim)); merges = wardMerges(P, n, dim, onProgress); }
+  const P = new Float32Array(n * dim); placed.forEach((i, r) => P.set(vectors[i], r * dim));
+  if (!merges) merges = wardMerges(P, n, dim, onProgress);
+  const order = leafOrder(n, merges, P, dim).map((r) => placed[r]);
   const top = Math.min(n, Math.max(1, sections ?? defaultSections(n)));
   const subN = Math.min(n, Math.max(top, sub ?? defaultSubs(n)));
   const topOf = cutTree(n, merges, top), subOf = cutTree(n, merges, subN);
   const rows = placed.map((_, r) => r);
   const out = groupBy(rows, (r) => topOf[r]).map((g) => g.map((r) => placed[r]));
   const at = new Map(placed.map((i, r) => [i, r]));
-  return { placed, sections: out, subsOf: (g) => groupBy(g, (i) => subOf[at.get(i)]), merges, top, sub: subN };
+  return { placed, sections: out, subsOf: (g) => groupBy(g, (i) => subOf[at.get(i)]), merges, top, sub: subN, order };
 }
 
 /**
@@ -292,6 +319,46 @@ export function carveListing(rows, sections, subsOf, { brief = false, descriptio
   if (unplaced.length) { lines.push(`${unplacedTitle} (${unplaced.length}):`); for (const i of sorted(unplaced)) row(i, 'unplaced'); lines.push(''); }
   return { lines, sections: big.length, largest: big.length ? big[0].length : 0, alone: lone.length };
 }
+
+export const CARVE_TREE_FORMAT = 'ce-carve-tree';
+/**
+ * The similarity order `--carve clusters` saved for an index, or null: { ids (mechanism
+ * ids, neighbours alike), model, generated, stale }. Read from
+ * <index>/embeddings/<model>_carve-tree.json, the newest when several models have one.
+ * `stale` is true when the tree was built for a mechanisms file other than the one built
+ * at `mechanismsGenerated`. Nothing is computed here: a listing reads the order, it never
+ * clusters. `fsApi` and `pathApi` are node's fs and path, passed in so this module stays pure.
+ */
+export function readCarveOrder(indexPath, mechanismsGenerated, fsApi, pathApi) {
+  const dir = pathApi.join(indexPath, 'embeddings');
+  let names;
+  try { names = fsApi.readdirSync(dir).filter((f) => /_carve-tree\.json$/.test(f)); } catch { return null; }
+  let best = null;
+  for (const name of names) {
+    let t;
+    try { t = JSON.parse(fsApi.readFileSync(pathApi.join(dir, name), 'utf8')); } catch { continue; }
+    if (!t || t.format !== CARVE_TREE_FORMAT || !Array.isArray(t.order) || !t.order.length) continue;
+    if (!best || String(t.generated) > String(best.generated)) best = t;
+  }
+  if (!best) return null;
+  return { ids: best.order, model: best.model || '', generated: best.generated || '', stale: !!(mechanismsGenerated && best.mechanisms && best.mechanisms !== mechanismsGenerated) };
+}
+
+/**
+ * What a listing needs to print `rows` (mechanism entries) by similarity: null when the
+ * index has no saved order, else { similarIds, similar: { model, stale, unplaced } }, the
+ * arguments of orderEntries and listingNote. `unplaced` counts the rows the order does not
+ * hold (by their own id or a folded alias's).
+ */
+export function similarityOrderFor(indexPath, mechanismsGenerated, rows, fsApi, pathApi) {
+  const saved = readCarveOrder(indexPath, mechanismsGenerated, fsApi, pathApi);
+  if (!saved) return null;
+  const held = new Set(saved.ids);
+  const unplaced = (rows || []).filter((r) => !held.has(r.id) && !(r.aliases || []).some((a) => held.has(a.id))).length;
+  return { similarIds: saved.ids, similar: { model: saved.model, stale: saved.stale, unplaced } };
+}
+/** The refusal when a listing is asked for the similarity order and the index has none saved. `run` is the command that saves one. */
+export const noSimilarityOrder = (run) => `No similarity order is saved for this index. --carve clusters builds one from the embeddings and saves it (it needs --build-embeddings first); run it once, then this again:\n  ${run}`;
 
 /** What bare `--carve` prints: the two techniques, a line on each, and that it picks neither. */
 export function carveUsage(exe = 'ce', ndx = '<index>') {

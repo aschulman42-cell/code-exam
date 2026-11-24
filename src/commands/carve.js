@@ -26,10 +26,10 @@ import { FUSE_ARM } from '../core/function-text.js';
 import { loadMechanismsIndex, foldRecords } from '../core/mechanisms-index.js';
 import { embedCacheFile, entryEmbedPlan, loadFunctionPlan } from './embed-distance.js';
 import { chooseSearchModel, isTestEntry } from './semantic-search.js';
-import { CARVE_HOWS, CALLS_RESOLUTION, CALLS_SUB_RESOLUTION, CALLS_SEED, CALLS_MIN_SUB, CLUSTERS_MAX, PURPOSE_MAX, mechanismVectors, carveClusters, carveCalls, callEdges, carveListing, carveUsage } from '../core/carve.js';
+import { CARVE_HOWS, CALLS_RESOLUTION, CALLS_SUB_RESOLUTION, CALLS_SEED, CALLS_MIN_SUB, CLUSTERS_MAX, PURPOSE_MAX, mechanismVectors, carveClusters, carveCalls, callEdges, carveListing, carveUsage, CARVE_TREE_FORMAT } from '../core/carve.js';
 
 const nf = (n) => Number(n).toLocaleString('en-US');
-export const CARVE_TREE_FORMAT = 'ce-carve-tree';
+export { CARVE_TREE_FORMAT };
 /** Where `clusters` keeps its tree for a model. */
 export const carveTreeFile = (indexPath, modelBase) => embedCacheFile(indexPath, modelBase, 'carve-tree');
 
@@ -102,7 +102,8 @@ export function renderCalls({ ndx, entries, fnIds, fnById, tests = 0, includeTes
 /**
  * The `clusters` listing as text, from the kept mechanisms and one vector each (null where
  * the mechanism has no embedded text). `merges` is a saved tree for exactly these vectors,
- * or null to build one. Returns { text, merges }.
+ * or null to build one. Returns { text, merges, order }: `order` is the entries' indexes in
+ * the tree's leaf order, neighbours alike, which --sort-by similarity lists by.
  */
 export function renderClusters({ ndx, entries, vectors, modelBase, tests = 0, includeTests = false, numbers = {}, notes = [], behind = 0, merges = null, onProgress = null, brief = false, description = false, purpose = false }) {
   const c = carveClusters(vectors, { sections: numbers.sections ?? null, sub: numbers.sub ?? null, merges, onProgress });
@@ -117,7 +118,7 @@ export function renderClusters({ ndx, entries, vectors, modelBase, tests = 0, in
     `Result: ${nf(body.sections)} sections of 2 or more, the largest ${nf(body.largest)}; ${nf(body.alone)} mechanisms in a section of their own. Each row ends with its section number.`,
     ...textLines(entries, { description, purpose }), ...notes, '', ...body.lines,
   ].join('\n');
-  return { text, merges: c.merges };
+  return { text, merges: c.merges, order: c.order };
 }
 
 /** `--carve`: read the index and print the listing. Sets process.exitCode on a refusal. */
@@ -171,14 +172,17 @@ export async function doCarve(args, { exe = process.env.CODEEXAM_INVOKED_AS || '
   const behind = fnPlan.texts.length - fnVecs.size;
 
   const treeFile = carveTreeFile(ndx, model.base), key = vectorsKey(vectors);
-  let merges = null;
-  try { const t = JSON.parse(fs.readFileSync(treeFile, 'utf8')); if (t && t.format === CARVE_TREE_FORMAT && t.key === key) merges = t.merges; } catch { merges = null; }
+  // The saved file holds the tree (merges) and, since mechanisms-listing-by-similarity, the
+  // mechanism ids in leaf order with the mechanisms build they belong to: --toc and
+  // --mechanisms read that order for --sort-by similarity and never cluster themselves.
+  let merges = null, savedComplete = false;
+  try { const t = JSON.parse(fs.readFileSync(treeFile, 'utf8')); if (t && t.format === CARVE_TREE_FORMAT && t.key === key) { merges = t.merges; savedComplete = Array.isArray(t.order) && t.mechanisms === (data.generated || ''); } } catch { merges = null; }
   const fresh = !merges;
   if (fresh && entries.length > 1500) process.stderr.write(`# building the tree for ${nf(entries.length)} mechanisms (minutes on a large index; saved to ${treeFile} so the next run reads it)…\n`);
   const r = renderClusters({ ndx, entries, vectors, modelBase: model.base, tests, includeTests, numbers, notes, behind, merges, ...shown,
     onProgress: (done, total) => process.stderr.write(`#   distances: ${nf(done)} of ${nf(total)} mechanisms\n`) });
-  if (fresh && r.merges.length) {
-    try { fs.mkdirSync(path.dirname(treeFile), { recursive: true }); fs.writeFileSync(treeFile, JSON.stringify({ format: CARVE_TREE_FORMAT, version: 1, generated: new Date().toISOString(), model: model.base, key, merges: r.merges })); }
+  if ((fresh || !savedComplete) && r.merges.length) {
+    try { fs.mkdirSync(path.dirname(treeFile), { recursive: true }); fs.writeFileSync(treeFile, JSON.stringify({ format: CARVE_TREE_FORMAT, version: 2, generated: new Date().toISOString(), model: model.base, mechanisms: data.generated || '', key, order: r.order.map((i) => entries[i].id), merges: r.merges })); }
     catch (e) { process.stderr.write(`# the tree could not be saved (${e.message}); the next run builds it again\n`); }
   }
   console.log(r.text);

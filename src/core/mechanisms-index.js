@@ -255,6 +255,15 @@ export function foldNote(entries) {
 /** The orders a listing takes (`--sort-by`): `size`, the file's own order, largest first, the default; `path`, grouped by source directory. Directory order was the default for a few hours on 2026-11-20: on CodeExam it put public/ and scripts/ ahead of src/, and Andrew, reading it, saw minor rows first and a directory listing where he wanted what the code does. An order by similarity is mechanisms-listing-by-similarity's. */
 export const LISTING_ORDERS = ['path', 'size'];
 export const DEFAULT_LISTING_ORDER = 'size';
+/**
+ * A third order, for the listings that can read a saved one (mechanisms-listing-by-similarity,
+ * 2026-11-23): `similarity`, rows whose text is alike next to each other, in the leaf order of
+ * the tree `--carve clusters` saved in the index. It is not in LISTING_ORDERS because a
+ * listing cannot make it: the order is read (src/core/carve.js, readCarveOrder) and passed to
+ * orderEntries, and a surface that has not learned to read it (the GUI's list) keeps the two.
+ */
+export const SIMILARITY_ORDER = 'similarity';
+export const TEXT_LISTING_ORDERS = [...LISTING_ORDERS, SIMILARITY_ORDER];
 
 const slashed = (file) => String(file || '').replace(/\\/g, '/');
 const dirOfFile = (file) => { const p = slashed(file); const i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); };
@@ -337,9 +346,17 @@ export function headingsOver(entries, on = true) {
  * 2026-11-20: "I'm stumped as to why these are here at the top").
  * Returns a new array; the entries are not changed.
  */
-export function orderEntries(entries, order = DEFAULT_LISTING_ORDER) {
+export function orderEntries(entries, order = DEFAULT_LISTING_ORDER, { similarIds = null } = {}) {
   const list = entries || [];
   if (order === 'size') return list;
+  if (order === SIMILARITY_ORDER) {
+    // `similarIds`: mechanism ids in the saved order. A row is placed by its own id or, being
+    // a fold of several records, by the first of its aliases' ids the order holds; rows the
+    // order does not hold keep their place among themselves and come last.
+    const at = new Map((similarIds || []).map((id, i) => [id, i]));
+    const where = (r) => { if (at.has(r.id)) return at.get(r.id); for (const a of r.aliases || []) if (at.has(a.id)) return at.get(a.id); return Infinity; };
+    return list.map((r, i) => ({ r, i, w: where(r) })).sort((a, b) => (a.w === b.w ? a.i - b.i : a.w - b.w)).map((k) => k.r);
+  }
   const keyed = list.map((r, i) => {
     const files = r.files && r.files.length ? r.files : [...new Set((r.members || []).map((m) => m.file))];
     const starts = (r.members || []).map((m) => m.start).filter(Number.isFinite);
@@ -382,8 +399,15 @@ export function withoutTestEntries(entries, includeTests = false) {
  * `includeOption` and `orderOption` are the words of the surface (the CLI's
  * flags by default; the MCP tool passes its argument names).
  */
-export function listingNote({ testsLeft = 0, order = DEFAULT_LISTING_ORDER, includeOption = '--include-tests', orderOption = '--sort-by' } = {}) {
+export function listingNote({ testsLeft = 0, order = DEFAULT_LISTING_ORDER, includeOption = '--include-tests', orderOption = '--sort-by', similar = null } = {}) {
   const tests = testsLeft ? `${nf(testsLeft)} test row${testsLeft === 1 ? '' : 's'} left out (${includeOption} lists ${testsLeft === 1 ? 'it' : 'them'}). ` : '';
+  if (order === SIMILARITY_ORDER) {
+    // `similar`: { model, unplaced, stale } from the listing that read the saved order
+    const s = similar || {};
+    const last = s.unplaced ? ` ${nf(s.unplaced)} row${s.unplaced === 1 ? ' is' : 's are'} not in that order and come${s.unplaced === 1 ? 's' : ''} last.` : '';
+    const old = s.stale ? ' The order was saved for an earlier build of the mechanisms; --carve clusters makes it again.' : '';
+    return `${tests}By similarity: rows whose text is alike are next to each other, in the order --carve clusters saved${s.model ? ` (model ${s.model})` : ''}; a suggestion, not a finding.${last}${old} ${orderOption} size lists the largest first, ${orderOption} path by source directory.`;
+  }
   const by = order === 'size' ? `Largest first; ${orderOption} path groups the rows by source directory.` : `Grouped by source directory, then by file; rows spread over several directories come last. ${orderOption} size lists the largest first.`;
   return `${tests}${by}`;
 }

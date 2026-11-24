@@ -1869,6 +1869,11 @@ METRICS / DISCOVERY:
                              directory under a heading line, then by file; a
                              row no one directory holds more than half of is
                              under "across directories", after them.
+                             similarity: rows whose text is alike next to
+                             each other, in the order --carve clusters saved
+                             in the index (run that once first; a listing
+                             reads the order and never makes it). A
+                             suggestion, not a finding.
   --toc [filter]             Table of contents of the same mechanisms, one
                              numbered line each in the same order: the row's
                              number in this list, the mechanism's id (m12, as

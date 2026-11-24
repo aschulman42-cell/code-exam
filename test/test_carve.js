@@ -22,6 +22,7 @@ import { parseArgs } from '../src/argparse.js';
 import { sha } from '../src/core/embed.js';
 import { MECHANISMS_FORMAT } from '../src/core/mechanisms-index.js';
 import {
+  leafOrder, readCarveOrder, similarityOrderFor,
   wardMerges, cutTree, louvain, makeRng, callEdges, carveClusters, carveCalls, carveListing, carveUsage, mechanismVectors,
   headingMaker, labelWords, wrapText, purposeText, defaultSections, defaultSubs, PURPOSE_MAX, CALLS_SEED,
 } from '../src/core/carve.js';
@@ -326,6 +327,47 @@ describe('--carve: the whole output', () => {
     assert.deepEqual([...got.keys()], ['a']);
     assert.equal(fs.readFileSync(file, 'utf8'), before);
     assert.equal((await cachedVectors(path.join(dir, 'absent.json'), [{ key: 'a', text: 'alpha' }])).size, 0);
+  });
+});
+
+describe('--carve clusters: the order it saves for --sort-by similarity', () => {
+  it('keeps a cluster\'s members together and holds every placed mechanism once', () => {
+    const vs = plantedVectors();
+    // interleave the three features so that the input order is not the answer
+    const mixed = [0, 4, 8, 1, 5, 9, 2, 6, 10, 3, 7, 11].map((i) => vs[i]);
+    const feature = (i) => i % 3;   // position in `mixed` -> planted feature
+    const c = carveClusters([...mixed, null], { sections: 3 });
+    assert.equal(c.order.length, 12);
+    assert.deepEqual([...c.order].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 'each placed mechanism once, the one with no vector not at all');
+    const runs = c.order.map(feature).filter((f, i, a) => i === 0 || f !== a[i - 1]);
+    assert.equal(runs.length, 3, `three runs, one per feature: ${c.order.map(feature).join('')}`);
+    assert.deepEqual(carveClusters([null]).order, []);
+  });
+
+  it('lays two clusters end to end with the closer ends meeting', () => {
+    // four points on a line of angles: 0, 10, 50 and 60 degrees. The tree joins (0,10) and (50,60);
+    // read down, 10 must sit beside 50.
+    const at = (deg) => unit([Math.cos(deg * Math.PI / 180), Math.sin(deg * Math.PI / 180)]);
+    const pts = [at(10), at(60), at(0), at(50)];   // given out of order
+    const P = new Float32Array(8); pts.forEach((v, i) => P.set(v, i * 2));
+    const order = leafOrder(4, wardMerges(P, 4, 2), P, 2);
+    const degs = order.map((i) => [10, 60, 0, 50][i]).join(',');
+    assert.ok(degs === '0,10,50,60' || degs === '60,50,10,0', degs);
+  });
+
+  it('a listing reads the newest saved order, knows a stale one, and counts the rows it does not hold', () => {
+    const dir = tmp('ce-carve-order-');
+    assert.equal(readCarveOrder(dir, 'g1', fs, path), null, 'no embeddings folder');
+    fs.mkdirSync(path.join(dir, 'embeddings'));
+    const write = (name, t) => fs.writeFileSync(path.join(dir, 'embeddings', name), JSON.stringify(t));
+    write('old_carve-tree.json', { format: 'ce-carve-tree', generated: '2026-01-01', model: 'old', mechanisms: 'g1', order: ['m9'], merges: [] });
+    write('new_carve-tree.json', { format: 'ce-carve-tree', generated: '2026-02-01', model: 'new', mechanisms: 'g1', order: ['m3', 'm1'], merges: [] });
+    write('v1_carve-tree.json', { format: 'ce-carve-tree', generated: '2026-03-01', model: 'v1', merges: [] });   // before the order was saved: not an order
+    write('other_label+members.json', { items: {} });
+    assert.deepEqual(readCarveOrder(dir, 'g1', fs, path), { ids: ['m3', 'm1'], model: 'new', generated: '2026-02-01', stale: false });
+    assert.equal(readCarveOrder(dir, 'g2', fs, path).stale, true);
+    const rows = [{ id: 'm1' }, { id: 'm2' }, { id: 'm7', aliases: [{ id: 'm3' }] }];
+    assert.deepEqual(similarityOrderFor(dir, 'g1', rows, fs, path), { similarIds: ['m3', 'm1'], similar: { model: 'new', stale: false, unplaced: 1 } });
   });
 });
 

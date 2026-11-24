@@ -173,7 +173,10 @@ several files comes first, then the rows of each file, a file's named pieces by 
 its `/ other` piece last. A row no one directory holds more than half of (a name-token
 group or a command gathered from across the source) is under `across directories`, after
 the directories; rows tagged `noise` or `vendored` are last. A command row (`[cmd] --flag`)
-is placed like any other. The ids in `--mechanisms` therefore do not run in sequence.
+is placed like any other. `--sort-by similarity` (since 2026-11-23) puts rows whose text is
+alike next to each other, with no headings: the listing reads the order that
+`--carve clusters` saved in the index and does not work one out, so that command has to
+have been run once ([`cli.md`](cli.md) has the measurement and the cautions). The ids in `--mechanisms` therefore do not run in sequence.
 `--toc` leaves a blank line between rows.
 Directory order was the default for a few hours and was put back: it does not make the
 first page a summary either, only the first directory by path (on ExoPlayer 3 the Cast demo

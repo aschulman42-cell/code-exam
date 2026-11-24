@@ -32,7 +32,8 @@ import { extractReferencedResources } from './core/referenced-resources.js';
 import { parseMultisectTerms } from './commands/multisect.js';
 import { modelsUsedNegative } from './commands/metrics.js';
 import { filteredEmptyNotice } from './core/filter-match.js';
-import { loadMechanismsIndex, filterRecords, foldRecords, foldNote, notBuiltLine, coverageLine, filterMatches, matchNote, orderEntries, headingsOver, withoutTestEntries, listingNote, onlyTestsNotice, LISTING_ORDERS, DEFAULT_LISTING_ORDER } from './core/mechanisms-index.js';
+import { loadMechanismsIndex, filterRecords, foldRecords, foldNote, notBuiltLine, coverageLine, filterMatches, matchNote, orderEntries, headingsOver, withoutTestEntries, listingNote, onlyTestsNotice, LISTING_ORDERS, DEFAULT_LISTING_ORDER, SIMILARITY_ORDER, TEXT_LISTING_ORDERS, mechanismsPath } from './core/mechanisms-index.js';
+import { similarityOrderFor, noSimilarityOrder } from './core/carve.js';
 import { maskCredentials } from './core/credential-mask.js';
 import { displayName, parseFuncSpec } from './utils.js';
 import { doCallTree } from './commands/graph.js';
@@ -292,7 +293,7 @@ const TOOLS = [
         filter: { type: 'string', description: 'Filter by label, purpose, member or file name substring (or /regex/)' },
         max: { type: 'number', description: 'Max records (default 50)' },
         include_tests: { type: 'boolean', description: 'Also list the entries that are wholly test code (default false: they are left out, and the line under the header says how many)' },
-        sort_by: { type: 'string', enum: ['path', 'size'], description: 'Order of the entries. size (default): largest entry first. path: grouped by source directory under a heading line, then by file; entries spread over several directories come last' },
+        sort_by: { type: 'string', enum: ['path', 'size', 'similarity'], description: 'Order of the entries. size (default): largest entry first. path: grouped by source directory under a heading line, then by file; entries spread over several directories come last. similarity: entries whose text is alike next to each other, in the order the command-line step --carve clusters saved in the index (a suggestion, not a finding; when none is saved the tool says how to make one)' },
       },
     },
   },
@@ -1115,7 +1116,7 @@ function handleToolRaw(name, args) {
       // are left out unless include_tests is true, and the rows come in the
       // listing's order (sort_by: size, the default, or path), as in the CLI.
       const order = args.sort_by == null ? DEFAULT_LISTING_ORDER : String(args.sort_by).toLowerCase();
-      if (!LISTING_ORDERS.includes(order)) return `sort_by: '${args.sort_by}' is not an order; use ${LISTING_ORDERS.join(' or ')}.`;
+      if (!TEXT_LISTING_ORDERS.includes(order)) return `sort_by: '${args.sort_by}' is not an order; use ${LISTING_ORDERS.join(', ')} or ${SIMILARITY_ORDER}.`;
       const folded = foldRecords(data.records);
       const { kept: all, left: testsLeft } = withoutTestEntries(folded, !!args.include_tests);
       const matched = args.filter ? filterRecords(all, args.filter) : all;
@@ -1125,9 +1126,16 @@ function handleToolRaw(name, args) {
         if (args.filter && all.length) return filteredEmptyNotice('mechanisms', all.length, args.filter);
         return testsLeft ? `No mechanisms outside test code: ${testsLeft} test row(s) left out (include_tests: true lists them).` : 'No mechanisms recorded';
       }
-      const filtered = orderEntries(matched, order);
+      // mechanisms-listing-by-similarity: sort_by similarity reads the order --carve clusters
+      // saved in the index; the tool never clusters, and says how to get one when none is saved.
+      let bySimilarity = null;
+      if (order === SIMILARITY_ORDER) {
+        bySimilarity = similarityOrderFor(path.dirname(mechanismsPath(index)), data.generated || '', matched, fs, path);
+        if (!bySimilarity) return `sort_by similarity: ${noSimilarityOrder('ce --index-path <index> --carve clusters --brief')}\nThat is a command-line step; sort_by size and sort_by path need nothing.`;
+      }
+      const filtered = orderEntries(matched, order, bySimilarity || {});
       const lines = [`${filtered.length} mechanism(s)${foldNote(filtered)}${args.filter ? ` matching "${args.filter}"` : ''} (showing ${Math.min(max, filtered.length)}): ${coverageLine(data)}`,
-        `  ${listingNote({ testsLeft: testsMatched, order, includeOption: 'include_tests: true', orderOption: 'sort_by' })}`];
+        `  ${listingNote({ testsLeft: testsMatched, order, includeOption: 'include_tests: true', orderOption: 'sort_by', similar: bySimilarity && bySimilarity.similar })}`];
       const dn = (n) => (typeof index.getDisplayName === 'function' ? index.getDisplayName(n) : n);
       const heading = headingsOver(filtered, order === 'path');
       for (const r of filtered.slice(0, max)) {

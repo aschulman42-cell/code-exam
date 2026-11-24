@@ -649,8 +649,44 @@ describe('the mechanisms index', () => {
       assert.match(first(out), /jobs\.js \/ queue/, 'the largest first by default');
       assert.match(first(handleTool('list_mechanisms', { sort_by: 'size' })), /jobs\.js \/ queue/);
       assert.doesNotMatch(first(byPath.replace(/^  --- .*$/gm, '')), /jobs\.js \/ queue/, 'path: the largest row no longer leads');
-      assert.equal(handleTool('list_mechanisms', { sort_by: 'nearest' }), "sort_by: 'nearest' is not an order; use path or size.");
+      assert.equal(handleTool('list_mechanisms', { sort_by: 'nearest' }), "sort_by: 'nearest' is not an order; use path, size or similarity.");
+      assert.deepEqual(tool.inputSchema.properties.sort_by.enum, ['path', 'size', 'similarity']);
       assert.equal(handleTool('list_mechanisms', { filter: 'test_parser' }), "No mechanisms match 'test_parser' outside test code; 1 test row does: include_tests: true lists it.");
+    });
+
+    it('--sort-by similarity reads the order --carve clusters saved and never makes one: no order saved is a message with the command; a saved order is followed, rows it lacks come last, a stale one says so (mechanisms-listing-by-similarity)', () => {
+      const emb = path.join(IDX2, 'embeddings'), treeFile = path.join(emb, 'some-model_carve-tree.json');
+      fs.rmSync(emb, { recursive: true, force: true });
+      const none = runCLI(IDX2, ['--toc', '--sort-by', 'similarity']);
+      assert.equal(none.code, 1);
+      assert.match(none.out, /--sort-by similarity: No similarity order is saved for this index\. --carve clusters builds one from the embeddings and saves it \(it needs --build-embeddings first\); run it once, then this again:\n {2}\S.* --carve clusters --brief/);
+      assert.match(handleTool('list_mechanisms', { sort_by: 'similarity' }), /^sort_by similarity: No similarity order is saved for this index\.[^]*That is a command-line step; sort_by size and sort_by path need nothing\.$/);
+      // a saved order: the size order of the non-test rows, reversed, with the last of them left out
+      const data = JSON.parse(fs.readFileSync(path.join(IDX2, 'mechanisms.json'), 'utf8'));
+      const ids = (s) => [...s.matchAll(/^ ?\d+\. (m\d+) /gm)].map((m) => m[1]);
+      const bySize = ids(runCLI(IDX2, ['--toc', '--sort-by', 'size']).out);
+      assert.ok(bySize.length >= 3, 'the fixture has rows to reorder');
+      const saved = [...bySize].reverse().slice(0, -1), missing = bySize[0];
+      fs.mkdirSync(emb, { recursive: true });
+      const write = (extra = {}) => fs.writeFileSync(treeFile, JSON.stringify({ format: 'ce-carve-tree', version: 2, generated: '2026-11-23T00:00:00.000Z', model: 'some-model', mechanisms: data.generated, key: 'k', order: saved, merges: [], ...extra }));
+      write();
+      const t = runCLI(IDX2, ['--toc', '--sort-by', 'similarity']);
+      assert.equal(t.code, 0, t.out);
+      assert.deepEqual(ids(t.out), [...saved, missing], 'the saved order, then the row it does not hold');
+      assert.match(t.out, /^  1 test row left out \(--include-tests lists it\)\. By similarity: rows whose text is alike are next to each other, in the order --carve clusters saved \(model some-model\); a suggestion, not a finding\. 1 row is not in that order and comes last\. --sort-by size lists the largest first, --sort-by path by source directory\./m, t.out);
+      assert.doesNotMatch(t.out, /^--- /m, 'no directory headings in this order');
+      const m = runCLI(IDX2, ['--mechanisms', '--sort-by', 'similarity']);
+      assert.equal(m.code, 0);
+      assert.match(m.out, /By similarity: rows whose text is alike/);
+      const tool = handleTool('list_mechanisms', { sort_by: 'similarity' });
+      assert.match(tool, /^  1 test row left out \(include_tests: true lists it\)\. By similarity: .*sort_by size lists the largest first, sort_by path by source directory\.$/m, tool);
+      // an order saved for another build of the mechanisms is used and said to be old
+      write({ mechanisms: '2001-01-01T00:00:00.000Z' });
+      assert.match(runCLI(IDX2, ['--toc', '--sort-by', 'similarity']).out, /The order was saved for an earlier build of the mechanisms; --carve clusters makes it again\./);
+      // a tree file from before the order was saved in it counts as none
+      write({ order: undefined });
+      assert.equal(runCLI(IDX2, ['--toc', '--sort-by', 'similarity']).code, 1);
+      fs.rmSync(emb, { recursive: true, force: true });
     });
 
     it('--toc and --mechanisms leave the test row out and list largest first; --include-tests lists it; --sort-by path groups by directory under headings; --exclude-tests draws no note', () => {
@@ -685,7 +721,7 @@ describe('the mechanisms index', () => {
       assert.doesNotMatch(bySize.out, /^--- /m, 'no headings largest first');
       assert.match(bySize.out, /^  1 test row left out \(--include-tests lists it\)\. Largest first; --sort-by path groups the rows by source directory\. Each row: its number in this list, then the mechanism's id \(the name --mechanisms shows\)\.$/m);
       const bad = runCLI(IDX2, ['--toc', '--sort-by', 'nearest']);
-      assert.match(bad.out, /--sort-by: 'nearest' is not an order; use path or size\./);
+      assert.match(bad.out, /--sort-by: 'nearest' is not an order; use path, size or similarity\./);
       assert.equal(bad.code, 1);
       assert.match(runCLI(IDX2, ['--toc', 'test_parser']).out, /^No mechanisms match 'test_parser' outside test code; 1 test row does: --include-tests lists it\.$/m, 'a filter that matched only the test row says so');
       assert.match(runCLI(IDX2, ['--toc', 'test_parser', '--include-tests']).out, /^1\. m\d+\s+\[file\] test_parser\.py/m);

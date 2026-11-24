@@ -598,7 +598,7 @@ These older commands show the pieces the clusters are built from:
 
 | command | what it shows |
 |---|---|
-| `--toc`, `--mechanisms` | the mechanisms, each with its id. `--sort-by path` orders them by directory |
+| `--toc`, `--mechanisms` | the mechanisms, each with its id. `--sort-by path` orders them by directory. `--sort-by similarity` (since 2026-11-23) orders them so that neighbours are alike, with no headings, using the order `--carve clusters` saved |
 | `--show-function-text` | the short text built for each function, and which mechanisms hold it |
 | `--embed-distance id:m70` | the mechanisms most similar to one mechanism. This is one line of the comparison that clustering makes for all of them |
 | `--semantic-search` | the same embeddings, searched with your own text |

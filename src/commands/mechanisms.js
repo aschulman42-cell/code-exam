@@ -10,7 +10,10 @@
 // listing reads the file through the same loader the GUI route and the MCP
 // list_mechanisms tool use, so the three surfaces cannot disagree.
 
-import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, foldRecords, formatMechanismsList, formatMechanismsToc, notBuiltLine, candidateCount, estimateBuildMinutes, carryDescriptions, orderEntries, withoutTestEntries, listingNote, onlyTestsNotice, LISTING_ORDERS, DEFAULT_LISTING_ORDER } from '../core/mechanisms-index.js';
+import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, mechanismsPath, filterRecords, foldRecords, formatMechanismsList, formatMechanismsToc, notBuiltLine, candidateCount, estimateBuildMinutes, carryDescriptions, orderEntries, withoutTestEntries, listingNote, onlyTestsNotice, LISTING_ORDERS, DEFAULT_LISTING_ORDER, SIMILARITY_ORDER, TEXT_LISTING_ORDERS } from '../core/mechanisms-index.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { similarityOrderFor, noSimilarityOrder } from '../core/carve.js';
 import { harvestPurpose } from './pseudo-claims.js';
 import { describeMechanisms } from '../core/mechanisms-describe.js';
 import { effectiveMaxResults } from '../argparse.js';
@@ -149,8 +152,10 @@ function listedEntries(index, args, flag, exe) {
   // mechanisms-listing-order-and-test-rows: test rows are left out unless
   // --include-tests is given, and the rows are put in the listing's order
   // (--sort-by size, the default, or path) after the fold and the filter.
+  // mechanisms-listing-by-similarity: a third order, similarity, read from the tree
+  // --carve clusters saved in the index; the listing never clusters.
   const order = args.sort_by == null ? DEFAULT_LISTING_ORDER : String(args.sort_by).toLowerCase();
-  if (!LISTING_ORDERS.includes(order)) { console.error(`--sort-by: '${args.sort_by}' is not an order; use ${LISTING_ORDERS.join(' or ')}.`); process.exitCode = 1; return null; }
+  if (!TEXT_LISTING_ORDERS.includes(order)) { console.error(`--sort-by: '${args.sort_by}' is not an order; use ${LISTING_ORDERS.join(', ')} or ${SIMILARITY_ORDER}.`); process.exitCode = 1; return null; }
   const folded = foldRecords(data.records);
   const { kept: entries, left: testsLeft } = withoutTestEntries(folded, !!args.include_tests);
   const matched = filter ? filterRecords(entries, filter) : entries;
@@ -162,7 +167,12 @@ function listedEntries(index, args, flag, exe) {
         : testsLeft ? `No mechanisms outside test code: ${testsLeft.toLocaleString('en-US')} test row${testsLeft === 1 ? '' : 's'} left out (--include-tests lists ${testsLeft === 1 ? 'it' : 'them'}).` : 'No mechanisms recorded.');
     return null;
   }
-  return { data, entries, kept: orderEntries(matched, order), filter, order, note: listingNote({ testsLeft: testsMatched, order }) };
+  let bySimilarity = null;
+  if (order === SIMILARITY_ORDER) {
+    bySimilarity = similarityOrderFor(path.dirname(mechanismsPath(index)), data.generated || '', matched, fs, path);
+    if (!bySimilarity) { console.error(`--sort-by similarity: ${noSimilarityOrder(`${exe} --index-path ${args.index_path} --carve clusters --brief`)}`); process.exitCode = 1; return null; }
+  }
+  return { data, entries, kept: orderEntries(matched, order, bySimilarity || {}), filter, order, note: listingNote({ testsLeft: testsMatched, order, similar: bySimilarity && bySimilarity.similar }) };
 }
 
 /**
