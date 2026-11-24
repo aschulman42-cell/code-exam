@@ -473,8 +473,12 @@ mechanisms are found. None of the changes below has been made or tested.
   might be closer to the breadth of a real claim. Not tried. The one sign so far is the
   claim-chart measurement above: the code for a claim fits in about two broad clusters, so
   a broad cluster is roughly claim-sized and a narrow one is smaller.
-- **Can a list of a codebase's concepts guide a user into the clusters?** A `--concepts`
-  command is proposed and not yet built.
+- **Can a list of a codebase's concepts guide a user into the clusters?** `--concepts` lists
+  them (since 2026-11-23), each with the number of mechanisms named for it, and its closing
+  lines send the reader to `--carve`. It does not yet say which section holds a concept, and
+  whether the list leads a reader to the right section has not been tested. How the
+  concepts are found and how often they are right is on
+  [`CODEEXAM_CONCEPTS.md`](CODEEXAM_CONCEPTS.md).
 - **Will a reader see anything surprising?** A good listing would show the familiar
   features and also some thought-provoking lower-level constructs: what the code actually
   does, as against what its source says it does. Headings that are word lists surprise

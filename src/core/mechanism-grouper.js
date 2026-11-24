@@ -17,7 +17,7 @@
 // prototype (label propagation / Louvain) FAILED and was intentionally left
 // behind — only the multi-seed path graduates here.
 
-import { isIntrinsicName, extractConcepts, buildDocInclusiveVocabulary, _isNoiseDoc } from './vocabulary.js';
+import { isIntrinsicName, extractConcepts, buildDocInclusiveVocabulary, _isNoiseDoc, CONCEPT_NAMES } from './vocabulary.js';
 import { isTestAttributedFunction } from './test-attribute.js';
 import { extractCommandCatalog } from './breadcrumbs-commands.js';
 import { findCallees } from './calls.js';
@@ -126,7 +126,7 @@ function gatherConcepts(index, o) {
     if (o.useDocs) {
       const vocab = buildDocInclusiveVocabulary(index, false);
       const entries = [...vocab.entries()].map(([token, data]) => ({ token, ...data }))
-        .sort((a, b) => b.score - a.score).slice(0, 200); // mirror extractConcepts' topN default
+        .sort((a, b) => b.score - a.score).slice(0, CONCEPT_NAMES); // extractConcepts' own number of names
       return extractConcepts(index, { maxConcepts: o.concepts, entries }) || [];
     }
     return extractConcepts(index, { maxConcepts: o.concepts }) || [];

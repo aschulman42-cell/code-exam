@@ -1023,7 +1023,35 @@ export function getTopVocabulary(idx, n = 50, filter = null, pathFilter = null, 
  * token (`mcp`, `claw`) has `example: null`.
  * @returns {Array<{ concept: string, example: string|null }>} ranked concepts
  */
-export function extractConcepts(idx, { topN = 200, maxConcepts = 15, catalog, entries } = {}) {
+/**
+ * How many of the highest-scored vocabulary names the concepts are pieces of. One number for every
+ * caller (the Overview, --concepts, the GUI and MCP vocabulary views, the grouper's token seeds), so
+ * that they cannot disagree.
+ *
+ * 500 SINCE 2026-11-24 (issue-364-concepts-doc-and-accuracy); 200 before. A word spread over many
+ * names, none of them ranked high, was no concept at all at 200: `faithful` on `.sr_gh`, in 13 names
+ * of which the best ranked 238th; `dash`, `hls`, `rtsp`, `drm` on ExoPlayer 3. MEASURED on 19 public
+ * codebases with scripts/concepts-recall.mjs (words of each codebase's own README and docs headings)
+ * and the scratch probe concepts-cut-probe.mjs, at 200 / 300 / 500 / 1,000 / 2,000:
+ *   heading words among the first 12 concepts   49 / 49 / 49 / 54 / 58 of 228   (no better until 1,000)
+ *   heading words found among all the concepts   7% /  9% / 12% / 17% / 24%
+ *   first-12 concepts with no example (words that are never a piece of a longer name: mostly
+ *     words from comments)                       25 / 19 / 11 /  8 /  7
+ *   of the first 24 (the grouper's seeds), how many differ from those at 200
+ *                                                 0 / 53 / 88 / 121 / 134 of 456
+ * 500 halves the comment words at the top and changes about a fifth of the seeds; beyond it the
+ * seeds keep moving for smaller gains. A mechanisms index built before this date was seeded from
+ * the 200; --build-mechanisms run again will seed differently.
+ */
+export const CONCEPT_NAMES = 500;
+/**
+ * How many of the highest-scored names the file lists are made from: the Overview's "Potentially
+ * important files" and the files `--concepts` shows on a row. Left at 200 when CONCEPT_NAMES went to
+ * 500; the file ranking was not part of that measurement.
+ */
+export const KEY_FILE_NAMES = 200;
+
+export function extractConcepts(idx, { topN = CONCEPT_NAMES, maxConcepts = 15, catalog, entries } = {}) {
   if (catalog === undefined) catalog = _loadCrossCorpusCatalog(); // injectable for tests
   const N = (catalog && catalog.index_count) || 0;
   // Filtered again here rather than relying on getTopVocabulary, because

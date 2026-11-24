@@ -615,3 +615,39 @@ test('issue-351 base64 fragments: no concept is a fragment of an embedded image'
   for (const frag of ['dqxevfp', 'kqrq8p', 'xqqaabbbnc8haaaaam']) assert.ok(!concepts.some((c) => c.concept === frag), frag);
   assert.ok(concepts.some((c) => c.concept === 'quibble'), concepts.map((c) => c.concept).join(' '));
 });
+
+// issue-364-concepts-doc-and-accuracy (2026-11-24): concepts are pieces of the top CONCEPT_NAMES
+// vocabulary names, 500 and no longer 200. A word spread over several names, none of them among the
+// 200 best, was no concept at all (`faithful` on .sr_gh: 13 names, the best ranked 238th).
+import { CONCEPT_NAMES, KEY_FILE_NAMES } from '../src/core/vocabulary.js';
+import { allConcepts } from '../src/commands/concepts.js';
+
+function spreadWordIdx() {
+  const idx = stubIdx({}, tmpIndexDir());
+  const vocab = new Map();
+  // 230 names that outrank the rest, each about something of its own
+  for (let i = 0; i < 230; i++) vocab.set(`render${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}Widget`, { doc_freq: 3, total_count: 9, score: 5000 - i, top_files: [] });
+  // the spread word: eight names, ranked 231st to 238th
+  ['computeZorblaxScore', 'ZorblaxMetrics', 'zorblax_from_generations', 'evalZorblax', 'zorblaxPreassert', 'ZorblaxEvaluator', 'loadZorblaxConfig', 'zorblax_report'].forEach((t, i) => vocab.set(t, { doc_freq: 2, total_count: 4, score: 900 - i, top_files: [] }));
+  idx._vocabulary = vocab;
+  idx.getTopVocabulary = (n) => getTopVocabulary(idx, n);
+  return idx;
+}
+
+test('issue-364 concept names: one number, 500, and the file lists keep 200', () => {
+  assert.equal(CONCEPT_NAMES, 500);
+  assert.equal(KEY_FILE_NAMES, 200);
+});
+
+test('issue-364 concept names: a word spread over names ranked below the 200th is a concept, by default and for --concepts', () => {
+  const idx = spreadWordIdx();
+  const at200 = extractConcepts(idx, { topN: 200, maxConcepts: Infinity, catalog: null }).map((c) => c.concept);
+  assert.ok(!at200.includes('zorblax'), 'the fixture is the defect: at 200 names the word is not a concept');
+  const byDefault = extractConcepts(idx, { maxConcepts: Infinity, catalog: null });
+  const z = byDefault.find((c) => c.concept === 'zorblax');
+  assert.ok(z, 'a concept by default');
+  assert.ok(/zorblax/i.test(z.example), `its example is one of its names: ${z.example}`);
+  const { vocab, all } = allConcepts(idx);
+  assert.ok(all.some((c) => c.concept === 'zorblax'), '--concepts lists it');
+  assert.equal(vocab.length, KEY_FILE_NAMES, 'the file lists are still made from the top 200');
+});

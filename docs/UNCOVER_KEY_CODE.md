@@ -46,6 +46,11 @@ The concept and file lists come straight from the vocabulary ranking, so an over
 is only as sharp as the vocabulary underneath it — which is a feature in its own right
 (see **Vocabulary**, below).
 
+`--concepts` prints the concepts on their own, more of them, each with its files and the
+number of mechanisms named for it. How concepts are found, what they are for, and how
+often they are right, measured on 19 public codebases, is on
+[`CODEEXAM_CONCEPTS.md`](CODEEXAM_CONCEPTS.md).
+
 ## Overview by AI — `--overview-by-ai`
 
 `ce --overview-by-ai` produces a *written* orientation instead of a structured one: a

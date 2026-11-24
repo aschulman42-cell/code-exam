@@ -91,6 +91,7 @@ at the feature that serves it.
    The experimental `--carve` command divides that table of contents into
    sections and sub-sections, a shorter list to run an eye down.
    → [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md),
+   [`CODEEXAM_CONCEPTS.md`](docs/CODEEXAM_CONCEPTS.md),
    [`CODEEXAM_MECHANISMS.md`](docs/CODEEXAM_MECHANISMS.md),
    [`CODEEXAM_CLUSTERING.md`](docs/CODEEXAM_CLUSTERING.md)
 
@@ -261,6 +262,7 @@ rebuild the index to pick up later changes. For a more thorough list, see
 | [`CODEEXAM_BROWSING.md`](docs/CODEEXAM_BROWSING.md) | Structural lists, cross-reference, and code-surfacing metrics |
 | [`CODEEXAM_MAPPING_DEPENDENCIES.md`](docs/CODEEXAM_MAPPING_DEPENDENCIES.md) | Imports, the bill of materials, and dependencies: each dependency command (and the GUI's Imports accordion) in one table — what it answers, what it reads, what it does not read — and what is not done |
 | [`UNCOVER_KEY_CODE.md`](docs/UNCOVER_KEY_CODE.md) | Vocabulary, breadcrumbs, Overview / Overview by AI |
+| [`CODEEXAM_CONCEPTS.md`](docs/CODEEXAM_CONCEPTS.md) | Concepts: the words a codebase seems to be about, found with no model. How they are found, what `--concepts` shows, what they are for, and how often they are right, measured against the README and docs headings of 19 public codebases |
 | [`MEASURING_IMPORTANCE.md`](docs/MEASURING_IMPORTANCE.md) | How CodeExam estimates "importance" (rareness, TF-IDF, cross-corpus down-weighting, centrality) and uses it to steer and sort |
 | [`CODEEXAM_SUMMARIZING.md`](docs/CODEEXAM_SUMMARIZING.md) | Summarizing code: overview, digest, analyze, GUI chat, and the mechanisms and `--toc` table of contents (outline) |
 | [`QUASI_SOURCE.md`](docs/QUASI_SOURCE.md) | Binary analysis and bundled-JS extraction |

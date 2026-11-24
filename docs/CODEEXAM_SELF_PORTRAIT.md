@@ -267,6 +267,14 @@ functions scores 1 / 7 / 15 under the best-line rule (asus-CC's report on #353).
 2, not shown, states the vowel-density test backwards. A local model can draft the portrait; the
 grounding and the reading still have to be checked.
 
+A note on the feature itself, added 2026-11-24. The claims here describe the filters as they were
+on the day of the run. Any such filter has to strike a balance between listing too much (words
+from comments, names of imported libraries, pieces of encoded data) and listing too little (a real
+subject that the code only mentions in comments, or one spread over many names that each rank
+low). Rules tried for the first have each cost something of the second. What has been measured,
+what was changed and what was left alone is on [`CODEEXAM_CONCEPTS.md`](CODEEXAM_CONCEPTS.md),
+sections 6 and 7.
+
 *Run of 10/31, group `[file] vocabulary.js / rest`, ranked P2, system claim; 13 dependents drafted,
 3 shown; 9 grounded functions: `core/vocabulary.js` (9).*
 

@@ -20,7 +20,7 @@ import { CodeSearchIndex } from '../src/core/CodeSearchIndex.js';
 import { buildMechanismsIndex, saveMechanismsIndex, loadMechanismsIndex, foldRecords, filterRecords, withoutTestEntries, isTestEntry } from '../src/core/mechanisms-index.js';
 import { harvestPurpose } from '../src/commands/pseudo-claims.js';
 import { buildOverview } from '../src/core/overview.js';
-import { extractConcepts, conceptLabel } from '../src/core/vocabulary.js';
+import { extractConcepts, conceptLabel, CONCEPT_NAMES, KEY_FILE_NAMES } from '../src/core/vocabulary.js';
 import { TESTS_OUT_BY_DEFAULT_KEYS } from '../src/core/test-paths.js';
 import { parseArgs as parseProcessArgs } from '../src/argparse.js';
 
@@ -97,9 +97,11 @@ describe('--concepts', () => {
     await bare.buildIndex(SRC, { showProgress: false });
     const data = buildMechanismsIndex(idx, { indexName: 'fixture', purposeFor: (l, m, g, calls) => harvestPurpose(idx, l, m, g && g.residue, { calls: false, first: !!(g && g.splitFirst), hasCalls: !!(calls && calls.length) }) });
     saveMechanismsIndex(idx, data);
-    vocab = idx.getTopVocabulary(200);
+    // as the command and the Overview do it: concepts from the top CONCEPT_NAMES names, files from the top KEY_FILE_NAMES
+    const pool = idx.getTopVocabulary(CONCEPT_NAMES);
+    vocab = pool.slice(0, KEY_FILE_NAMES);
     overview = buildOverview(idx);
-    all = extractConcepts(idx, { entries: vocab, maxConcepts: Infinity });
+    all = extractConcepts(idx, { entries: pool, maxConcepts: Infinity });
   });
   after(() => { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* Windows holds a handle sometimes */ } });
 

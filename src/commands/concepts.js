@@ -10,17 +10,17 @@
 //
 //   ce --index-path <index> --concepts [filter] [--max-results N | --all-results] [--include-tests]
 //
-// The concepts are extractConcepts' own, called with the Overview's arguments (the index's top 200
-// vocabulary entries) and no cap, so the first twelve rows are the Overview's twelve, in its order
-// and with its examples; nothing here finds or ranks a concept. Files per concept are
-// computeVocabDensity's data read term to files (computeTermFiles, metrics.js), and only for a
-// concept that is itself one of those top terms. Mechanisms per concept are those whose label
+// The concepts are extractConcepts' own, called with the Overview's arguments (the index's top
+// CONCEPT_NAMES vocabulary entries, 500 since 2026-11-24) and no cap, so the first twelve rows are
+// the Overview's twelve, in its order and with its examples; nothing here finds or ranks a concept.
+// Files per concept are computeVocabDensity's data read term to files (computeTermFiles,
+// metrics.js), and only for a concept that is itself one of the top KEY_FILE_NAMES (200) terms. Mechanisms per concept are those whose label
 // (or a folded record's label) or member function names carry the word, case-insensitively, as
 // a substring (the mechanisms file folded by member set, test rows left out unless
 // --include-tests). `--toc <word>` and `--mechanisms <word>` also match file paths, purposes and
 // descriptions, so they may list more; the output says so and never claims the two agree. No
 // model and no embeddings are used.
-import { extractConcepts, conceptLabel } from '../core/vocabulary.js';
+import { extractConcepts, conceptLabel, CONCEPT_NAMES, KEY_FILE_NAMES } from '../core/vocabulary.js';
 import { computeTermFiles } from './metrics.js';
 import { loadMechanismsIndex, foldRecords, notBuiltLine, orderEntries, DEFAULT_LISTING_ORDER } from '../core/mechanisms-index.js';
 import { makeFilterMatcher } from '../core/filter-match.js';
@@ -38,12 +38,13 @@ const shortFile = (fp, maxLen = 45) => (fp.length <= maxLen ? fp : '...' + fp.sl
 
 /**
  * The concepts of an index exactly as the Overview computes them, without its cap: { vocab, all }.
- * `vocab` is the top 200 vocabulary entries, the ones the Overview's file ranking uses.
+ * `all` is made from the top CONCEPT_NAMES vocabulary entries; `vocab` is the top KEY_FILE_NAMES of
+ * them, the ones the Overview's file ranking uses.
  */
 export function allConcepts(index) {
-  let vocab = [];
-  try { vocab = index.getTopVocabulary(200) || []; } catch { vocab = []; }
-  return { vocab, all: extractConcepts(index, { entries: vocab, maxConcepts: Infinity }) };
+  let pool = [];
+  try { pool = index.getTopVocabulary(CONCEPT_NAMES) || []; } catch { pool = []; }
+  return { vocab: pool.slice(0, KEY_FILE_NAMES), all: extractConcepts(index, { entries: pool, maxConcepts: Infinity }) };
 }
 
 /**

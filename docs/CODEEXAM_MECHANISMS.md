@@ -76,7 +76,13 @@ records every time. Run as a cover, it seeds groups four ways, then adjusts them
   [`CODEEXAM_MECHANISMS_TESTS.md`](CODEEXAM_MECHANISMS_TESTS.md)).
 - **Token seed.** A name token shared by a distinctive set of functions across files seeds a
   record, labelled by the token and a namesake function so the reader can place it:
-  `packet (AVPacket)`, `tls (tls_send_encrypted)`, `rowset (DBPROP_IRowsetChange)`. A token
+  `packet (AVPacket)`, `tls (tls_send_encrypted)`, `rowset (DBPROP_IRowsetChange)`. The
+  tokens tried are the codebase's first 24 concepts
+  ([`CODEEXAM_CONCEPTS.md`](CODEEXAM_CONCEPTS.md)). Since 2026-11-24 the concepts are drawn
+  from the top 500 names of the vocabulary and no longer the top 200, so a build made after
+  that date can seed from somewhat different tokens than one made before: on 19 public
+  codebases, 88 of 456 seeds differed. An index built earlier keeps its mechanisms until
+  `--build-mechanisms` is run again. A token
   that owns too large a share of the candidates *and* cross-cuts too many files is a
   namespace or a prefix, not a mechanism, and is not seeded; its functions fall through to
   the other seeds.

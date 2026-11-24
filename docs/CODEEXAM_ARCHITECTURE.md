@@ -270,6 +270,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `scripts/claim-ballpark.mjs` — ranks which index best matches each claim via multisect hits; no model calls
 - `scripts/claim-locate-stability.mjs` — measures run-to-run repeatability of `--claim-locate` targets
 - `scripts/claim-selftest.mjs` — deterministic offline retrieval regression score against curated anchors
+- `scripts/concepts-recall.mjs` — the accuracy measurement of CODEEXAM_CONCEPTS.md: how many words from a codebase's own README and docs headings are among its concepts (first 12, 24, 50, all), how many are in the vocabulary at all, and which kind each miss is; no model calls
 - `scripts/engine-qualify.mjs` — pass/fails an engine on pinned negative+positive chart sidecars; no model calls
 - `scripts/field-note.mjs` — turns an annotated CE transcript's `[[comments]]` into a post-ready markdown checklist
 - `scripts/hof.mjs` — the HOF test as `ce` subprocesses, the form of 2026-11-03, superseded by `ce --hof` and kept until a parity run retires it; the shared parts come from `src/core/hof.js`
@@ -309,6 +310,7 @@ licences, in [`THIRD-PARTY-NOTICES.md`](../THIRD-PARTY-NOTICES.md).*
 - `test/test_cli_errors.js` — CLI bad input fails before index load: banner, error, run-help, exit 2
 - `test/test_client_server.js` — client/server detector: route + call detection, unmatched-call reconciliation
 - `test/test_concepts.js` — `--concepts`: the concepts on their own, each one's top files, its mechanisms as what to hunt for, one concept in full, the cap, test code
+- `test/test_concepts_recall.js` — the arithmetic of `scripts/concepts-recall.mjs`: which files are documentation, what a heading and a term are, when a term and a concept are the same word, the shares at each cut
 - `test/test_credential_mask.js` — credential masking at the tool seam: assignment forms, random-token entropy gate
 - `test/test_data_structs.js` — #194 `extractDataStructures`: struct/enum/union/trait/interface across Rust/C/Go/TS
 - `test/test_dep_claim_rules.js` — dependent-claim malformation rules over real USPTO specimens: parents, taxonomy

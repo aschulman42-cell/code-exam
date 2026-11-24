@@ -16,7 +16,7 @@
  * the CLI `--overview`, and the GUI popup all render from it.
  */
 import path from 'path';
-import { extractConcepts, conceptLabel } from './vocabulary.js';
+import { extractConcepts, conceptLabel, CONCEPT_NAMES, KEY_FILE_NAMES } from './vocabulary.js';
 
 const _ext = (fp) => path.extname(fp).toLowerCase() || '(none)';
 
@@ -154,14 +154,17 @@ export function buildOverviewDeep(index) {
   let concepts = [];
   let keyFiles = [];
   try {
-    const vocab = index.getTopVocabulary(200) || [];
+    // One fetch: the concepts are pieces of the top CONCEPT_NAMES names (500 since 2026-11-24),
+    // the key files are ranked from the top KEY_FILE_NAMES (200) of the same list.
+    const pool = index.getTopVocabulary(CONCEPT_NAMES) || [];
+    const vocab = pool.slice(0, KEY_FILE_NAMES);
     topVocab = vocab.slice(0, 15).map(v => v.token);
 
     // Concepts: salient CamelCase/snake sub-terms (worklist, multisect, …),
     // via the shared #193 extractor — sub-token cross-corpus IDF surfaces
     // corpus-distinctive roots and drops generics (function/index/build).
     // Reuse the vocab we just fetched (no second pass).
-    concepts = extractConcepts(index, { entries: vocab, maxConcepts: 12 });
+    concepts = extractConcepts(index, { entries: pool, maxConcepts: 12 });
     // #275: concept examples must jump to the DEFINITION. The vocab's
     // exampleFile is the token's mention-concentration top file — often an
     // import/dispatch hub (e.g. server.js), where the hinted lineOf() lookup
