@@ -295,8 +295,6 @@ const kindRank = (l) => (/^\[cmd\]/.test(l) ? 0 : /^\[class\]/.test(l) ? 2 : /^\
  * Returns { lines, sections: how many of two or more, largest, alone }.
  */
 export function carveListing(rows, sections, subsOf, { brief = false, description = false, purpose = false, loneTitle = 'In a section of their own', unplaced = [], unplacedTitle = 'Not placed' } = {}) {
-  const labels = rows.map((r) => r.label), heading = headingMaker(labels);
-  const sorted = (g) => [...g].sort((a, b) => kindRank(labels[a]) - kindRank(labels[b]) || labels[a].localeCompare(labels[b]));
   const lines = [];
   const pad = ' '.repeat(14);
   const row = (i, tag) => {
@@ -305,16 +303,42 @@ export function carveListing(rows, sections, subsOf, { brief = false, descriptio
     if (description && r.description) lines.push(...wrapText(oneLine(r.description), pad));
     if (purpose && r.purpose) lines.push(...wrapText(`purpose: ${purposeText(r.purpose)}`, pad));
   };
-  const { numbered, lone } = numberSections(sections, subsOf);
-  for (const s of numbered) {
-    lines.push(`${s.tag}. ${heading(s.group)}   (${s.group.length} mechanisms)`);
-    if (!s.subs) { if (!brief) for (const i of sorted(s.group)) row(i, s.tag); lines.push(''); continue; }
-    for (const p of s.subs) { lines.push(p.others ? `   ${p.tag} (others in this section)   (${p.group.length})` : `   ${p.tag} ${heading(p.group, 3)}   (${p.group.length})`); if (!brief) for (const i of sorted(p.group)) row(i, p.tag); }
+  // the listing is carveData, printed: a second reader of the same data (the GUI's Carve
+  // list, carve-in-gui) cannot then number, head or order anything differently
+  const d = carveData(rows, sections, subsOf, { unplaced });
+  for (const s of d.sections) {
+    lines.push(`${s.tag}. ${s.heading}   (${s.count} mechanisms)`);
+    if (!s.subs) { if (!brief) for (const i of s.rows) row(i, s.tag); lines.push(''); continue; }
+    for (const p of s.subs) { lines.push(p.others ? `   ${p.tag} (others in this section)   (${p.rows.length})` : `   ${p.tag} ${p.heading}   (${p.rows.length})`); if (!brief) for (const i of p.rows) row(i, p.tag); }
     lines.push('');
   }
-  if (lone.length) { lines.push(`${loneTitle} (${lone.length}):`); for (const i of sorted(lone)) row(i, 'alone'); lines.push(''); }
-  if (unplaced.length) { lines.push(`${unplacedTitle} (${unplaced.length}):`); for (const i of sorted(unplaced)) row(i, 'unplaced'); lines.push(''); }
-  return { lines, sections: numbered.length, largest: numbered.length ? numbered[0].group.length : 0, alone: lone.length };
+  if (d.lone.length) { lines.push(`${loneTitle} (${d.lone.length}):`); for (const i of d.lone) row(i, 'alone'); lines.push(''); }
+  if (d.unplaced.length) { lines.push(`${unplacedTitle} (${d.unplaced.length}):`); for (const i of d.unplaced) row(i, 'unplaced'); lines.push(''); }
+  return { lines, sections: d.sections.length, largest: d.largest, alone: d.lone.length };
+}
+
+/**
+ * A carved listing as data (carve-in-gui): what carveListing prints, before it is text.
+ * `rows[i]` needs a `label`. Returns
+ *   { sections: [{ tag, heading, count, rows: [index...] | null, subs: null | [{ tag, heading, others, rows }] }],
+ *     lone: [index...], unplaced: [index...], largest }
+ * with every list of rows in the listing's order (commands first, then by label). A section
+ * with sub-sections has `rows` null and its rows under `subs`; `heading` of a sub-section
+ * of leftovers (`others`) is null.
+ */
+export function carveData(rows, sections, subsOf, { unplaced = [] } = {}) {
+  const labels = rows.map((r) => r.label), heading = headingMaker(labels);
+  const sorted = (g) => [...g].sort((a, b) => kindRank(labels[a]) - kindRank(labels[b]) || labels[a].localeCompare(labels[b]));
+  const { numbered, lone } = numberSections(sections, subsOf);
+  return {
+    sections: numbered.map((s) => ({
+      tag: s.tag, heading: heading(s.group), count: s.group.length,
+      rows: s.subs ? null : sorted(s.group),
+      subs: s.subs ? s.subs.map((p) => ({ tag: p.tag, heading: p.others ? null : heading(p.group, 3), others: p.others, rows: sorted(p.group) })) : null,
+    })),
+    lone: sorted(lone), unplaced: sorted(unplaced),
+    largest: numbered.length ? numbered[0].group.length : 0,
+  };
 }
 
 /**

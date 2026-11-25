@@ -35,7 +35,8 @@ import { makeFilterMatcher } from './core/filter-match.js';
 import { chatSessionOptions, ggufContextOptions, stripLocalArtifacts, draftCloud, getLlamaShared, isNoBinaryError, NO_BINARY_MESSAGE } from './core/llm-runner.js';
 import { extractExports } from './core/exports.js';
 import { extractImports, bomReport } from './core/imports.js';
-import { loadMechanismsIndex, saveMechanismsIndex, filterRecords, foldRecords, notBuiltLine, candidateCount, estimateBuildMinutes, sentenceNamesSubject, filterMatches, matchNote, orderEntries, listingGroup, withoutTestEntries, LISTING_ORDERS, DEFAULT_LISTING_ORDER } from './core/mechanisms-index.js';
+import { loadMechanismsIndex, saveMechanismsIndex, filterRecords, foldRecords, notBuiltLine, candidateCount, estimateBuildMinutes, sentenceNamesSubject, filterMatches, matchNote, orderEntries, listingGroup, withoutTestEntries, LISTING_ORDERS, DEFAULT_LISTING_ORDER, TEXT_LISTING_ORDERS, SIMILARITY_ORDER, mechanismsPath } from './core/mechanisms-index.js';
+import { similarityOrderFor, noSimilarityOrder } from './core/carve.js';
 import { describeMechanisms, describeProjection } from './core/mechanisms-describe.js';
 import { buildCorpus, functionTextParts, memberResolver } from './core/function-text.js';
 import { isTestFunction, selectFunctionTexts, mechanismsOfFunctions, standingOf, lengthStats } from './commands/function-text.js';
@@ -2731,6 +2732,80 @@ routes['/api/vocabulary'] = (req, res) => {
 };
 
 
+// carve-in-gui: the Carve list. What `ce --carve calls|clusters` prints, as data, from the
+// command's own functions (carveDataFor, the two header builders), so the pane and the command
+// cannot number, head or order anything differently. Query: how (calls, the default, or
+// clusters), include_tests, filter (id or label; keeps matching rows and the sections holding
+// them, which keep their numbers and whole counts), and the command's numbers: resolution and
+// seed for calls, sections and sub for clusters.
+// Never builds the mechanisms index or the embeddings: without them `built` is false and
+// `message` says what to run. Clusters with no saved tree is built in memory up to 1,500
+// mechanisms and refused above that, so a request cannot take minutes.
+// The carve is kept per loaded index and per setting (a reload replaces the index instance
+// and the entries drop with it); the key holds the mechanisms file's time, so a rebuild
+// shows at once. An embeddings rebuild during one server run does not: reload the index.
+const _carveCache = new WeakMap();
+routes['/api/carve'] = async (req, res) => {
+  const q = parseQuery(req.url);
+  const index = mgr.get(q.index);
+  if (!index) return errorResponse(res, 'No index loaded', 404);
+  const K = await import('./commands/carve.js');   // brings the embedding code; loaded when the list is first opened
+  const how = String(q.how || 'calls').toLowerCase();
+  if (how !== 'calls' && how !== 'clusters') return errorResponse(res, `Carve takes clusters or calls, not "${q.how}".`, 400);
+  const given = (v) => (v == null || v === '' ? null : v);
+  const numbers = K.carveNumbers({ sections: given(q.sections), sub: given(q.sub), seed: given(q.seed), resolution: given(q.resolution) });
+  if (numbers.problem) return errorResponse(res, `--carve: ${numbers.problem}`, 400);
+  const includeTests = q.include_tests === '1' || q.include_tests === 'true';
+  let stamp = 0;
+  try { stamp = fs.statSync(mechanismsPath(index)).mtimeMs; } catch { stamp = 0; }
+  const key = JSON.stringify([how, includeTests, numbers, stamp]);
+  let cache = _carveCache.get(index);
+  if (!cache) _carveCache.set(index, cache = new Map());
+  let r = cache.get(key);
+  if (!r) {
+    try { r = await K.carveDataFor(index.indexPath, how, { includeTests, numbers, exe: 'ce', index, corpus: _functionTextCorpus(index).corpus }); }
+    catch (e) { return errorResponse(res, `the carve could not be made: ${e.message}`, 500); }
+    if (!r.problem) { if (cache.size >= 6) cache.delete(cache.keys().next().value); cache.set(key, r); }
+  }
+  if (r.problem) {
+    return jsonResponse(res, { built: false, how, kind: r.kind, message: r.kind === 'no-mechanisms' ? notBuiltLine(index) : r.problem, facts: [], settings: null, total: 0, matched: 0, tests_left: 0, sections_count: 0, largest: 0, sections: [], alone: [], unplaced: [] });
+  }
+  const d = r.data, n = r.entries.length;
+  const ndxName = path.basename(String(index.indexPath || '').replace(/[\\/]+$/, '')) || 'this index';
+  const facts = how === 'calls'
+    ? K.callsHeaderLines({ ndx: ndxName, n, untouched: r.facts.untouched, resolution: r.settings.resolution, seed: r.settings.seed, tests: r.tests, includeTests, sections: d.sections.length, largest: d.largest, alone: d.lone.length })
+    : K.clustersHeaderLines({ ndx: ndxName, n, modelBase: r.settings.model, top: r.settings.sections, sub: r.settings.sub, tests: r.tests, includeTests, unplaced: r.facts.unplaced, behind: r.facts.behind, sections: d.sections.length, largest: d.largest, alone: d.lone.length });
+  const match = q.filter ? makeFilterMatcher(q.filter) : null;
+  let matched = 0;
+  const rowsOf = (list) => {
+    const out = [];
+    for (const i of list) {
+      const e = r.entries[i];
+      if (match && !match(`${e.id} ${e.label}`)) continue;
+      out.push({ id: e.id, label: e.label, kind: e.kind || '', text: e.description || e.purpose || '', described: !!e.description });
+    }
+    matched += out.length;
+    return out;
+  };
+  const sections = [];
+  for (const s of d.sections) {
+    if (!s.subs) { const rows = rowsOf(s.rows); if (rows.length || !match) sections.push({ tag: s.tag, heading: s.heading, count: s.count, rows, subs: null }); continue; }
+    const subs = [];
+    for (const p of s.subs) { const rows = rowsOf(p.rows); if (rows.length || !match) subs.push({ tag: p.tag, heading: p.heading, others: p.others, count: p.rows.length, rows }); }
+    if (subs.length) sections.push({ tag: s.tag, heading: s.heading, count: s.count, rows: null, subs });
+  }
+  const alone = rowsOf(d.lone), unplaced = rowsOf(d.unplaced);
+  jsonResponse(res, {
+    built: true, how, kind: null, message: '',
+    facts, settings: r.settings,
+    lone_title: how === 'calls' ? K.CALLS_LONE_TITLE : 'In a section of their own', unplaced_title: 'Not placed: no embedded text',
+    total: n, matched: match ? matched : n, tests_left: includeTests ? 0 : r.tests,
+    sections_count: d.sections.length, largest: d.largest, alone_count: d.lone.length, unplaced_count: d.unplaced.length,
+    tree_saved: how === 'clusters' ? !!r.facts.treeSaved : null,
+    sections, alone, unplaced,
+  });
+};
+
 // issue-364-concepts-gui-accordion: the Concepts accordion's list. The rows of `ce --concepts`,
 // from the command's own function (conceptRows), so the pane and the command cannot differ: the
 // same concepts in the same order, each with its example, the files where it concentrates, and
@@ -3245,12 +3320,23 @@ routes['/api/list-mechanisms'] = (req, res) => {
   // come in the listing's order (sort: size, the default, or path).
   // `tests_left` counts the test rows left out (of those the filter matched,
   // under a filter); `order` is the order applied.
-  const order = LISTING_ORDERS.includes(String(q.sort || '').toLowerCase()) ? String(q.sort).toLowerCase() : DEFAULT_LISTING_ORDER;
+  // carve-in-gui: sort=similarity too, the third order of --toc and --mechanisms. It is read
+  // from what `--carve clusters` saved in the index and never built here; with none saved
+  // the answer lists nothing and `order_message` says what to run, as the CLI does.
+  const order = TEXT_LISTING_ORDERS.includes(String(q.sort || '').toLowerCase()) ? String(q.sort).toLowerCase() : DEFAULT_LISTING_ORDER;
   const folded = foldRecords(data.records);
   const { kept: entries, left: testsLeft } = withoutTestEntries(folded, q.include_tests === '1' || q.include_tests === 'true');
   const matched = q.filter ? filterRecords(entries, q.filter) : entries;
   const testsMatched = !testsLeft ? 0 : q.filter ? filterRecords(folded, q.filter).length - matched.length : testsLeft;
-  const records = orderEntries(matched, order);
+  let bySimilarity = null;
+  if (order === SIMILARITY_ORDER) {
+    bySimilarity = similarityOrderFor(path.dirname(mechanismsPath(index)), data.generated || '', matched, fs, path);
+    if (!bySimilarity) {
+      return jsonResponse(res, { built: true, generated: data.generated, coverage: data.coverage, described: data.described || null, total: 0, total_all: entries.length, records_all: data.records.length, tests_left: testsMatched, order, records: [],
+        order_message: noSimilarityOrder('ce --index-path <index> --carve clusters --brief') });
+    }
+  }
+  const records = orderEntries(matched, order, bySimilarity || {});
   // In source order each record carries its `group` (the heading the CLI
   // prints: a directory, `across directories`, `vendored or noise`) and
   // `group_count`, the rows of that group in the whole listing; null by size.
@@ -3268,6 +3354,9 @@ routes['/api/list-mechanisms'] = (req, res) => {
     records_all: data.records.length,
     tests_left: testsMatched,
     order,
+    // by similarity: which model's order, whether the mechanisms were rebuilt since it was
+    // saved, and how many rows it does not hold (they are listed last)
+    similar: bySimilarity ? bySimilarity.similar : null,
     records: records.slice(0, max).map((r) => ({
       id: r.id, label: r.label, kind: r.kind, purpose: r.purpose || '', description: r.description || null,
       group: order === 'path' ? listingGroup(r) : null, group_count: order === 'path' ? groupCount.get(listingGroup(r)) : null,

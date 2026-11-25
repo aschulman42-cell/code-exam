@@ -58,7 +58,7 @@ their own threads. That redesign, and the open questions behind it, are tracked 
 
 ## The left pane: browse, catalogs, and duplicates
 
-The left pane is where you orient yourself in an unfamiliar codebase. Under an **Orient** heading
+The left pane is where you orient yourself in an unfamiliar codebase. Under an **Orientation** heading (**Orient** until 2026-11-25)
 sit the lists that say what the code is about: **Overview** (the one-shot "what is this codebase"
 summary), **Concepts** (the words the code seems to be about, described below), **Vocabulary**,
 **Mechanisms** and **Function texts** (the last three moved here from Browse on 2026-11-24); under
@@ -72,9 +72,9 @@ under two labels (a one-class file as `[class] Foo` and `[file] foo.py`) are one
 label after `also` in the muted line and a `×2` beside the counts, so the badge counts rows, not
 records (383 on CodeExam's 390 records). Rows that are wholly test code are left out, and the
 rows come largest first; the line under the
-**Describe** bar says how many test rows were left out and carries two links, **show** and
-**source order**, that change each for as long as the page is open (the CLI's `--include-tests`
-and `--sort-by path`, which groups the rows by source directory under a muted line with the directory and its row count; **View → Exclude Tests** does not act on this list). A row opens with the
+**Describe** bar says how many test rows were left out and carries links, **show**,
+**source order** and **by similarity**, that change each for as long as the page is open (the CLI's `--include-tests`,
+`--sort-by path`, which groups the rows by source directory under a muted line with the directory and its row count, and, since 2026-11-25, `--sort-by similarity`, which puts mechanisms whose text is alike next to each other. That order is read from what `--carve clusters` saved in the index and is never built by the GUI; with none saved the list is empty and gives the command to run. **View → Exclude Tests** does not act on this list). A row opens with the
 record id (`m4`; first on the main row since 2026-11-24, where it had been on the muted line
 beneath), then the model's one-sentence description when `--describe` wrote one and the sentence
 names its subject, the label then sitting beneath it; when the sentence opens with This, These or
@@ -135,7 +135,48 @@ Build button. The Filter box filters the list by word. The list does not say whi
 the top of Vocabulary each have a link that opens this list. What a concept is and how often the
 list is right: [`CODEEXAM_CONCEPTS.md`](CODEEXAM_CONCEPTS.md).
 
-**Function texts**, directly under Mechanisms, is the GUI form of `--show-function-text`: for each
+**Carve** (since 2026-11-25; experimental), directly under Mechanisms, is the GUI form of
+`--carve`: the mechanisms sorted into numbered sections, to give a page of headings to run an
+eye down. It is the command's listing as data, from the command's own code, so the sections,
+their numbers, their headings and the rows under them are the command's
+([`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md) says how they are made and how far to
+trust them: they are a suggestion and not a finding).
+
+- **Carved by: calls / clusters** chooses the technique. `calls` (the default here) puts
+  together mechanisms that call each other and needs nothing beyond the mechanisms index.
+  `clusters` puts together mechanisms whose text is alike and needs `--build-embeddings`;
+  without them the list says so with the command, and `calls` still works.
+- **A section heading** (`3. search, regex, hits`, with its count) folds and unfolds the
+  mechanisms under it; all start folded, so the list opens as headings only. **unfold all**
+  opens every one. Sub-sections (`3.2`) are muted lines inside their section. The mechanisms
+  the carve put in no section, and under `clusters` those with no embedded text, are in two
+  folded groups at the end, as they are at the end of the command's listing.
+- **A row** is a mechanism: its id, its label, then its description (the model's sentence
+  when `--describe` wrote one, else the purpose read from the code). A click puts the
+  mechanism in the upper middle pane, in full and without code, exactly as a Mechanisms row
+  does.
+- **how this was made** shows the lines the command prints above its listing: the method,
+  the settings, what was left out. The boxes beneath hold the command's numbers
+  (`--resolution` and `--seed` for calls, `--sections` and `--sub` for clusters) with the
+  values in use; change one and press Enter to carve again.
+- **The Filter box** keeps the mechanisms whose id or label matches and the sections that
+  hold them, unfolded. Sections keep their numbers and their whole counts, so `2 of 46`
+  beside a heading means two of that section's 46 match.
+- **The ⛶ on the Carve header** pops this list out alone into a floating window, where it
+  has the window's height (in the pane a list is at most 400 pixels tall). The other lists
+  stay in the left pane and a line marks where Carve was; close the window or click the line
+  to put it back. **Mechanisms** has the same button. These two are the lists with a pop-out
+  of their own, as a trial; the ⛶ at the top of the left pane still pops out all the lists
+  together. One window is open at a time: popping out a second list returns the first.
+
+Nothing is saved by the GUI. The carve is worked out when the list is first opened (about
+as long as the command takes; a second opening is immediate) and kept until the index is
+reloaded. `clusters` uses the tree the command saved in the index when there is one; with
+none it builds one in memory for up to 1,500 mechanisms, and above that it gives the
+command to run once in a terminal, because building it takes minutes. If embeddings are
+rebuilt while the GUI is running, reload the index to see a new carve.
+
+**Function texts**, under Carve, is the GUI form of `--show-function-text`: for each
 function, the short text that `--semantic-search` and `--embed-distance --function-text` embed for
 it. The text is built from the index with no model: the function's name as words, its ranked
 identifiers, its comments, then the words of its string literals. A row is `file@function`, with the

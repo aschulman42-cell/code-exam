@@ -266,6 +266,9 @@ body.hide-inferred-suffix .inferred-suffix { display: none; }
   cursor: pointer; user-select: none;
 }
 .pane-popout-placeholder:hover { color: var(--accent); }
+/* carve-in-gui: a left-pane section popped out alone has the window's height, not the
+   400px a section gets in the pane. */
+#generic-fs-body > .accordion-section > .accordion-content { max-height: none; }
 /* #177: find-in-pane bar (floating, anchored to the active pane on open) and
    match highlights. z-index above raised pop-out windows so it stays reachable. */
 .find-bar { position: fixed; z-index: 1000; display: flex; align-items: center; gap: 4px;

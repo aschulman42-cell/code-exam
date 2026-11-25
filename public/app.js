@@ -73,7 +73,7 @@ import {
 import {
   initListRenderers,
   renderFuncLikeList, renderFunctionList, renderFileListWithSub,
-  renderExtensionList, renderClassListWithSub, renderMechanismList, mechanismListParams, renderFunctionTextsSection, functionTextParams, renderConceptList, conceptListParams, renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, pipelineMermaid, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR, EXPLAINABILITY_KIND_COLOR,
+  renderExtensionList, renderClassListWithSub, renderMechanismList, mechanismListParams, renderFunctionTextsSection, functionTextParams, renderConceptList, conceptListParams, renderCarveList, carveListParams,renderModelList, renderArtifactList, renderKernelList, renderDatasetList, renderTrainingList, renderInferenceList, renderLlmCallsList, renderToolsList, renderChainsList, renderEmbeddingsList, renderStructuredOutputList, renderModelsUsedList, renderModelsUsedSites, renderPipelinesList, renderPipelineMembers, renderPipelineStages, pipelineMermaid, renderDrilldownList, renderDrilldownSites, KERNEL_KIND_COLOR, MULTIMODAL_KIND_COLOR, POSTTRAINING_KIND_COLOR, REASONING_KIND_COLOR, DATASET_KIND_COLOR, TRAINING_KIND_COLOR, INFER_KIND_COLOR, LLMCALL_KIND_COLOR, CHAIN_KIND_COLOR, SO_KIND_COLOR, EXPLAINABILITY_KIND_COLOR,
   renderHotFolderList, renderMostCalledList, renderCallInventory,
   renderClassHotspotList, renderClassHierarchy, renderVocabList, renderDataStructuresList, renderClientServerList, renderReferencedResourcesList,
   renderBomList, renderCopyrightsList,
@@ -159,6 +159,14 @@ async function loadSectionData(sectionId, filter = '') {
         state.sectionData[sectionId] = data.records;
         renderMechanismList(content, data);
         badge.textContent = data.built ? data.total : '';
+        break;
+      }
+
+      case 'carve': {   // carve-in-gui: --carve calls|clusters
+        data = await api.carve(carveListParams(filter));
+        state.sectionData[sectionId] = data.sections;
+        renderCarveList(content, data);
+        badge.textContent = data.built ? data.sections_count : '';
         break;
       }
 

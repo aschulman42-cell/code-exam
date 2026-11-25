@@ -91,8 +91,8 @@
       </div>
       <div class="pane-body scrollable" id="left-body">
 
-        <!-- Orient group -->
-        <div class="accordion-group-label">Orient</div>
+        <!-- Orientation group ("Orient" until 2026-11-25) -->
+        <div class="accordion-group-label">Orientation</div>
         <div class="accordion-section" data-section="overview">
           <div class="accordion-header"><span class="accordion-toggle">▸</span> Overview <span class="accordion-badge"></span></div>
           <div class="accordion-content"></div>
@@ -102,14 +102,19 @@
           <div class="accordion-header" title="The words the code seems to be about: pieces of its names, found by counting with no model. A suggestion of what to look for, not a finding. The command line: --concepts"><span class="accordion-toggle">▸</span> Concepts <span class="accordion-badge"></span></div>
           <div class="accordion-content"></div>
         </div>
-        <!-- Vocabulary, Mechanisms and Function texts sit in Orient since 2026-11-24 (Andrew: Vocabulary "definitely belongs up there", Mechanisms "arguably"); they were under Browse -->
+        <!-- Vocabulary, Mechanisms and Function texts sit in Orientation since 2026-11-24 (Andrew: Vocabulary "definitely belongs up there", Mechanisms "arguably"); they were under Browse -->
         <div class="accordion-section" data-section="vocabulary">
           <div class="accordion-header"><span class="accordion-toggle">▸</span> Vocabulary <span class="accordion-badge"></span></div>
           <div class="accordion-content"></div>
         </div>
         <!-- mechanisms-index-prebuild-cli-gui: the records `--build-mechanisms` wrote; a row's click puts the mechanism in the upper middle pane (mechanisms-row-opens-in-upper-pane) -->
         <div class="accordion-section" data-section="mechanisms">
-          <div class="accordion-header"><span class="accordion-toggle">▸</span> Mechanisms <span class="accordion-badge"></span></div>
+          <div class="accordion-header"><span class="accordion-toggle">▸</span> Mechanisms <span class="accordion-badge"></span><span style="flex:1"></span><button class="pane-action" data-popout-section="mechanisms" title="Pop out this list alone, in a window of its own" style="font-size:13px">⛶</button></div>
+          <div class="accordion-content"></div>
+        </div>
+        <!-- carve-in-gui: the listing of --carve calls|clusters: the mechanisms in numbered sections. A row's click puts the mechanism in the upper middle pane, as a Mechanisms row's does. The first section with a pop-out of its own (data-popout-section; any section can take one). -->
+        <div class="accordion-section" data-section="carve">
+          <div class="accordion-header" title="The mechanisms sorted into numbered sections, by who calls whom or by how alike their text is. No model is run. Experimental: the sections are a suggestion and not a finding. The command line: --carve calls, --carve clusters"><span class="accordion-toggle">▸</span> Carve <span class="accordion-badge"></span><span style="flex:1"></span><button class="pane-action" data-popout-section="carve" title="Pop out this list alone, in a window of its own" style="font-size:13px">⛶</button></div>
           <div class="accordion-content"></div>
         </div>
         <!-- gui-function-texts-section: --show-function-text; the text each function is embedded as, with the mechanisms holding it -->

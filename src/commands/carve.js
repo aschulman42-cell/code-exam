@@ -27,7 +27,7 @@ import { loadMechanismsIndex, foldRecords } from '../core/mechanisms-index.js';
 import { embedCacheFile, entryEmbedPlan, loadFunctionPlan, functionTexts } from './embed-distance.js';
 import { chooseSearchModel } from './semantic-search.js';
 import { isTestEntry, testsTip, printTip } from '../core/test-paths.js';
-import { CARVE_HOWS, CALLS_RESOLUTION, CALLS_SUB_RESOLUTION, CALLS_SEED, CALLS_MIN_SUB, CLUSTERS_MAX, PURPOSE_MAX, mechanismVectors, carveClusters, carveCalls, callEdges, carveListing, carveUsage, CARVE_TREE_FORMAT, sectionUnits } from '../core/carve.js';
+import { CARVE_HOWS, CALLS_RESOLUTION, CALLS_SUB_RESOLUTION, CALLS_SEED, CALLS_MIN_SUB, CLUSTERS_MAX, PURPOSE_MAX, mechanismVectors, carveClusters, carveCalls, callEdges, carveListing, carveUsage, CARVE_TREE_FORMAT, sectionUnits, carveData } from '../core/carve.js';
 
 const nf = (n) => Number(n).toLocaleString('en-US');
 export { CARVE_TREE_FORMAT };
@@ -89,16 +89,35 @@ export function renderCalls({ ndx, entries, fnIds, fnById, tests = 0, includeTes
   const resolution = numbers.resolution ?? CALLS_RESOLUTION, seed = numbers.seed ?? CALLS_SEED;
   const edges = callEdges(fnIds, fnById);
   const { sections, subsOf, touched } = carveCalls(entries.length, edges, { resolution, seed });
-  const body = carveListing(entries, sections, subsOf, { brief, description, purpose, loneTitle: 'Standing alone (no call that could be matched, or in no community)' });
+  const body = carveListing(entries, sections, subsOf, { brief, description, purpose, loneTitle: CALLS_LONE_TITLE });
   const n = entries.length;
+  return [
+    ...callsHeaderLines({ ndx, n, untouched: n - touched.size, resolution, seed, tests, includeTests, sections: body.sections, largest: body.largest, alone: body.alone }),
+    ...textLines(entries, { description, purpose }), ...notes, '', ...body.lines,
+  ].join('\n');
+}
+
+/** The heading of the rows --carve calls could put in no section. */
+export const CALLS_LONE_TITLE = 'Standing alone (no call that could be matched, or in no community)';
+/** The header of a `calls` listing: what was done, the settings, what was left out, what came of it. Shared with the GUI's Carve list (carve-in-gui). */
+export function callsHeaderLines({ ndx, n, untouched, resolution, seed, tests = 0, includeTests = false, sections, largest, alone }) {
   return [
     `${ndx}: ${nf(n)} mechanisms carved by CALLS (experimental: the groups are a suggestion and not a finding; they move when the index or the seed changes)`,
     'How: mechanisms that call each other go together. Louvain community detection on the calls between their functions, matched by name. No embedding is read and no model is used.',
     `Settings: resolution ${resolution} (--resolution X; higher gives more, smaller sections); sub-sections at resolution ${CALLS_SUB_RESOLUTION} inside sections of ${CALLS_MIN_SUB} or more; seed ${seed} (--seed N gives another run; the same seed gives the same listing).`,
-    `${testsLine(tests, includeTests)} ${nf(n - touched.size)} of the ${nf(n)} make or receive no call that could be matched; they are listed at the end.`.trimStart(),
-    `Result: ${nf(body.sections)} sections of 2 or more, the largest ${nf(body.largest)}; ${nf(body.alone)} mechanisms standing alone. Each row ends with its section number.`,
-    ...textLines(entries, { description, purpose }), ...notes, '', ...body.lines,
-  ].join('\n');
+    `${testsLine(tests, includeTests)} ${nf(untouched)} of the ${nf(n)} make or receive no call that could be matched; they are listed at the end.`.trimStart(),
+    `Result: ${nf(sections)} sections of 2 or more, the largest ${nf(largest)}; ${nf(alone)} mechanisms standing alone. Each row ends with its section number.`,
+  ];
+}
+/** The header of a `clusters` listing, likewise. */
+export function clustersHeaderLines({ ndx, n, modelBase, top, sub, tests = 0, includeTests = false, unplaced, behind = 0, sections, largest, alone }) {
+  return [
+    `${ndx}: ${nf(n)} mechanisms carved by CLUSTERS (experimental: the groups are a suggestion and not a finding; they move when the index or its embeddings change)`,
+    `How: mechanisms whose text is alike go together. Ward's method on one vector per mechanism, made from its functions' saved text embeddings (model ${modelBase}), a function weighted by its lines and by how few mechanisms hold it. No model is run.`,
+    `Settings: ${nf(top)} sections, ${nf(sub)} sub-sections (--sections N, --sub N). The same index and embeddings always give the same listing.`,
+    `${testsLine(tests, includeTests)} ${nf(unplaced)} of the ${nf(n)} have no embedded text and are listed at the end, not placed.${behind ? ` ${nf(behind)} function texts are not embedded (the index changed since --build-embeddings); their mechanisms are placed by the rest.` : ''}`.trimStart(),
+    `Result: ${nf(sections)} sections of 2 or more, the largest ${nf(largest)}; ${nf(alone)} mechanisms in a section of their own. Each row ends with its section number.`,
+  ];
 }
 
 /**
@@ -113,11 +132,7 @@ export function renderClusters({ ndx, entries, vectors, modelBase, tests = 0, in
   const body = carveListing(entries, c.sections, c.subsOf, { brief, description, purpose, unplaced, unplacedTitle: 'Not placed: no embedded text' });
   const n = entries.length;
   const text = [
-    `${ndx}: ${nf(n)} mechanisms carved by CLUSTERS (experimental: the groups are a suggestion and not a finding; they move when the index or its embeddings change)`,
-    `How: mechanisms whose text is alike go together. Ward's method on one vector per mechanism, made from its functions' saved text embeddings (model ${modelBase}), a function weighted by its lines and by how few mechanisms hold it. No model is run.`,
-    `Settings: ${nf(c.top)} sections, ${nf(c.sub)} sub-sections (--sections N, --sub N). The same index and embeddings always give the same listing.`,
-    `${testsLine(tests, includeTests)} ${nf(unplaced.length)} of the ${nf(n)} have no embedded text and are listed at the end, not placed.${behind ? ` ${nf(behind)} function texts are not embedded (the index changed since --build-embeddings); their mechanisms are placed by the rest.` : ''}`.trimStart(),
-    `Result: ${nf(body.sections)} sections of 2 or more, the largest ${nf(body.largest)}; ${nf(body.alone)} mechanisms in a section of their own. Each row ends with its section number.`,
+    ...clustersHeaderLines({ ndx, n, modelBase, top: c.top, sub: c.sub, tests, includeTests, unplaced: unplaced.length, behind, sections: body.sections, largest: body.largest, alone: body.alone }),
     ...textLines(entries, { description, purpose }), ...notes, '', ...body.lines,
   ].join('\n');
   return { text, merges: c.merges, order: c.order };
@@ -130,7 +145,7 @@ export function renderClusters({ ndx, entries, vectors, modelBase, tests = 0, in
  * tree when there is one for exactly these vectors. { problem } when something is missing,
  * in the words the command prints. Nothing is embedded and nothing is written.
  */
-export async function loadCarveInputs(ndx, how, { includeTests = false, embedModel = null, exe = 'ce', quiet = false, index = null } = {}) {
+export async function loadCarveInputs(ndx, how, { includeTests = false, embedModel = null, exe = 'ce', quiet = false, index = null, corpus: givenCorpus = null } = {}) {
   let data = null;
   try { data = loadMechanismsIndex({ indexPath: ndx }, { cache: false }); } catch { data = null; }
   if (!data || !data.records || !data.records.length) return { problem: `${ndx} has no mechanisms.json, the groups of functions --carve arranges. Build it (no model needed), then run this again:\n  ${exe} --index-path ${ndx} --build-mechanisms` };
@@ -151,8 +166,11 @@ export async function loadCarveInputs(ndx, how, { includeTests = false, embedMod
   // `index`: a caller that has the index loaded passes it, and it is not read a second time
   // (--concepts on ExoPlayer 3: 16 s with the second read, 2026-11-24). The same two steps
   // loadFunctionPlan takes after constructing one.
-  let fnPlan, corpus;
-  if (index) {
+  // `corpus`: a caller that keeps the function corpus (the GUI server does, per loaded index)
+  // passes it, and it is not built again.
+  let fnPlan, corpus = givenCorpus;
+  if (corpus) fnPlan = functionTexts(all, corpus);
+  else if (index) {
     if (index._ensureFunctionIndex) index._ensureFunctionIndex();
     corpus = buildCorpus(index.functionIndex || {}, (f) => index.fileLines.get(f));
     fnPlan = functionTexts(all, corpus);
@@ -205,6 +223,32 @@ export async function carveSectionsFor(ndx, how, { includeTests = false, embedMo
   const c = carveClusters(inp.vectors, { merges: inp.merges });
   const placed = new Set(c.placed), unplaced = entries.map((_, i) => i).filter((i) => !placed.has(i));
   return { how, settings: `${nf(c.top)} sections, ${nf(c.sub)} sub-sections, model ${inp.model.base}`, entries, indexOf, ...sectionUnits(c.sections, c.subsOf, unplaced) };
+}
+
+/**
+ * A carve as data, for the GUI's Carve list (carve-in-gui): what `--carve <how>` prints,
+ * before it is text. { problem, kind } when something is missing (kind: 'no-mechanisms',
+ * 'no-embeddings', 'no-tree', 'bad-number'), else
+ *   { how, entries, tests, includeTests, settings, facts: { touched | unplaced, behind, treeSaved },
+ *     data: carveData(...) }
+ * with `data`'s rows as indexes into `entries`. Reads what --carve reads and writes nothing:
+ * for `clusters` with no saved tree it builds one in memory up to WHERE_BUILD_MAX mechanisms
+ * and above that refuses with the command that saves one (a request must not take minutes).
+ */
+export async function carveDataFor(ndx, how, { includeTests = false, numbers = {}, embedModel = null, exe = 'ce', index = null, corpus = null } = {}) {
+  if (!CARVE_HOWS.includes(how)) return { problem: `Carve takes clusters or calls, not "${how}".`, kind: 'bad-number' };
+  const inp = await loadCarveInputs(ndx, how, { includeTests, embedModel, exe, quiet: true, index, corpus });
+  if (inp.problem) return { problem: inp.problem, kind: /has no mechanisms\.json/.test(inp.problem) ? 'no-mechanisms' : 'no-embeddings' };
+  const { entries, tests } = inp;
+  if (how === 'calls') {
+    const resolution = numbers.resolution ?? CALLS_RESOLUTION, seed = numbers.seed ?? CALLS_SEED;
+    const { sections, subsOf, touched } = carveCalls(entries.length, callEdges(inp.fnIds, inp.fnById), { resolution, seed });
+    return { how, entries, tests, includeTests, settings: { resolution, seed, subResolution: CALLS_SUB_RESOLUTION, minSub: CALLS_MIN_SUB }, facts: { untouched: entries.length - touched.size }, data: carveData(entries, sections, subsOf) };
+  }
+  if (!inp.merges && entries.length > WHERE_BUILD_MAX) return { kind: 'no-tree', problem: `--carve clusters has saved no tree for ${ndx} yet, and building one for ${nf(entries.length)} mechanisms takes minutes. Run it once in a terminal, then open this again:\n  ${exe} --index-path ${ndx} --carve clusters --brief` };
+  const c = carveClusters(inp.vectors, { sections: numbers.sections ?? null, sub: numbers.sub ?? null, merges: inp.merges });
+  const placed = new Set(c.placed), unplaced = entries.map((_, i) => i).filter((i) => !placed.has(i));
+  return { how, entries, tests, includeTests, settings: { sections: c.top, sub: c.sub, model: inp.model.base }, facts: { unplaced: unplaced.length, behind: inp.behind, treeSaved: !!inp.merges }, data: carveData(entries, c.sections, c.subsOf, { unplaced }) };
 }
 
 /** `--carve`: read the index and print the listing. Sets process.exitCode on a refusal. */

@@ -131,8 +131,8 @@ verdicts:
 - **Dead-code gaps** (`--gaps`) — defined functions with no callers that aren't entry points.
 - **Mechanisms, carved into sections** (`--toc`, then `--carve clusters` or `--carve calls`) —
   `--toc` lists the codebase's mechanisms, the small groups of functions that each do one thing
-  ([`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md)). `--carve` (experimental, command line
-  only) divides that list into numbered sections and sub-sections, giving a page of headings to
+  ([`CODEEXAM_MECHANISMS.md`](CODEEXAM_MECHANISMS.md)). `--carve` (experimental; in the
+  GUI it is the **Carve** list in the left pane) divides that list into numbered sections and sub-sections, giving a page of headings to
   run an eye down: for the codebase's major pieces, or for the words the codebase itself uses
   for a piece you are looking for. Two ways of cutting, by the likeness of the code's text or by
   who calls whom, give different sections

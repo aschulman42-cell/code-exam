@@ -555,6 +555,10 @@ ce --index-path <index> --carve clusters
 ce --index-path <index> --carve calls
 ```
 
+The GUI has the same listing (since 2026-11-25) as the **Carve** list in the left pane,
+under Mechanisms: the same sections, numbers, headings and rows, from the command's own
+code. [`CODEEXAM_GUI.md`](CODEEXAM_GUI.md) says how it is read there.
+
 - **`clusters`** is the technique most of this page is about: mechanisms whose text is
   alike go together. Sections are the broad clusters and sub-sections the narrow ones (12
   and 45 on CodeExam). It needs the embeddings `--build-embeddings` makes.

@@ -275,6 +275,15 @@ export function initWindowManagement() {
   // Left pane popout
   $('#left-pane-popout')?.addEventListener('click', () => openGenericFullscreen('left-pane'));
 
+  // carve-in-gui: one left-pane section popped out alone (the button sits in the section's
+  // header, so its click must not also fold the section)
+  for (const btn of $$('[data-popout-section]')) {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openGenericFullscreen(`section:${btn.dataset.popoutSection}`);
+    });
+  }
+
   // Generic fullscreen close
   $('#generic-fs-close')?.addEventListener('click', closeGenericFullscreen);
   $('#generic-fullscreen')?.addEventListener('click', (e) => {
@@ -432,7 +441,7 @@ export function showPane(id) {
 }
 
 export function openGenericFullscreen(paneId) {
-  let paneBody, titleText;
+  let paneBody, titleText, inPlace = false;
 
   // #36: single-slot overlay — if a pane is already popped out, restore it first.
   // Otherwise popping a second pane runs `fsBody.innerHTML = ''` (destroying the
@@ -521,6 +530,15 @@ export function openGenericFullscreen(paneId) {
     // Also reparent the filter bar
     state._fsFilterBar = $('#left-pane > .pane-filter');
     state._fsFilterParent = state._fsFilterBar?.parentElement;
+  } else if (paneId.startsWith('section:')) {
+    // carve-in-gui: one left-pane section alone. The whole section moves (header and list),
+    // so everything that finds it by its data-section keeps working: the Filter box, the
+    // badge, a re-fetch. It goes back to its own place among the sections, not to the end.
+    paneBody = $(`.accordion-section[data-section="${paneId.slice(8)}"]`);
+    if (!paneBody) return;
+    if (!paneBody.classList.contains('open')) $('.accordion-header', paneBody)?.click();
+    titleText = ($('.accordion-header', paneBody)?.childNodes[1]?.textContent || 'List').trim();
+    inPlace = true;
   } else if (paneId === 'workspace') {
     paneBody = $('#workspace-body');
     titleText = 'Claim / Multisect Workspace';
@@ -541,6 +559,9 @@ export function openGenericFullscreen(paneId) {
   state._fsReturnTarget = paneBody.parentElement;
   state._fsReturnNode = paneBody;
   if (state._fsFilterBar) fsBody.appendChild(state._fsFilterBar);
+  // a section leaves a marker where it stood, so it can go back there
+  state._fsReturnBefore = inPlace ? paneBody.nextSibling : null;
+  state._fsInPlace = inPlace;
   fsBody.appendChild(paneBody);
   // #177: the pop-out *moves* (reparents) the live pane node into the floating
   // window, so the docked slot would otherwise go blank. Drop a placeholder in
@@ -551,7 +572,8 @@ export function openGenericFullscreen(paneId) {
   ph.textContent = '▣ Popped out — click to return';
   ph.addEventListener('click', closeGenericFullscreen);
   state._fsPlaceholder = ph;
-  state._fsReturnTarget.appendChild(ph);
+  if (inPlace) { ph.textContent = `▣ ${titleText} is popped out — click to return`; ph.style.height = 'auto'; ph.style.minHeight = '28px'; ph.style.padding = '4px'; state._fsReturnTarget.insertBefore(ph, state._fsReturnBefore); }
+  else state._fsReturnTarget.appendChild(ph);
   overlay.classList.remove('hidden');
 }
 
@@ -573,7 +595,10 @@ function closeGenericFullscreen() {
     state._fsPlaceholder = null;
   }
   if (state._fsReturnTarget && state._fsReturnNode) {
-    state._fsReturnTarget.appendChild(state._fsReturnNode);
+    // a popped-out section goes back before the section that followed it (null: it was last)
+    if (state._fsInPlace) state._fsReturnTarget.insertBefore(state._fsReturnNode, state._fsReturnBefore && state._fsReturnBefore.parentNode === state._fsReturnTarget ? state._fsReturnBefore : null);
+    else state._fsReturnTarget.appendChild(state._fsReturnNode);
+    state._fsInPlace = false; state._fsReturnBefore = null;
     // Force the browser to recalculate layout after reparenting
     state._fsReturnNode.offsetHeight;
     state._fsReturnTarget = null;

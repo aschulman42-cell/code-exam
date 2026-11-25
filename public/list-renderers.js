@@ -836,10 +836,16 @@ function renderMechanismViewBar(container, data) {
     bar.appendChild(h('span', { text: `${n.toLocaleString()} test row${n === 1 ? '' : 's'} left out.` }));
     bar.appendChild(link('show', 'Also list the rows that are wholly test code (the CLI: --include-tests)', () => { mechView.includeTests = true; }));
   }
-  bar.appendChild(h('span', { text: `${bar.childNodes.length ? '  ' : ''}${mechView.sort === 'size' ? 'Largest first.' : 'Grouped by source directory.'}` }));
-  bar.appendChild(mechView.sort === 'size'
-    ? link('source order', 'Grouped by source directory, then by file (the CLI: --sort-by path)', () => { mechView.sort = 'path'; })
-    : link('largest first', 'The order of the mechanisms file (the default; the CLI: --sort-by size)', () => { mechView.sort = 'size'; }));
+  // carve-in-gui: the third order of --sort-by, read from what --carve clusters saved
+  const ORDERS = {
+    size: ['Largest first.', 'largest first', 'The order of the mechanisms file (the default; the CLI: --sort-by size)'],
+    path: ['Grouped by source directory.', 'source order', 'Grouped by source directory, then by file (the CLI: --sort-by path)'],
+    similarity: ['Alike next to alike.', 'by similarity', 'Mechanisms whose text is alike sit next to each other: the order --carve clusters saved in the index. None is built here (the CLI: --sort-by similarity)'],
+  };
+  bar.appendChild(h('span', { text: `${bar.childNodes.length ? '  ' : ''}${ORDERS[mechView.sort][0]}` }));
+  for (const o of Object.keys(ORDERS)) if (o !== mechView.sort) bar.appendChild(link(ORDERS[o][1], ORDERS[o][2], () => { mechView.sort = o; }));
+  const sim = data && data.similar;
+  if (sim) bar.appendChild(h('span', { text: `  Order from ${sim.model || 'the saved embeddings'}${sim.stale ? '; the mechanisms were rebuilt since it was saved, so it may be out of date' : ''}${sim.unplaced ? `; ${sim.unplaced.toLocaleString()} not in it are listed last` : ''}.` }));
   return bar;
 }
 
@@ -851,7 +857,8 @@ export function renderMechanismList(container, data) {
   }
   const records = data.records || [];
   if (!records.length) {
-    container.innerHTML = '<div class="list-placeholder">No mechanisms match</div>';
+    container.innerHTML = '';
+    container.appendChild(h('div', { className: 'list-placeholder', text: data.order_message || 'No mechanisms match', style: data.order_message ? 'white-space:pre-wrap;text-align:left' : '' }));
     // A filter that matched only test rows, or an index that is all test code: the bar says so and offers them.
     if (data.tests_left || mechView.includeTests || mechView.sort !== 'size') container.appendChild(renderMechanismViewBar(container, data));
     return;
@@ -1118,6 +1125,152 @@ function openMechanismInUpperPane(r, described) {
 // ============================================================================
 const conceptView = { includeTests: false };
 /** The query for /api/concepts under the Filter box and the reader's choice about test code. */
+// ============================================================================
+// Carve (carve-in-gui): the listing of `ce --carve calls|clusters`. The route
+// sends the command's own sections, numbers, headings and rows; this draws them.
+// A section heading folds and unfolds its rows; a row's click puts the mechanism
+// in the upper middle pane, as a Mechanisms row's does.
+// ============================================================================
+// The reader's choices, kept for the page's life: the technique, test rows, and
+// which sections are unfolded (by technique and number, so they survive a re-fetch).
+const carveView = { how: 'calls', includeTests: false, open: new Set(), all: false, facts: false, numbers: { calls: {}, clusters: {} } };
+/** The query for /api/carve under the reader's current choices. */
+export function carveListParams(filter) {
+  return { how: carveView.how, filter, include_tests: carveView.includeTests ? '1' : '', ...carveView.numbers[carveView.how] };
+}
+// The command's numbers, per technique: [query name, label, the command's option, what it does].
+const CARVE_NUMBERS = {
+  calls: [['resolution', 'resolution', '--resolution', 'Higher gives more, smaller sections'], ['seed', 'seed', '--seed', 'Another seed gives another run; the same seed gives the same listing']],
+  clusters: [['sections', 'sections', '--sections', 'How many sections to cut the tree into'], ['sub', 'sub-sections', '--sub', 'How many sub-sections, over the whole listing']],
+};
+
+export function renderCarveList(container, data) {
+  container.innerHTML = '';
+  const filterNow = () => { const box = $('#left-filter'); return (box && box.value.trim()) || ''; };
+  const refetch = async () => {
+    container.innerHTML = '<div class="loading">Carving…</div>';
+    let fresh;
+    try { fresh = await api.carve(carveListParams(filterNow())); }
+    catch (err) {
+      // a number the command refuses: say so in its words, and offer the way back
+      container.innerHTML = '';
+      const line = h('div', { className: 'list-placeholder', text: err.message, style: 'white-space:normal;text-align:left' });
+      line.appendChild(sectionLink('carve with the defaults', 'Drop the numbers typed here and carve again', () => { carveView.numbers[carveView.how] = {}; refetch(); }));
+      container.appendChild(line);
+      return;
+    }
+    if (state.sectionData) state.sectionData.carve = fresh.sections;
+    renderCarveList(container, fresh);
+    const section = container.closest('.accordion-section');
+    const badge = section && section.querySelector('.accordion-badge');
+    if (badge) badge.textContent = fresh.built ? fresh.sections_count : '';
+  };
+  const small = 'font-size:10px;padding:2px 8px;white-space:normal';
+  // the technique: always shown, so a refusal of one still offers the other
+  const bar = h('div', { className: 'muted', style: small });
+  const choice = (how, text, title) => {
+    if (carveView.how === how) return h('strong', { text, title, style: 'margin-right:8px' });
+    const a = sectionLink(text, title, () => { carveView.how = how; carveView.all = false; refetch(); });
+    a.style.marginLeft = '0'; a.style.marginRight = '8px';
+    return a;
+  };
+  bar.appendChild(h('span', { text: 'Carved by: ' }));
+  bar.appendChild(choice('calls', 'calls', 'Mechanisms that call each other go together. Needs no embeddings. The command line: --carve calls'));
+  bar.appendChild(choice('clusters', 'clusters', 'Mechanisms whose text is alike go together. Needs --build-embeddings. The command line: --carve clusters'));
+  container.appendChild(bar);
+  if (!data || !data.built) {
+    if (data && data.kind === 'no-mechanisms') {
+      // the Build button lives in the Mechanisms list (it redraws that list when done); point there
+      const line = h('div', { className: 'list-placeholder', text: `Mechanisms index ${data.message}`, style: 'white-space:normal;text-align:left' });
+      line.appendChild(sectionLink('open Mechanisms to build it', 'The Mechanisms list has a Build button; a carve arranges the mechanisms it makes', () => openLeftSection('mechanisms')));
+      container.appendChild(line);
+      return;
+    }
+    container.appendChild(h('div', { className: 'list-placeholder', text: (data && data.message) || 'Nothing to carve', style: 'white-space:pre-wrap;text-align:left' }));
+    return;
+  }
+  container.appendChild(h('div', { className: 'muted', style: small,
+    text: `Experimental: the sections are a suggestion and not a finding. ${data.sections_count.toLocaleString()} sections of 2 or more, the largest ${data.largest.toLocaleString()}; ${data.total.toLocaleString()} mechanisms.` }));
+  // what the command prints above its listing: how it was made, the settings, what was left out
+  const view = h('div', { className: 'muted', style: small });
+  view.appendChild(sectionLink(carveView.facts ? 'hide how this was made' : 'how this was made', 'What the command prints above its listing: the method, the settings, what was left out', () => { carveView.facts = !carveView.facts; renderCarveList(container, data); }));
+  view.firstChild.style.marginLeft = '0';
+  const anyOpen = carveView.all || data.sections.some((s) => carveView.open.has(`${data.how}:${s.tag}`));
+  view.appendChild(sectionLink(anyOpen ? 'fold all' : 'unfold all', 'Show or hide the mechanisms under every section heading', () => { carveView.all = !anyOpen; carveView.open.clear(); renderCarveList(container, data); }));
+  const n = Number(data.tests_left || 0);
+  if (carveView.includeTests) view.appendChild(sectionLink('leave out test mechanisms', 'Leave out the mechanisms that are wholly test code (the default; the command line lists them with --include-tests)', () => { carveView.includeTests = false; refetch(); }));
+  else if (n) view.appendChild(sectionLink(`show ${n.toLocaleString()} test mechanism${n === 1 ? '' : 's'}`, 'Also carve the mechanisms that are wholly test code (the command line: --include-tests)', () => { carveView.includeTests = true; refetch(); }));
+  container.appendChild(view);
+  if (carveView.facts) for (const line of data.facts || []) container.appendChild(h('div', { className: 'muted', text: line, style: small }));
+  // the command's numbers, with what was used filled in; Enter or leaving the box carves again
+  const nums = h('div', { className: 'muted', style: small });
+  for (const [key, label, option, what] of CARVE_NUMBERS[data.how] || []) {
+    const used = data.settings && data.settings[key];
+    const box = h('input', { type: 'text', value: used == null ? '' : `${used}`, title: `${what}. The command line: ${option}. Empty for the default.`, style: 'width:44px;font-size:10px;margin:0 10px 0 4px;padding:0 3px' });
+    box.addEventListener('click', (e) => e.stopPropagation());
+    box.addEventListener('change', () => {
+      const v = box.value.trim();
+      if (v === `${used}`) return;
+      if (v) carveView.numbers[data.how][key] = v; else delete carveView.numbers[data.how][key];
+      carveView.open.clear(); carveView.all = false;   // the numbers name other sections now
+      refetch();
+    });
+    nums.appendChild(h('span', { text: label }));
+    nums.appendChild(box);
+  }
+  if (Object.keys(carveView.numbers[data.how]).length) nums.appendChild(sectionLink('defaults', 'Carve again with the command\'s default numbers', () => { carveView.numbers[data.how] = {}; carveView.open.clear(); refetch(); }));
+  container.appendChild(nums);
+  const filtered = data.matched !== data.total;
+  if (filtered) container.appendChild(h('div', { className: 'muted', style: small, text: `${data.matched.toLocaleString()} of ${data.total.toLocaleString()} mechanisms match the filter (by id or label). Sections keep their numbers and their whole counts.` }));
+  if (filtered && !data.matched) { container.appendChild(h('div', { className: 'list-placeholder', text: 'No mechanisms match' })); return; }
+
+  const rowEl = (r, tag) => {
+    const item = h('div', { className: 'list-item', title: `${r.id}  ${r.label}  [${tag}]${r.text ? `\n${r.described ? '' : 'purpose: '}${r.text}` : ''}`, style: 'padding-left:22px' }, [
+      h('span', { className: 'rank', text: r.id, style: 'min-width:34px;white-space:nowrap' }),
+      h('span', { className: 'name clickable', text: r.label, style: 'flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'filepath', text: r.text || '', style: 'flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
+    ]);
+    item.addEventListener('click', () => openMechanismById(r.id));
+    return item;
+  };
+  const block = (key, title, count, shown, hint, fill) => {
+    const open = filtered || carveView.all || carveView.open.has(key);
+    const wrap = h('div', { className: `sub-accordion${open ? ' open' : ''}` });
+    const head = h('div', { className: 'sub-accordion-header', title: hint, style: 'padding-left:10px;font-weight:600' }, [
+      h('span', { className: 'sub-accordion-toggle', text: '▸' }),
+      h('span', { text: title, style: 'flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis' }),
+      h('span', { className: 'metric', text: shown === count ? `${count}` : `${shown} of ${count}` }),
+    ]);
+    const body = h('div', { className: 'sub-accordion-content' });
+    let filled = false;
+    const fillOnce = () => { if (!filled) { filled = true; fill(body); } };
+    if (open) fillOnce();
+    head.addEventListener('click', () => {
+      const now = !wrap.classList.contains('open');
+      wrap.classList.toggle('open', now);
+      if (now) { carveView.open.add(key); fillOnce(); } else carveView.open.delete(key);
+    });
+    wrap.appendChild(head); wrap.appendChild(body);
+    return wrap;
+  };
+  for (const s of data.sections) {
+    const shown = s.rows ? s.rows.length : s.subs.reduce((t, p) => t + p.rows.length, 0);
+    container.appendChild(block(`${data.how}:${s.tag}`, `${s.tag}. ${s.heading}`, s.count, shown, `Section ${s.tag}: ${s.count} mechanisms. The heading is the words most particular to their labels. Click to show or hide them.`, (body) => {
+      if (s.rows) { for (const r of s.rows) body.appendChild(rowEl(r, s.tag)); return; }
+      for (const p of s.subs) {
+        body.appendChild(h('div', { className: 'muted', text: `${p.tag} ${p.others ? '(others in this section)' : p.heading}   (${p.rows.length === p.count ? p.count : `${p.rows.length} of ${p.count}`})`, style: 'font-size:11px;padding:3px 10px 1px 22px;font-weight:600' }));
+        for (const r of p.rows) body.appendChild(rowEl(r, p.tag));
+      }
+    }));
+  }
+  const tail = (rows, count, key, title, hint, tag) => {
+    if (!rows.length) return;
+    container.appendChild(block(`${data.how}:${key}`, title, count, rows.length, hint, (body) => { for (const r of rows) body.appendChild(rowEl(r, tag)); }));
+  };
+  tail(data.alone, data.alone_count, 'alone', data.lone_title, 'Mechanisms the carve put in no section of 2 or more', 'alone');
+  tail(data.unplaced, data.unplaced_count, 'unplaced', data.unplaced_title, 'Mechanisms with no embedded text, so clusters could not place them', 'unplaced');
+}
+
 export function conceptListParams(filter) {
   return { filter, max: 300, include_tests: conceptView.includeTests ? '1' : '' };
 }
