@@ -1,4 +1,4 @@
-// index-manager.js — holds the GUI server's named indexes; replace() releases the old one, forces a GC when one is available, and logs process memory per stage
+// index-manager.js — holds the GUI server's named indexes; replace() releases the old one, forces a GC when one is available, and logs process memory per stage; activate() makes another loaded one the active one
 // Copyright (c) 2026 Andrew Schulman
 // https://github.com/aschulman42-cell/code-exam
 // Co-authored with Claude (Claude Code).
@@ -128,6 +128,19 @@ export class IndexManager {
     if (!this.activeIndex) this.activeIndex = name;
     this._log(`Loaded index "${name}": ${idx.files.size} files`);
     return name;
+  }
+
+  /**
+   * Make an index that is already loaded the active one. Loads nothing and
+   * releases nothing: every index stays in the map as the same object, so
+   * switching back and forth costs nothing and whatever is kept per index
+   * object (the function corpus, a carve) stays. False when no index of that
+   * name is loaded; the active index is then unchanged.
+   */
+  activate(name) {
+    if (!name || !this.indexes.has(name)) return false;
+    this.activeIndex = name;
+    return true;
   }
 
   get(name = null) {

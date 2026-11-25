@@ -29,6 +29,28 @@ let _showPane = () => {};
 let _refreshLlmStatus = () => {};
 let _setEngineValue = (sel, value) => { if (sel) sel.value = value; }; // fallback: no 'change' dispatch
 
+/**
+ * The page now works over another index: put its name in the header, close and
+ * empty every left-pane list, clear the panes (and their back history), and
+ * announce it (ce:index-loaded: app.js pops the Overview and re-labels the
+ * chat; other modules drop what they kept about the old index). One function
+ * for every way the active index changes: Load Index, Rebuild, a row under
+ * "Available" in the Indexes list, and a row under "Loaded" there. Before
+ * 2026-11-25 the first three each had their own copy of these lines.
+ * @param {{name: string, files: number}|null} active  the newly active index
+ */
+export function resetPageForIndex(active) {
+  if (active) $('#index-info').textContent = `${active.name} (${active.files.toLocaleString()} files)`;
+  state.sectionData = {};
+  for (const sec of $$('.accordion-section')) {
+    sec.classList.remove('open');
+    $('.accordion-content', sec).innerHTML = '';
+    $('.accordion-badge', sec).textContent = '';
+  }
+  _clearAllPanes();
+  window.dispatchEvent(new CustomEvent('ce:index-loaded'));
+}
+
 export function initDialogs(deps = {}) {
   if (typeof deps.clearAllPanes === 'function') _clearAllPanes = deps.clearAllPanes;
   if (typeof deps.showPane === 'function') _showPane = deps.showPane;
@@ -173,26 +195,11 @@ function initLoadIndex() {
       // Remember parent directory for scan-indexes
       state.lastIndexDir = indexPath.replace(/[\\/][^\\/]+$/, '');
 
-      // Refresh UI
-      const active = result.indexes.find(i => i.active) || result.indexes[0];
-      $('#index-info').textContent = `${active.name} (${active.files.toLocaleString()} files)`;
-
-      // Clear all cached section data and re-collapse
-      state.sectionData = {};
-      for (const sec of $$('.accordion-section')) {
-        sec.classList.remove('open');
-        $('.accordion-content', sec).innerHTML = '';
-        $('.accordion-badge', sec).textContent = '';
-      }
-
-      // #181: pop the Overview window the instant an index loads. app.js listens
-      // for this and calls showOverviewOverlay() (buildOverview is cache-fast, so
-      // the pop-up is quick). Decoupled via event so dialogs.js stays unaware of
-      // the overlay internals.
-      window.dispatchEvent(new CustomEvent('ce:index-loaded'));
-
-      // Clear all content panes
-      _clearAllPanes();
+      // Refresh the page for the new index. #181: the reset's ce:index-loaded
+      // event pops the Overview window the instant an index loads (app.js
+      // listens and calls showOverviewOverlay(); buildOverview is cache-fast).
+      // Decoupled via event so dialogs.js stays unaware of the overlay internals.
+      resetPageForIndex(result.indexes.find(i => i.active) || result.indexes[0]);
 
       // gui-load-index-memory-release: say what happened to the previous index,
       // somewhere that persists (this dialog is already closed; the Console tab
@@ -321,17 +328,8 @@ function initLoadIndex() {
               rebuildBtn.textContent = 'Rebuild';
               statusDiv.style.display = 'none';
 
-              const active = job.indexes.find(i => i.active) || job.indexes[0];
-              $('#index-info').textContent = `${active.name} (${active.files.toLocaleString()} files)`;
-              state.sectionData = {};
-              for (const sec of $$('.accordion-section')) {
-                sec.classList.remove('open');
-                $('.accordion-content', sec).innerHTML = '';
-                $('.accordion-badge', sec).textContent = '';
-              }
-              _clearAllPanes();
-              // #218: pop the fast Overview after a rebuild completes too.
-              window.dispatchEvent(new CustomEvent('ce:index-loaded'));
+              // #218: the reset pops the fast Overview after a rebuild completes too.
+              resetPageForIndex(job.indexes.find(i => i.active) || job.indexes[0]);
             }, 2000);
           } else if (job.status === 'error') {
             clearInterval(rebuildPollTimer);

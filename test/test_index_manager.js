@@ -81,6 +81,33 @@ describe('IndexManager.load / get / list (unchanged behavior after the move)', (
   });
 });
 
+// gui-loaded-index-row-makes-it-active (2026-11-25): with several indexes loaded there was no
+// way to make another one active short of loading it again.
+describe('IndexManager.activate: another loaded index becomes the active one, nothing is loaded or released', () => {
+  it('switches, keeps both index objects, and switches back', () => {
+    const { mgr, lines } = managerWithLog();
+    mgr.load(IDX_A); mgr.load(IDX_B);
+    const a = mgr.get('idx_alpha'), b = mgr.get('idx_beta');
+    const logged = lines.length;
+    assert.equal(mgr.activate('idx_beta'), true);
+    assert.equal(mgr.activeIndex, 'idx_beta');
+    assert.equal(mgr.get(), b, 'the unnamed get answers for the newly active index');
+    assert.equal(mgr.get('idx_alpha'), a, 'the other index is the same object, not a reload');
+    assert.deepEqual(mgr.list().map(i => [i.name, i.active]), [['idx_alpha', false], ['idx_beta', true]]);
+    assert.equal(mgr.activate('idx_alpha'), true);
+    assert.equal(mgr.get(), a);
+    assert.equal(lines.length, logged, 'no "Loaded index" or [load-index] line: nothing was loaded');
+  });
+
+  it('a name that is not loaded is refused and the active index stays', () => {
+    const { mgr } = managerWithLog();
+    mgr.load(IDX_A);
+    assert.equal(mgr.activate('idx_beta'), false);
+    assert.equal(mgr.activate(''), false);
+    assert.equal(mgr.activeIndex, 'idx_alpha');
+  });
+});
+
 describe('IndexManager.replace — the Load Index (replace mode) contract', () => {
   it('leaves only the new index, active, and fires onRelease then onActive(newIndex)', () => {
     const { mgr, lines } = managerWithLog();

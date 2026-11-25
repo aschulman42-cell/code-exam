@@ -114,7 +114,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/hotspots.js` — ranks important functions, entry points, domain functions and classes, skipping vendored/minified noise
 - `src/core/import-join.js` — joins one index's imports to another's export catalog, verdicting resolved / private / not-found
 - `src/core/imports.js` — per-language import extractor (Py/JS/C/Java/C#/Go/Rust, plus HTML script/link/importmap tags and run-time dynamic loads) classifying rows internal/stdlib/third-party/vendored; reads manifests, build files and lockfiles
-- `src/core/index-manager.js` — holds the GUI server's named indexes; replace() releases the old one, forces a GC when one is available, and logs process memory per stage
+- `src/core/index-manager.js` — holds the GUI server's named indexes; replace() releases the old one, forces a GC when one is available, and logs process memory per stage; activate() makes another loaded one the active one
 - `src/core/llm-runner.js` — resolves cloud/GGUF model descriptors and runs the calls, with cost gates, truncation tracking and provenance
 - `src/core/loop-score.js` — scores a blind claim chart against drafted anchors: recall, mechanism PRESENT, control FPs, dependent grades
 - `src/core/rubric-score.js` — scores a pseudo-claims run against a hand rubric page: MET / PARTIAL / ABSENT per row, surplus binned
@@ -243,6 +243,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_function_text.js` — the mechanical function text and the reach script's scoring with no index and no model: source split into code, comments and literals, the ranked vocabulary, the four arms, class and file chunks, the roll-up, the set reading, the pool, the tallies and the control
 - `test/test_gui_imports_route.js` — /api/imports answers for a corpus with no Python (the Imports accordion is not Python-only)
 - `test/test_gui_carve_route.js` — /api/carve answers the listing of `ce --carve calls|clusters` as data: the same sections, numbers, headings and rows as the command, and says what to run when something is missing; /api/list-mechanisms takes the similarity order
+- `test/test_gui_index_switch.js` — /api/activate-index makes another loaded index the active one: routes asked without ?index= then answer for it, every index stays loaded, and a name that is not loaded is refused
 - `test/test_gui_concepts_route.js` — /api/concepts answers the rows of --concepts (the same concepts, order and counts as the command), with what a row opens to, before and after a mechanisms index is built; test mechanisms, the filter and the cap
 - `test/test_gui_mechanisms_route.js` — /api/list-mechanisms answers the not-built line before --build-mechanisms and the records, with members a click can open, after it
 - `test/test_har.js` — #161 .har expansion: text/base64 bodies, mime inference, URL dedupe, malformed input

@@ -131,6 +131,7 @@ export const api = {
   indexes:         ()  => api.get('indexes'),
   scanIndexes:     (p) => api.get('scan-indexes', p),
   loadIndex:       (p) => api.post('load-index', p, { timeout: 600000 }),  // 10 min for huge indexes
+  activateIndex:   (p) => api.post('activate-index', p),  // make another LOADED index the active one; loads nothing
   buildIndex:      (p) => api.post('build-index', p),
   buildIndexStatus:(p) => api.get('build-index-status', p),
   overview:        (p) => api.get('overview', p),

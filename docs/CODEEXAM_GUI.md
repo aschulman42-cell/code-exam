@@ -236,6 +236,18 @@ The left pane also carries the code **metrics** — hotspots, entry points, comp
 are one signal among many; the browse and catalog surfaces are usually the more useful starting
 point on a codebase you don't know. A **filter box** narrows any list.
 
+**Indexes** lists the indexes the server holds ("Loaded") and the ones it finds on disk in the
+current directory ("Available"). The page works over one index at a time, the one marked
+`active`: every list, search and pane is over that one. The server can hold several, when it is
+started with `--index-path` more than once (`node src/server.js --index-path .A --index-path .B`).
+**Click another row under "Loaded"** to make that index the active one (since 2026-11-25; before
+that these rows had no click). Nothing is loaded or released, so the switch is immediate and
+every index stays loaded. The page is reset as for a load: the lists close, the panes and their
+back history are cleared, and the Overview window opens for the newly active index. A click on a
+row under "Available" is different: it loads that index from disk *in place of* everything
+loaded, after asking. Showing two loaded indexes side by side is not available
+([#15](https://github.com/aschulman42-cell/code-exam/issues/15)).
+
 ## Following the code
 
 Once a symbol is in front of you, the GUI mirrors the CLI's cross-reference commands:

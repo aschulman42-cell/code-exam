@@ -34,10 +34,10 @@ import {
 } from './click-handlers.js';
 import { showContextMenu } from './context-menu.js';
 import { renderMermaid } from './mermaid.js';
-import { showMiddleTopError, showMiddleTopLoading, renderFilesByExtension, clearAllPanes, navPush } from './middle-pane.js';
+import { showMiddleTopError, showMiddleTopLoading, renderFilesByExtension, navPush } from './middle-pane.js';
 import { renderStringDetail } from './prompts-and-catalog.js';
 import { openCompareView } from './overlays.js';
-import { showConfirmDialog } from './dialogs.js';
+import { showConfirmDialog, resetPageForIndex } from './dialogs.js';
 import { findQuestionsSection, questionFromOverviewLine, questionsInProse, spliceQuestions } from './overview-questions.js';
 
 
@@ -1134,6 +1134,11 @@ const conceptView = { includeTests: false };
 // The reader's choices, kept for the page's life: the technique, test rows, and
 // which sections are unfolded (by technique and number, so they survive a re-fetch).
 const carveView = { how: 'calls', includeTests: false, open: new Set(), all: false, facts: false, numbers: { calls: {}, clusters: {} } };
+// Another index: its section 3 is not this one's, and numbers typed for one
+// codebase's size do not suit another. The technique and the test choice stay.
+if (typeof window !== 'undefined') window.addEventListener('ce:index-loaded', () => {
+  carveView.open.clear(); carveView.all = false; carveView.numbers = { calls: {}, clusters: {} };
+});
 /** The query for /api/carve under the reader's current choices. */
 export function carveListParams(filter) {
   return { how: carveView.how, filter, include_tests: carveView.includeTests ? '1' : '', ...carveView.numbers[carveView.how] };
@@ -3303,12 +3308,32 @@ export function renderIndexesList(container, data) {
   // Show loaded indexes
   if (loaded.length) {
     container.appendChild(h('div', { className: 'list-placeholder', text: 'Loaded:', style: 'font-weight:bold;padding:4px 8px;font-size:11px' }));
+    // The page works over the active one. A click on another makes it the
+    // active one: nothing is loaded or released, so it is instant, and every
+    // index stays loaded. (Until 2026-11-25 these rows had no click.)
     for (const idx of loaded) {
-      const item = h('div', { className: 'list-item', title: idx.name, style: 'background:var(--bg-hover)' }, [
-        h('span', { className: 'name', text: idx.name, style: 'color:var(--text-bright)' }),
+      const where = idx.indexPath || idx.name;
+      const item = h('div', {
+        className: 'list-item',
+        title: idx.active ? `${where}\nThe active index: the lists, searches and panes are over this one.`
+          : `${where}\nClick to make this the active index. It is already loaded, so this is immediate; the lists and panes are cleared for it.`,
+        style: 'background:var(--bg-hover)' + (idx.active ? '' : ';cursor:pointer'),
+      }, [
+        h('span', { className: idx.active ? 'name' : 'name clickable', text: idx.name, style: idx.active ? 'color:var(--text-bright)' : '' }),
         h('span', { className: 'metric', text: `${idx.files} files` }),
         idx.active ? h('span', { className: 'type-badge', text: 'active', style: 'color:#ffd700;font-size:9px' }) : null,
       ].filter(Boolean));
+      if (!idx.active) item.addEventListener('click', async () => {
+        try {
+          const result = await api.activateIndex({ name: idx.name });
+          resetPageForIndex(result.indexes.find(i => i.active));
+          // The reset closed every list; put this one back, with the new mark.
+          const header = $('.accordion-section[data-section="indexes"] .accordion-header');
+          if (header) header.click();
+        } catch (err) {
+          item.innerHTML = `<span class="error-msg" style="font-size:11px">${escHtml(err.message)}</span>`;
+        }
+      });
       container.appendChild(item);
     }
   }
@@ -3334,20 +3359,9 @@ export function renderIndexesList(container, data) {
         try {
           state.lastIndexDir = idx.path.replace(/[\\/][^\\/]+$/, '');
           const result = await api.loadIndex({ path: idx.path, mode: 'replace' });
-          // Update index info in header (same as Load Index dialog)
-          const active = result.indexes.find(i => i.active) || result.indexes[0];
-          if (active) $('#index-info').textContent = `${active.name} (${active.files.toLocaleString()} files)`;
-          // Full reset (same as Load Index dialog)
-          state.sectionData = {};
-          for (const sec of $$('.accordion-section')) {
-            sec.classList.remove('open');
-            $('.accordion-content', sec).innerHTML = '';
-            $('.accordion-badge', sec).textContent = '';
-          }
-          clearAllPanes();
-          // #218: pop the fast Overview on accordion-load too (parity with the
-          // Load Index dialog, which dispatches ce:index-loaded in dialogs.js).
-          window.dispatchEvent(new CustomEvent('ce:index-loaded'));
+          // The Load Index dialog's own reset: header, lists, panes, and the
+          // ce:index-loaded event that pops the fast Overview (#218).
+          resetPageForIndex(result.indexes.find(i => i.active) || result.indexes[0]);
         } catch (err) {
           item.innerHTML = `<span class="error-msg" style="font-size:11px">${escHtml(err.message)}</span>`;
         }

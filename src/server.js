@@ -1819,6 +1819,35 @@ routes['/api/load-index'] = (req, res) => {
   });
 };
 
+// --- Make another loaded index the active one ---
+//
+// The server can hold several indexes (--index-path more than once); a route
+// asked without ?index= answers for the active one, and the page works over
+// that one. This sets which it is. It loads and releases nothing, so it is
+// instant and what is kept per loaded index stays. The MCP tool module's
+// index (setIndex) is not touched here: each chat / analyze / overview call
+// points it at its own index when it starts, and one already running keeps
+// the index it started on.
+routes['/api/activate-index'] = (req, res) => {
+  if (req.method !== 'POST') return errorResponse(res, 'POST required', 405);
+  let body = '';
+  req.on('data', chunk => { body += chunk; if (body.length > 100_000) req.destroy(); });
+  req.on('end', () => {
+    try {
+      const name = String((JSON.parse(body || '{}')).name || '');
+      if (!name) return errorResponse(res, 'Missing "name" in body');
+      const previous = mgr.activeIndex || null;
+      if (!mgr.activate(name)) {
+        const loaded = mgr.list().map(i => i.name);
+        return errorResponse(res, `No loaded index is named "${name}". Loaded: ${loaded.length ? loaded.join(', ') : '(none)'}. Load Index (Index menu) loads one from disk.`, 404);
+      }
+      jsonResponse(res, { active: name, previous, indexes: mgr.list() });
+    } catch (err) {
+      errorResponse(res, `Activate error: ${err.message}`, 400);
+    }
+  });
+};
+
 
 // --- Build index from GUI ---
 

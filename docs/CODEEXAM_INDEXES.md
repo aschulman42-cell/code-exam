@@ -121,8 +121,11 @@ first load. That is distinct from `--build-index` pointing at a zip of a codebas
 ## Cross-index catalogs
 
 The `--multi-index` fan-out above runs a command across several indexes one after another — it
-does **not** load them into a single shared memory (that isn't supported today; the GUI's
-Load-Index multi-select is disabled for the same reason). What CodeExam *can* do across indexes is
+does **not** load them into a single shared memory, and no command reads two indexes as one. (The
+GUI server can *hold* several, started with `--index-path` more than once, and the left pane's
+Indexes list switches which one the page works over; it still works over one at a time, and the
+Load Index dialog's "Add to existing indexes" box is disabled. See
+[`CODEEXAM_GUI.md`](CODEEXAM_GUI.md).) What CodeExam *can* do across indexes is
 resolve one codebase against another via a saved catalog. Build a reusable **export catalog** from
 one or more libraries with `--exports --emit-catalog <file>` (a v2 catalog also carries who-uses
 data), then:
