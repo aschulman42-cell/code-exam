@@ -74,21 +74,28 @@ records (383 on CodeExam's 390 records). Rows that are wholly test code are left
 rows come largest first; the line under the
 **Describe** bar says how many test rows were left out and carries two links, **show** and
 **source order**, that change each for as long as the page is open (the CLI's `--include-tests`
-and `--sort-by path`, which groups the rows by source directory under a muted line with the directory and its row count; **View → Exclude Tests** does not act on this list). A row leads with the
-model's one-sentence description when `--describe` wrote one and the sentence names its subject,
-the label then sitting beneath it with the record id; when the sentence opens with This, These or
+and `--sort-by path`, which groups the rows by source directory under a muted line with the directory and its row count; **View → Exclude Tests** does not act on this list). A row opens with the
+record id (`m4`; first on the main row since 2026-11-24, where it had been on the muted line
+beneath), then the model's one-sentence description when `--describe` wrote one and the sentence
+names its subject, the label then sitting beneath it; when the sentence opens with This, These or
 The functions the headline is `label — sentence`, so the name reads before the pronoun (the route
-sends `names_subject`, judged by the one rule the CLI listings apply); otherwise it leads with the
-label, over the record id and the purpose read from the code's own doc text (the id on an
-undescribed row since 2026-11-21, so every row shows it). Under a filter, a row matched on
-something it does not show (a member past the names, a file, a purpose a sentence replaced) opens
+sends `names_subject`, judged by the one rule the CLI listings apply); otherwise the id is followed
+by the label, over the purpose read from the code's own doc text. Under a filter, a row matched on
+something it does not show (a member, a file, a purpose a sentence replaced) opens
 its muted line with what matched, `holds <member>`, `in <file>` or `purpose "…"`, the CLI
-listings' words, so the reason is visible before the row is expanded. Beside either sit its
+listings' words, so the reason is visible before the row is opened. Beside either sit its
 member and file counts and tags (`test`, `vendored`, `giant` for
-a record the splitter could not break); a row that stands for one record expands to its members,
-and a member opens the source viewer as a function row does; a `×N` row opens the upper middle
-pane instead, as a deduplicated row of the AI/ML cells does, with the records it folds, the
-counts, the purpose and the members once (the sets are identical), each opening the source viewer.
+a record the splitter could not break), and `×N` on a row that stands for N records with the same
+functions. Clicking a row puts the mechanism in the upper middle pane (since 2026-11-24; a row had
+expanded in place to its members, and only a `×N` row used the pane), as a click on a Vocabulary
+or Concepts row does. The pane shows the mechanism in full and without code, what
+`--mechanisms -v` prints for it and what the file holds besides: its id and label, its kind, any
+other labels for the same functions, the model's description with the model's name, the purpose
+read from the code, its tags, what it calls, its size, then its functions as `file@function`
+references with their lines, and its files. A click on a reference opens that function's source
+in the lower middle pane, so the upper pane keeps the mechanism; a right-click on one gives the
+menu a function has elsewhere. Only one mechanism's functions are in view at a time: rows no
+longer open side by side in the left pane.
 A **Describe** button at the top of the list asks the
 Workspace engine for a one-sentence description of each listed row that has none, the same
 sentence `--describe` writes from the same pack, one call per row and the sentence written to

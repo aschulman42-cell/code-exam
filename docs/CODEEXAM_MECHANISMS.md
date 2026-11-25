@@ -253,8 +253,9 @@ the one-line version.
 
 ## What mechanisms are used for
 
-- **Reading a codebase.** The GUI's **Mechanisms** list ([`CODEEXAM_GUI.md`](CODEEXAM_GUI.md))
-  and `--mechanisms [filter]` show the rows with their members; `--toc [filter]` prints the
+- **Reading a codebase.** `--mechanisms [filter]` shows the rows with their members, and the
+  GUI's **Mechanisms** list ([`CODEEXAM_GUI.md`](CODEEXAM_GUI.md)) shows the rows, a click
+  putting one mechanism in full, members included, in the upper middle pane; `--toc [filter]` prints the
   contents page; the MCP `list_mechanisms` tool gives an agent the same rows
   ([`CODEEXAM_MCP.md`](CODEEXAM_MCP.md)). All read the one file; none recomputes the grouping.
   When the list is too long to read down, `--carve clusters` or `--carve calls`

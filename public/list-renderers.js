@@ -867,7 +867,6 @@ export function renderMechanismList(container, data) {
       lastGroup = r.group;
       container.appendChild(h('div', { className: 'muted', text: `${r.group}  (${r.group_count} row${r.group_count === 1 ? '' : 's'})`, title: 'Rows are grouped by the source directory holding most of their functions; rows spread over several directories come last', style: 'padding:6px 8px 2px;font-size:11px;letter-spacing:.03em' }));
     }
-    const subContent = h('div', { className: 'sub-accordion-content' });
     const tags = (r.tags || []).join(', ');
     const nFn = r.members_total || (r.members || []).length;
     const counts = `${nFn} function${nFn === 1 ? '' : 's'}, ${r.files} file${r.files === 1 ? '' : 's'}${tags ? `\n[${tags}]` : ''}`;
@@ -891,14 +890,18 @@ export function renderMechanismList(container, data) {
     const desc = r.description || '';
     const note = r.match_note || '';
     const headline = desc ? (r.names_subject === false ? `${r.label} — ${desc}` : desc) : r.label;
-    const subline = `${note ? `${note} · ` : ''}${desc ? `${r.id}  ${r.label}${also ? ` · ${also}` : ''}` : `${r.id || ''}${r.purpose ? `  ${r.purpose}` : ''}`}`.replace(/ · $/, '');
+    // mechanisms-row-opens-in-upper-pane (Andrew, 2026-11-24): the id leads the main row,
+    // described or not, and the muted line beneath no longer repeats it; a click puts the
+    // mechanism in the upper middle pane, as a Vocabulary or Concepts row's click does, and
+    // the row no longer expands in place.
+    const subline = `${note ? `${note} · ` : ''}${desc ? `${r.label}${also ? ` · ${also}` : ''}` : `${r.purpose || ''}${also ? `${r.purpose ? ' · ' : ''}${also}` : ''}`}`.replace(/ · $/, '');
     const subHeader = h('div', {
       className: 'sub-accordion-header',
-      title: `${desc ? `${r.names_subject === false ? `${r.label}\n${desc}` : `${desc}\n${r.label}`}${also ? `\n${also}` : ''}\n${counts}` : `${r.label}${also ? `\n${also}` : ''}\n${counts}${r.purpose ? `\n${r.purpose}` : ''}`}${note ? `\n${note}` : ''}`,
+      title: `${r.id}\n${desc ? `${r.names_subject === false ? `${r.label}\n${desc}` : `${desc}\n${r.label}`}${also ? `\n${also}` : ''}\n${counts}` : `${r.label}${also ? `\n${also}` : ''}\n${counts}${r.purpose ? `\n${r.purpose}` : ''}`}${note ? `\n${note}` : ''}\nClick: this mechanism in full, in the upper middle pane`,
     }, [
-      h('span', { className: 'sub-accordion-toggle', text: nRec > 1 ? '›' : '▸' }),
-      h('span', { className: 'name', text: headline, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
-      nRec > 1 ? h('span', { className: 'metric muted', text: `×${nRec}`, title: `${nRec} records with the same functions: ${r.label}, ${aliases.join(', ')}; click to list them in the upper middle pane`, style: 'white-space:nowrap' }) : null,
+      h('span', { className: 'rank', text: r.id || '', style: 'min-width:34px;white-space:nowrap' }),
+      h('span', { className: 'name clickable', text: headline, style: 'flex:2 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-bright)' }),
+      nRec > 1 ? h('span', { className: 'metric muted', text: `×${nRec}`, title: `${nRec} records with the same functions: ${r.label}, ${aliases.join(', ')}`, style: 'white-space:nowrap' }) : null,
       h('span', { className: 'metric', text: `${nFn}f` }),
       h('span', { className: 'metric', text: `${r.files} file${r.files === 1 ? '' : 's'}`, style: 'white-space:nowrap' }),
       tags ? h('span', { className: 'metric muted', text: `[${tags}]`, style: 'white-space:nowrap' }) : null,
@@ -906,19 +909,11 @@ export function renderMechanismList(container, data) {
     const textRow = subline
       ? h('div', { className: 'filepath', text: subline, title: subline, style: 'padding:0 10px 3px 26px;font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap' })
       : null;
-    const sub = h('div', { className: 'sub-accordion', 'data-mechanism': r.id }, [subHeader, textRow, subContent].filter(Boolean));
-    subHeader.addEventListener('click', (e) => {
-      e.stopPropagation();
-      // A row standing for several records opens the upper middle pane, as a
-      // ×N row of the AI/ML cells does (Andrew, 2026-11-05); a row standing
-      // for one expands inline to its members, there being no one site to go to.
-      if (nRec > 1) { openMechanismEntryPane(r, headline, also); return; }
-      const wasOpen = sub.classList.contains('open');
-      sub.classList.toggle('open');
-      if (!wasOpen && subContent.children.length === 0) renderMechanismMembers(r, subContent);
-      const parentSection = sub.closest('.accordion-section');
-      if (parentSection) setTimeout(() => _updateOverflowHint(parentSection), 50);
-    });
+    const sub = h('div', { className: 'sub-accordion', 'data-mechanism': r.id }, [subHeader, textRow].filter(Boolean));
+    // one click for every row, a ×N row included: the page lists the other labels
+    const open = (e) => { e.stopPropagation(); openMechanismInUpperPane(r, data.described || null); };
+    subHeader.addEventListener('click', open);
+    if (textRow) { textRow.style.cursor = 'pointer'; textRow.addEventListener('click', open); }
     container.appendChild(sub);
   }
   if (data.total > records.length) container.appendChild(h('div', { className: 'list-placeholder', text: `${records.length} of ${data.total} shown` }));
@@ -1048,46 +1043,66 @@ function renderDescribeBar(container, data) {
   return h('div', { className: 'list-placeholder describe-bar', style: 'display:flex;align-items:center;padding:3px 10px;font-size:11px;min-width:0' }, [btn, note]);
 }
 
-// mechanisms-toc-one-row-per-mechanism: the upper middle pane for an entry
-// that folds several records (the drilldownGroupClick shape of app.js): the
-// title is the entry's headline, a header names the records folded and the
-// counts, the purpose follows when there is one, and the members list once
-// (identical sets, so one list), each opening the function as a row's
-// inline members do.
-function openMechanismEntryPane(r, headline, also) {
-  showPane('middle-top');
-  navPush('middle-top');
-  $('#middle-top-title').textContent = headline;
-  const body = $('#middle-top-body');
-  body.innerHTML = '';
-  const nFn = r.members_total || (r.members || []).length;
-  const nRec = r.record_count || 1;
-  body.appendChild(h('div', {
-    text: `${nRec} records with the same ${nFn} function${nFn === 1 ? '' : 's'} in ${r.files} file${r.files === 1 ? '' : 's'}: ${r.label}${also ? `; ${also}` : ''}`,
-    style: 'padding:4px 8px;font-size:11px;color:var(--text-bright);border-bottom:1px solid var(--border,#333);margin-bottom:2px',
-  }));
-  if (r.purpose) body.appendChild(h('div', { text: r.purpose, title: r.purpose, style: 'padding:2px 8px 4px;font-size:10px;color:var(--text-muted)' }));
-  const list = h('div');
-  body.appendChild(list);
-  renderMechanismMembers(r, list);
+// A mechanism in full, in whichever middle pane (mechanisms-row-opens-in-upper-pane; first
+// written for the lower pane by issue-364-concepts-gui-accordion). Everything the mechanisms
+// file says of one mechanism and no code: what `--mechanisms -v` prints for it (id, the
+// model's description or the harvested purpose, label, counts, tags, every function as
+// file@function with its lines) and what the file holds besides (kind, the other labels of a
+// folded entry, what it calls, its files). `r` is a record of /api/list-mechanisms;
+// `described` that answer's `described` (which model wrote the descriptions, and when);
+// `sourceWhere` finishes the hint on a function row, for the pane its source opens in.
+// Rows say what they open in data attributes and carry no listeners, so a page the back
+// arrow restores from markup still answers (wireClickables, on render and on return); a
+// function or a file opens in the lower middle pane, source only.
+function renderMechanismDetail(body, r, described, sourceWhere) {
+  const members = r.members || [];
+  const nFn = r.members_total || members.length;
+  const aliases = (r.aliases || []).map((a) => a.label);
+  const KIND = { file: 'the functions of one file', class: 'the methods of one class', cmd: 'a command\'s handler and what it calls', token: 'functions across files that share a name token' };
+  const norm = (p) => String(p || '').replace(/\\/g, '/');
+  const field = (name, value, { bright = false } = {}) => h('div', { style: 'padding:2px 10px;white-space:normal;font-size:11px' }, [
+    h('span', { className: 'muted', text: `${name}: `, style: 'font-size:10px' }),
+    h('span', { text: value, style: bright ? 'color:var(--text-bright)' : '' }),
+  ]);
+  body.appendChild(h('div', { text: `${r.id}  ${r.label}`, style: 'padding:6px 10px 2px;color:var(--text-bright);font-size:12px;white-space:normal' }));
+  body.appendChild(field('Kind', `${r.kind || 'unknown'}${KIND[r.kind] ? `: ${KIND[r.kind]}` : ''}. Found by grouping, with no model.`));
+  if (aliases.length) body.appendChild(field('Also labelled', `${aliases.join(', ')} (${r.record_count || aliases.length + 1} records with the same functions)`));
+  if (r.description) body.appendChild(field(`Description${described && described.engine ? ` (written by a model: ${described.engine}${described.generated ? `, ${String(described.generated).slice(0, 10)}` : ''})` : ' (written by a model)'}`, r.description, { bright: true }));
+  if (r.purpose) body.appendChild(field('Purpose (read from the code\'s own text, no model)', r.purpose, { bright: !r.description }));
+  if (!r.description && !r.purpose) body.appendChild(field('Description', 'none: no model has described this mechanism, and the code has no doc text for it'));
+  if ((r.tags || []).length) body.appendChild(field('Tags', r.tags.join(', ')));
+  if ((r.calls || []).length) body.appendChild(field('Calls out to', r.calls.join(', ')));
+  const files = [...new Set(members.map((m) => norm(m.filepath)).filter(Boolean))];
+  body.appendChild(field('Size', `${nFn} function${nFn === 1 ? '' : 's'} in ${r.files} file${r.files === 1 ? '' : 's'}`));
+  // The functions, as file@function references. The code is one click away and not shown here
+  // (Andrew, 2026-11-24: the source under each name was "too detailed: big chunks of code").
+  body.appendChild(h('div', { className: 'muted', text: `Functions (click one for its source${members.length < nFn ? `; ${members.length} of ${nFn} listed` : ''})`, style: 'font-size:10px;padding:8px 10px 1px;border-top:1px solid var(--border,#333);margin-top:4px' }));
+  for (const m of members) {
+    body.appendChild(h('div', { className: 'list-item', title: `${norm(m.filepath)}@${m.name}\nLine ${m.start}–${m.end} (${m.lines} lines)\nClick: its source, ${sourceWhere}` }, [
+      h('span', { className: 'name clickable', text: `${norm(m.filepath)}@${m.display_name || m.name}`, style: 'flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis', 'data-funcname': m.name, 'data-filepath': m.filepath }),
+      h('span', { className: 'metric muted', text: `L${m.start}–${m.end}`, style: 'white-space:nowrap' }),
+      h('span', { className: 'metric', text: `${m.lines}`, title: `${m.lines} lines`, style: 'min-width:24px' }),
+    ]));
+  }
+  body.appendChild(h('div', { className: 'muted', text: `Files (${files.length}${members.length < nFn ? ', of the functions listed' : ''})`, style: 'font-size:10px;padding:8px 10px 1px;border-top:1px solid var(--border,#333);margin-top:4px' }));
+  for (const f of files) body.appendChild(h('div', { className: 'list-item', title: `${f}\nClick: the file, in the lower middle pane` }, [h('span', { className: 'name clickable', text: f, style: 'flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis', 'data-filepath': f })]));
+  _wireClickables(body, { sourceOnly: true });
 }
 
-function renderMechanismMembers(r, container) {
-  container.innerHTML = '';
-  const members = r.members || [];
-  if (!members.length) { container.innerHTML = '<div class="list-placeholder" style="padding:4px 10px;font-size:11px">No members</div>'; return; }
-  for (const m of members) {
-    const info = { name: m.name, display_name: m.display_name || m.name, filepath: m.filepath, lines: m.lines, start: m.start, end: m.end };
-    const item = h('div', { className: 'list-item', title: `${m.filepath}\nLine ${m.start}–${m.end} (${m.lines} lines)` }, [
-      h('span', { className: 'metric', text: `${m.lines}`, style: 'min-width:24px' }),
-      h('span', { className: 'name clickable', html: displayNameHtml(info.display_name) }),
-      h('span', { className: 'filepath', text: m.filepath?.replace(/\\/g, '/') || '' }),
-    ]);
-    item.addEventListener('click', (e) => { e.stopPropagation(); onFunctionClick(info); });
-    item.addEventListener('contextmenu', (e) => { e.stopPropagation(); showContextMenu(e, info); });
-    container.appendChild(item);
-  }
-  if ((r.members_total || 0) > members.length) container.appendChild(h('div', { className: 'list-placeholder', text: `${members.length} of ${r.members_total} members shown`, style: 'padding:4px 10px;font-size:11px' }));
+/** The title both panes give a mechanism. */
+const mechanismTitle = (r) => { const n = r.members_total || (r.members || []).length; return `Mechanism ${r.id}: ${r.label}  (${n} function${n === 1 ? '' : 's'}, ${r.files} file${r.files === 1 ? '' : 's'})`; };
+
+// A mechanism in the upper middle pane: where a click on a Mechanisms row lands, and a click
+// on a mechanism id in the Function texts pane (openMechanismById). The functions' source
+// opens in the lower pane, so this pane keeps the mechanism.
+function openMechanismInUpperPane(r, described) {
+  showPane('middle-top');
+  navPush('middle-top');
+  $('#middle-top-title').textContent = mechanismTitle(r);
+  const body = $('#middle-top-body');
+  body.innerHTML = '';
+  body.scrollTop = 0;
+  renderMechanismDetail(body, r, described, 'in the lower middle pane');
 }
 
 
@@ -1234,13 +1249,10 @@ if (typeof document !== 'undefined') document.addEventListener('click', (e) => {
   else if (el.dataset.openVocab) onVocabClick(el.dataset.openVocab);
 });
 
-// A mechanism in the lower middle pane: everything the mechanisms file says of it (id, label,
-// kind, other labels, a model's description when there is one, the purpose read from the code,
-// tags, what it calls, its size), then its functions as file@function references and its files.
-// No source: a reference's click opens the function's source in this pane, and the back arrow
-// returns. For a click on a mechanism in the upper middle pane (the Concepts pane), so the
-// upper pane keeps its list. The entry is fetched by an anchored filter on its id, as
-// openMechanismById does.
+// A mechanism in the lower middle pane: the page renderMechanismDetail draws, for a click on
+// a mechanism in the upper middle pane (the Concepts pane), so the upper pane keeps its list.
+// A function's click opens its source in this same pane, and the back arrow returns. The
+// entry is fetched by an anchored filter on its id, as openMechanismById does.
 let _mechanismPaneToken = 0;
 async function openMechanismInSourcePane(id) {
   const token = ++_mechanismPaneToken;
@@ -1255,46 +1267,11 @@ async function openMechanismInSourcePane(id) {
   } catch (err) { if (token === _mechanismPaneToken) body.innerHTML = `<div class="error-msg">${escHtml(err.message)}</div>`; return; }
   if (token !== _mechanismPaneToken) return;
   if (!r) { body.innerHTML = `<div class="error-msg">No Mechanisms entry ${escHtml(id)}</div>`; return; }
-  const members = r.members || [];
-  const nFn = r.members_total || members.length;
-  const aliases = (r.aliases || []).map((a) => a.label);
-  title.textContent = `Mechanism ${r.id}: ${r.label}  (${nFn} function${nFn === 1 ? '' : 's'}, ${r.files} file${r.files === 1 ? '' : 's'})`;
+  title.textContent = mechanismTitle(r);
   state.lastSourceRender = null;   // not a function or a file: nothing for the re-render options to redraw
   body.innerHTML = '';
   body.scrollTop = 0;
-  const KIND = { file: 'the functions of one file', class: 'the methods of one class', cmd: 'a command\'s handler and what it calls', token: 'functions across files that share a name token' };
-  const norm = (p) => String(p || '').replace(/\\/g, '/');
-  const field = (name, value, { bright = false } = {}) => h('div', { style: 'padding:2px 10px;white-space:normal;font-size:11px' }, [
-    h('span', { className: 'muted', text: `${name}: `, style: 'font-size:10px' }),
-    h('span', { text: value, style: bright ? 'color:var(--text-bright)' : '' }),
-  ]);
-  body.appendChild(h('div', { text: `${r.id}  ${r.label}`, style: 'padding:6px 10px 2px;color:var(--text-bright);font-size:12px;white-space:normal' }));
-  body.appendChild(field('Kind', `${r.kind || 'unknown'}${KIND[r.kind] ? `: ${KIND[r.kind]}` : ''}. Found by grouping, with no model.`));
-  if (aliases.length) body.appendChild(field('Also labelled', `${aliases.join(', ')} (${r.record_count || aliases.length + 1} records with the same functions)`));
-  if (r.description) body.appendChild(field(`Description${described && described.engine ? ` (written by a model: ${described.engine}${described.generated ? `, ${String(described.generated).slice(0, 10)}` : ''})` : ' (written by a model)'}`, r.description, { bright: true }));
-  if (r.purpose) body.appendChild(field('Purpose (read from the code\'s own text, no model)', r.purpose, { bright: !r.description }));
-  if (!r.description && !r.purpose) body.appendChild(field('Description', 'none: no model has described this index\'s mechanisms, and the code has no doc text for this one'));
-  if ((r.tags || []).length) body.appendChild(field('Tags', r.tags.join(', ')));
-  if ((r.calls || []).length) body.appendChild(field('Calls out to', r.calls.join(', ')));
-  const files = [...new Set(members.map((m) => norm(m.filepath)).filter(Boolean))];
-  body.appendChild(field('Size', `${nFn} function${nFn === 1 ? '' : 's'} in ${r.files} file${r.files === 1 ? '' : 's'}`));
-  // The functions, as file@function references. The code is one click away and not shown here
-  // (Andrew, 2026-11-24: the source under each name was "too detailed: big chunks of code").
-  body.appendChild(h('div', { className: 'muted', text: `Functions (click one for its source${members.length < nFn ? `; ${members.length} of ${nFn} listed` : ''})`, style: 'font-size:10px;padding:8px 10px 1px;border-top:1px solid var(--border,#333);margin-top:4px' }));
-  for (const m of members) {
-    const info = { name: m.name, display_name: m.display_name || m.name, filepath: m.filepath, lines: m.lines, start: m.start, end: m.end };
-    // data attributes, no listeners: wired below, and again when the back arrow restores the page
-    body.appendChild(h('div', { className: 'list-item', title: `${norm(m.filepath)}@${m.name}\nLine ${m.start}–${m.end} (${m.lines} lines)\nClick: its source, here (the back arrow returns to the mechanism)` }, [
-      h('span', { className: 'name clickable', text: `${norm(m.filepath)}@${info.display_name}`, style: 'flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis', 'data-funcname': m.name, 'data-filepath': m.filepath }),
-      h('span', { className: 'metric muted', text: `L${m.start}–${m.end}`, style: 'white-space:nowrap' }),
-      h('span', { className: 'metric', text: `${m.lines}`, title: `${m.lines} lines`, style: 'min-width:24px' }),
-    ]));
-  }
-  body.appendChild(h('div', { className: 'muted', text: `Files (${files.length}${members.length < nFn ? ', of the functions listed' : ''})`, style: 'font-size:10px;padding:8px 10px 1px;border-top:1px solid var(--border,#333);margin-top:4px' }));
-  for (const f of files) {
-    body.appendChild(h('div', { className: 'list-item', title: `${f}\nClick: the file, here` }, [h('span', { className: 'name clickable', text: f, style: 'flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis', 'data-filepath': f })]));
-  }
-  _wireClickables(body, { sourceOnly: true });
+  renderMechanismDetail(body, r, described, 'here (the back arrow returns to the mechanism)');
 }
 
 
@@ -1382,16 +1359,15 @@ function renderFunctionTextRows(list, data, refetch) {
   if (data.total > rows.length) list.appendChild(h('div', { className: 'list-placeholder', text: `${rows.length} of ${data.total} shown` }));
 }
 
-// A mechanism id in the pane opens that Mechanisms entry in the upper middle pane
-// (openMechanismEntryPane, the pane a x N row opens); the entry is fetched by an
-// anchored-regex filter on its id, which the route's filter matches against the id.
+// A mechanism id in the pane opens that mechanism in the upper middle pane
+// (openMechanismInUpperPane, the page a Mechanisms row's click opens); the entry is fetched
+// by an anchored-regex filter on its id, which the route's filter matches against the id.
 async function openMechanismById(id) {
   try {
     const d = await api.listMechanisms({ filter: `/^${id}$/`, include_tests: '1', max: 10 });
     const r = (d.records || []).find((x) => x.id === id);
     if (!r) { showMiddleTopError(`No Mechanisms entry ${id}`); return; }
-    const aliases = (r.aliases || []).map((a) => a.label);
-    openMechanismEntryPane(r, r.description || r.label, aliases.length ? `also ${aliases.join(', ')}` : '');
+    openMechanismInUpperPane(r, d.described || null);
   } catch (err) { showMiddleTopError(err.message); }
 }
 
