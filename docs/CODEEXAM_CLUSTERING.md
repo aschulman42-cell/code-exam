@@ -475,8 +475,12 @@ mechanisms are found. None of the changes below has been made or tested.
   a broad cluster is roughly claim-sized and a narrow one is smaller.
 - **Can a list of a codebase's concepts guide a user into the clusters?** `--concepts` lists
   them (since 2026-11-23), each with the number of mechanisms named for it, and its closing
-  lines send the reader to `--carve`. It does not yet say which section holds a concept, and
-  whether the list leads a reader to the right section has not been tested. How the
+  lines send the reader to `--carve`. Since 2026-11-24, `--concepts --carve calls` has each row also say which
+  section of `--carve calls` holds the concept's mechanisms best and what share of them is
+  there (`[3.3: 43%]`), or `[spread]` when no section does better than a random pick;
+  `--concepts --carve clusters` uses the cluster sections. On seven codebases 39% to 89% of the concepts with two or more mechanisms had such a
+  section under calls, and 37% to 95% under clusters on the five that have embeddings. Whether that leads a reader to the right code has
+  not been tested. How the
   concepts are found and how often they are right is on
   [`CODEEXAM_CONCEPTS.md`](CODEEXAM_CONCEPTS.md).
 - **Will a reader see anything surprising?** A good listing would show the familiar

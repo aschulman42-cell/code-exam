@@ -1925,6 +1925,10 @@ METRICS / DISCOVERY:
                              suggestion, not a finding; the two techniques
                              give different groups (CODEEXAM_CLUSTERING.md).
                              Bare --carve explains the two and picks neither.
+                             With --concepts, --carve prints no listing: it
+                             has --concepts say where each concept's
+                             mechanisms sit in that technique's sections
+                             (see --concepts).
   --sections <N>             With --carve clusters: how many sections
                              (default 0.65 x the square root of the number
                              of mechanisms, at least 6).
@@ -1989,6 +1993,18 @@ METRICS / DISCOVERY:
                              shown in full, with its mechanisms. Mechanisms that
                              are wholly test code are left out unless
                              --include-tests is given.
+                             With --carve calls (or --carve clusters, which
+                             needs --build-embeddings) it also says where
+                             the mechanisms sit: in square brackets before
+                             the count, the section of that carve that holds
+                             them best and the share of them there
+                             ([3.3: 43%]), or [spread] when no section holds
+                             them better than a random pick would. One
+                             concept in full then says how many are there
+                             and where the others are. The numbers are that
+                             listing's own, and are a suggestion. Not done
+                             unless asked for: it carves the codebase first,
+                             which takes seconds on a large index.
   --vocabulary [n]           Top N domain-specific tokens by TF-IDF score (default 50)
                              (short alias: --vocab; deprecated alias:
                              --discover-vocabulary). --concepts lists the

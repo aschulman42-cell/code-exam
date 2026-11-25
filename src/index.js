@@ -494,7 +494,9 @@ if (args.embed_distance) {
 }
 // carve-command-clusters-and-calls: the mechanisms under sections and sub-sections;
 // like the two above, it reads the index itself and is dispatched before it is constructed.
-if (args._explicit.has('carve')) {
+// With --concepts, --carve only says which technique places the concepts (issue-364-concepts-where),
+// and the concepts command below runs.
+if (args._explicit.has('carve') && !args._explicit.has('concepts')) {
   const { doCarve } = await import('./commands/carve.js');
   await doCarve(args, { exe: exeBase() });
   process.exit(process.exitCode || 0);
@@ -1169,7 +1171,7 @@ if (args.domain_fns)                        doDomainFns(index, args);
 if (args.list_classes)                      doListClasses(index, args);
 if (args._explicit.has('mechanisms'))       doMechanisms(index, args, { exe: exeBase(), describe: mechanismsDescribe });
 if (args._explicit.has('toc'))              doToc(index, args, { exe: exeBase(), describe: mechanismsDescribe });   // mechanisms-toc-one-row-per-mechanism (#296)
-if (args._explicit.has('concepts'))         doConcepts(index, args, { exe: exeBase() });   // issue-364-concepts-cli
+if (args._explicit.has('concepts'))         await doConcepts(index, args, { exe: exeBase() });   // issue-364-concepts-cli; async since issue-364-concepts-where
 if (args._explicit.has('show_function_text')) doShowFunctionText(index, args, { exe: exeBase() });   // show-function-text-option
 if (args.data_structs)                      doDataStructs(index, args);
 if (args.client_server)                     doClientServer(index, args);

@@ -22,12 +22,12 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { readCache, embedAll, sha } from '../core/embed.js';
-import { FUSE_ARM } from '../core/function-text.js';
+import { FUSE_ARM, buildCorpus } from '../core/function-text.js';
 import { loadMechanismsIndex, foldRecords } from '../core/mechanisms-index.js';
-import { embedCacheFile, entryEmbedPlan, loadFunctionPlan } from './embed-distance.js';
+import { embedCacheFile, entryEmbedPlan, loadFunctionPlan, functionTexts } from './embed-distance.js';
 import { chooseSearchModel } from './semantic-search.js';
 import { isTestEntry, testsTip, printTip } from '../core/test-paths.js';
-import { CARVE_HOWS, CALLS_RESOLUTION, CALLS_SUB_RESOLUTION, CALLS_SEED, CALLS_MIN_SUB, CLUSTERS_MAX, PURPOSE_MAX, mechanismVectors, carveClusters, carveCalls, callEdges, carveListing, carveUsage, CARVE_TREE_FORMAT } from '../core/carve.js';
+import { CARVE_HOWS, CALLS_RESOLUTION, CALLS_SUB_RESOLUTION, CALLS_SEED, CALLS_MIN_SUB, CLUSTERS_MAX, PURPOSE_MAX, mechanismVectors, carveClusters, carveCalls, callEdges, carveListing, carveUsage, CARVE_TREE_FORMAT, sectionUnits } from '../core/carve.js';
 
 const nf = (n) => Number(n).toLocaleString('en-US');
 export { CARVE_TREE_FORMAT };
@@ -123,51 +123,49 @@ export function renderClusters({ ndx, entries, vectors, modelBase, tests = 0, in
   return { text, merges: c.merges, order: c.order };
 }
 
-/** `--carve`: read the index and print the listing. Sets process.exitCode on a refusal. */
-export async function doCarve(args, { exe = process.env.CODEEXAM_INVOKED_AS || 'ce' } = {}) {
-  const ndx = args.index_path;
-  const how = typeof args.carve === 'string' ? args.carve.trim().toLowerCase() : null;
-  if (!how) { console.log(carveUsage(exe, ndx || '<index>').join('\n')); return; }
-  if (!CARVE_HOWS.includes(how)) { console.error(`--carve takes clusters or calls, not "${args.carve}".\n${carveUsage(exe, ndx || '<index>').slice(1).join('\n')}`); process.exitCode = 2; return; }
-  const numbers = carveNumbers(args);
-  if (numbers.problem) { console.error(`--carve: ${numbers.problem}`); process.exitCode = 2; return; }
+/**
+ * What a carve reads, for the command and for anything that needs its sections
+ * (issue-364-concepts-where): the mechanisms file, folded, test entries left out unless asked
+ * for, each kept entry's function ids, and for `clusters` one vector per entry and the saved
+ * tree when there is one for exactly these vectors. { problem } when something is missing,
+ * in the words the command prints. Nothing is embedded and nothing is written.
+ */
+export async function loadCarveInputs(ndx, how, { includeTests = false, embedModel = null, exe = 'ce', quiet = false, index = null } = {}) {
   let data = null;
   try { data = loadMechanismsIndex({ indexPath: ndx }, { cache: false }); } catch { data = null; }
-  if (!data || !data.records || !data.records.length) { console.error(`${ndx} has no mechanisms.json, the groups of functions --carve arranges. Build it (no model needed), then run this again:\n  ${exe} --index-path ${ndx} --build-mechanisms`); process.exitCode = 2; return; }
+  if (!data || !data.records || !data.records.length) return { problem: `${ndx} has no mechanisms.json, the groups of functions --carve arranges. Build it (no model needed), then run this again:\n  ${exe} --index-path ${ndx} --build-mechanisms` };
   const all = foldRecords(data.records);
-  const includeTests = !!args.include_tests;
   const keptAt = []; let tests = 0;
   all.forEach((e, i) => { if (!includeTests && isTestEntry(e)) tests++; else keptAt.push(i); });
   const entries = keptAt.map((i) => all[i]);
-  const notes = carveUnusedNotes(args, how);
-  const shown = { brief: !!args.brief, description: !!args.description, purpose: !!args.purpose };
-  const t0 = Date.now();
 
   let model = null;
   if (how === 'clusters') {
-    const chosen = chooseSearchModel(ndx, args.embed_model || null);
-    if (chosen.problem) { console.error(`--carve clusters: ${chosen.problem.replace(/run the search again/g, 'run this again').replace(/ce --ndx /g, `${exe} --index-path `)}\n--carve calls needs no embeddings.`); process.exitCode = 2; return; }
+    const chosen = chooseSearchModel(ndx, embedModel);
+    if (chosen.problem) return { problem: `--carve clusters: ${chosen.problem.replace(/run the search again/g, 'run this again').replace(/ce --ndx /g, `${exe} --index-path `)}\n--carve calls needs no embeddings.` };
     model = chosen.model;
-    if (entries.length > CLUSTERS_MAX) { console.error(`--carve clusters: ${ndx} has ${nf(entries.length)} mechanisms, and Ward's method keeps a table of every pair: above ${nf(CLUSTERS_MAX)} that is more memory than this command will take. --carve calls has no such limit.`); process.exitCode = 2; return; }
+    if (entries.length > CLUSTERS_MAX) return { problem: `--carve clusters: ${ndx} has ${nf(entries.length)} mechanisms, and Ward's method keeps a table of every pair: above ${nf(CLUSTERS_MAX)} that is more memory than this command will take. --carve calls has no such limit.` };
   }
 
-  process.stderr.write('# reading the index…\n');
-  const { plan: fnPlan, corpus } = await loadFunctionPlan(ndx, all);
+  if (!quiet) process.stderr.write('# reading the index…\n');
+  // `index`: a caller that has the index loaded passes it, and it is not read a second time
+  // (--concepts on ExoPlayer 3: 16 s with the second read, 2026-11-24). The same two steps
+  // loadFunctionPlan takes after constructing one.
+  let fnPlan, corpus;
+  if (index) {
+    if (index._ensureFunctionIndex) index._ensureFunctionIndex();
+    corpus = buildCorpus(index.functionIndex || {}, (f) => index.fileLines.get(f));
+    fnPlan = functionTexts(all, corpus);
+  } else ({ plan: fnPlan, corpus } = await loadFunctionPlan(ndx, all));
   const fnById = new Map(corpus.fns.map((f) => [f.id, f]));
   const fnIds = keptAt.map((i) => fnPlan.ids[i]);
-
-  if (how === 'calls') {
-    console.log(renderCalls({ ndx, entries, fnIds, fnById, tests, includeTests, numbers, notes, ...shown }));
-    printTip(testsTip(tests, 'mechanisms'), true);   // part E4: the closing line; the listing already ends with a blank line
-    process.stderr.write(`# ${((Date.now() - t0) / 1000).toFixed(1)} s\n`);
-    return;
-  }
+  if (how === 'calls') return { data, entries, tests, fnIds, fnById };
 
   const plan = entryEmbedPlan(all);
   const labelVecsAll = await cachedVectors(embedCacheFile(ndx, model.base, 'label+members'), plan.whole, model.doc);
   const fnVecs = await cachedVectors(embedCacheFile(ndx, model.base, `function-text-${FUSE_ARM}`), fnPlan.texts, model.doc);
   const any = fnVecs.values().next().value || labelVecsAll.values().next().value;
-  if (!any) { console.error(`--carve clusters: the ${model.name} embeddings of ${ndx} hold none of this index's texts (the index or its mechanisms changed since they were built). Build them, then run this again:\n  ${exe} --index-path ${ndx} --build-embeddings\n--carve calls needs no embeddings.`); process.exitCode = 2; return; }
+  if (!any) return { problem: `--carve clusters: the ${model.name} embeddings of ${ndx} hold none of this index's texts (the index or its mechanisms changed since they were built). Build them, then run this again:\n  ${exe} --index-path ${ndx} --build-embeddings\n--carve calls needs no embeddings.` };
   // a function's weight: its lines over the number of mechanisms (of all, tests too) holding it
   const holders = new Map(); fnPlan.ids.forEach((l) => { for (const id of new Set(l)) holders.set(id, (holders.get(id) || 0) + 1); });
   const weightOf = (id) => { const f = fnById.get(id) || {}; return Math.max(1, (f.end || f.start || 1) - (f.start || 1) + 1) / (holders.get(id) || 1); };
@@ -180,6 +178,59 @@ export async function doCarve(args, { exe = process.env.CODEEXAM_INVOKED_AS || '
   // --mechanisms read that order for --sort-by similarity and never cluster themselves.
   let merges = null, savedComplete = false;
   try { const t = JSON.parse(fs.readFileSync(treeFile, 'utf8')); if (t && t.format === CARVE_TREE_FORMAT && t.key === key) { merges = t.merges; savedComplete = Array.isArray(t.order) && t.mechanisms === (data.generated || ''); } } catch { merges = null; }
+  return { data, entries, tests, fnIds, fnById, model, vectors, behind, treeFile, key, merges, savedComplete };
+}
+
+/** Above this many mechanisms, the sections of `clusters` are read only from a saved tree: building one takes minutes. */
+export const WHERE_BUILD_MAX = 1500;
+
+/**
+ * The sections `--carve <how>` prints with its default settings, for a caller that wants to
+ * say where mechanisms sit (issue-364-concepts-where): { how, settings, entries, tagOf, units,
+ * indexOf } with tagOf and units over row indexes (core's sectionUnits) and indexOf a Map of
+ * mechanism id to row index; or { problem }. Reads what --carve reads and writes nothing: for
+ * `clusters` on more than WHERE_BUILD_MAX mechanisms with no saved tree it refuses and names
+ * the command that saves one.
+ */
+export async function carveSectionsFor(ndx, how, { includeTests = false, embedModel = null, exe = 'ce', index = null } = {}) {
+  const inp = await loadCarveInputs(ndx, how, { includeTests, embedModel, exe, quiet: true, index });
+  if (inp.problem) return { problem: inp.problem };
+  const { entries } = inp;
+  const indexOf = new Map(entries.map((e, i) => [e.id, i]));
+  if (how === 'calls') {
+    const { sections, subsOf } = carveCalls(entries.length, callEdges(inp.fnIds, inp.fnById), { resolution: CALLS_RESOLUTION, seed: CALLS_SEED });
+    return { how, settings: `resolution ${CALLS_RESOLUTION}, seed ${CALLS_SEED}`, entries, indexOf, ...sectionUnits(sections, subsOf) };
+  }
+  if (!inp.merges && entries.length > WHERE_BUILD_MAX) return { problem: `--carve clusters has saved no tree for ${ndx} yet, and building one for ${nf(entries.length)} mechanisms takes minutes. Run it once, then this again:\n  ${exe} --index-path ${ndx} --carve clusters --brief` };
+  const c = carveClusters(inp.vectors, { merges: inp.merges });
+  const placed = new Set(c.placed), unplaced = entries.map((_, i) => i).filter((i) => !placed.has(i));
+  return { how, settings: `${nf(c.top)} sections, ${nf(c.sub)} sub-sections, model ${inp.model.base}`, entries, indexOf, ...sectionUnits(c.sections, c.subsOf, unplaced) };
+}
+
+/** `--carve`: read the index and print the listing. Sets process.exitCode on a refusal. */
+export async function doCarve(args, { exe = process.env.CODEEXAM_INVOKED_AS || 'ce' } = {}) {
+  const ndx = args.index_path;
+  const how = typeof args.carve === 'string' ? args.carve.trim().toLowerCase() : null;
+  if (!how) { console.log(carveUsage(exe, ndx || '<index>').join('\n')); return; }
+  if (!CARVE_HOWS.includes(how)) { console.error(`--carve takes clusters or calls, not "${args.carve}".\n${carveUsage(exe, ndx || '<index>').slice(1).join('\n')}`); process.exitCode = 2; return; }
+  const numbers = carveNumbers(args);
+  if (numbers.problem) { console.error(`--carve: ${numbers.problem}`); process.exitCode = 2; return; }
+  const includeTests = !!args.include_tests;
+  const notes = carveUnusedNotes(args, how);
+  const shown = { brief: !!args.brief, description: !!args.description, purpose: !!args.purpose };
+  const t0 = Date.now();
+  const inp = await loadCarveInputs(ndx, how, { includeTests, embedModel: args.embed_model || null, exe });
+  if (inp.problem) { console.error(inp.problem); process.exitCode = 2; return; }
+  const { data, entries, tests, fnIds, fnById } = inp;
+
+  if (how === 'calls') {
+    console.log(renderCalls({ ndx, entries, fnIds, fnById, tests, includeTests, numbers, notes, ...shown }));
+    printTip(testsTip(tests, 'mechanisms'), true);   // part E4: the closing line; the listing already ends with a blank line
+    process.stderr.write(`# ${((Date.now() - t0) / 1000).toFixed(1)} s\n`);
+    return;
+  }
+
+  const { model, vectors, behind, treeFile, key, merges, savedComplete } = inp;
   const fresh = !merges;
   if (fresh && entries.length > 1500) process.stderr.write(`# building the tree for ${nf(entries.length)} mechanisms (minutes on a large index; saved to ${treeFile} so the next run reads it)…\n`);
   const r = renderClusters({ ndx, entries, vectors, modelBase: model.base, tests, includeTests, numbers, notes, behind, merges, ...shown,

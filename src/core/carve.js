@@ -305,19 +305,138 @@ export function carveListing(rows, sections, subsOf, { brief = false, descriptio
     if (description && r.description) lines.push(...wrapText(oneLine(r.description), pad));
     if (purpose && r.purpose) lines.push(...wrapText(`purpose: ${purposeText(r.purpose)}`, pad));
   };
-  const big = sections.filter((g) => g.length > 1).sort((a, b) => b.length - a.length), lone = sections.filter((g) => g.length === 1).flat();
-  big.forEach((g, si) => {
-    lines.push(`${si + 1}. ${heading(g)}   (${g.length} mechanisms)`);
-    const parts = subsOf(g);
-    if (!parts || parts.length < 2) { if (!brief) for (const i of sorted(g)) row(i, `${si + 1}`); lines.push(''); return; }
-    const multi = parts.filter((p) => p.length > 1).sort((a, b) => b.length - a.length), single = parts.filter((p) => p.length === 1).flat();
-    multi.forEach((p, pi) => { lines.push(`   ${si + 1}.${pi + 1} ${heading(p, 3)}   (${p.length})`); if (!brief) for (const i of sorted(p)) row(i, `${si + 1}.${pi + 1}`); });
-    if (single.length) { lines.push(`   ${si + 1}.${multi.length + 1} (others in this section)   (${single.length})`); if (!brief) for (const i of sorted(single)) row(i, `${si + 1}.${multi.length + 1}`); }
+  const { numbered, lone } = numberSections(sections, subsOf);
+  for (const s of numbered) {
+    lines.push(`${s.tag}. ${heading(s.group)}   (${s.group.length} mechanisms)`);
+    if (!s.subs) { if (!brief) for (const i of sorted(s.group)) row(i, s.tag); lines.push(''); continue; }
+    for (const p of s.subs) { lines.push(p.others ? `   ${p.tag} (others in this section)   (${p.group.length})` : `   ${p.tag} ${heading(p.group, 3)}   (${p.group.length})`); if (!brief) for (const i of sorted(p.group)) row(i, p.tag); }
     lines.push('');
-  });
+  }
   if (lone.length) { lines.push(`${loneTitle} (${lone.length}):`); for (const i of sorted(lone)) row(i, 'alone'); lines.push(''); }
   if (unplaced.length) { lines.push(`${unplacedTitle} (${unplaced.length}):`); for (const i of sorted(unplaced)) row(i, 'unplaced'); lines.push(''); }
-  return { lines, sections: big.length, largest: big.length ? big[0].length : 0, alone: lone.length };
+  return { lines, sections: numbered.length, largest: numbered.length ? numbered[0].group.length : 0, alone: lone.length };
+}
+
+/**
+ * The numbers a listing gives its sections: the one place they are decided, for the listing
+ * and for anything that says where a row sits (issue-364-concepts-where). Sections of two or
+ * more, largest first, are `1`, `2`, ...; inside one that has sub-sections, those of two or
+ * more, largest first, are `1.1`, `1.2`, ..., and the rows left single share a last one
+ * (`others: true`). Returns { numbered: [{ tag, group, subs: null | [{ tag, group, others }] }],
+ * lone: [row indexes in a section of their own] }.
+ */
+export function numberSections(sections, subsOf) {
+  const big = sections.filter((g) => g.length > 1).sort((a, b) => b.length - a.length), lone = sections.filter((g) => g.length === 1).flat();
+  const numbered = big.map((g, si) => {
+    const parts = subsOf(g);
+    if (!parts || parts.length < 2) return { tag: `${si + 1}`, group: g, subs: null };
+    const multi = parts.filter((p) => p.length > 1).sort((a, b) => b.length - a.length), single = parts.filter((p) => p.length === 1).flat();
+    const subs = multi.map((p, pi) => ({ tag: `${si + 1}.${pi + 1}`, group: p, others: false }));
+    if (single.length) subs.push({ tag: `${si + 1}.${multi.length + 1}`, group: single, others: true });
+    return { tag: `${si + 1}`, group: g, subs };
+  });
+  return { numbered, lone };
+}
+
+/**
+ * Where every row of a listing sits, and the listing's units: { tagOf: Map(row index -> the
+ * tag its row ends with: `11.5`, `7`, `alone`, `unplaced`), units: Map(tag -> row indexes) }.
+ * A unit is a numbered section (all of it, sub-sections included) or a sub-section.
+ */
+export function sectionUnits(sections, subsOf, unplaced = []) {
+  const { numbered, lone } = numberSections(sections, subsOf);
+  const tagOf = new Map(), units = new Map();
+  for (const s of numbered) {
+    units.set(s.tag, s.group);
+    if (!s.subs) { for (const i of s.group) tagOf.set(i, s.tag); continue; }
+    for (const p of s.subs) { units.set(p.tag, p.group); for (const i of p.group) tagOf.set(i, p.tag); }
+  }
+  for (const i of lone) tagOf.set(i, 'alone');
+  for (const i of unplaced) tagOf.set(i, 'unplaced');
+  return { tagOf, units };
+}
+
+/**
+ * The test a placement must pass to be called a home: of PLACE_DRAWS random picks of as many
+ * rows, no more than PLACE_LEVEL may do as well. The experiment of 2026-11-19 (part A of #364)
+ * asked that the best unit beat each of 20 random picks, which is the same bar on average
+ * (one pick in twenty). Twenty picks proved too few to give a steady answer: on CodeExam's own
+ * index under clusters, two ways of drawing them gave 84 and 58 homes of 148 concepts
+ * (2026-11-24). Two hundred picks at the same level move far less with the seed.
+ */
+export const PLACE_DRAWS = 200;
+export const PLACE_LEVEL = 0.05;
+
+/**
+ * The unit that holds `members` best: the highest F of held (share of the members in the
+ * unit) and pure (share of the unit that is members); the smaller unit on a tie. Counted
+ * from each member's own tag and its section, so the cost is the members, not the units.
+ */
+function bestUnit(members, tagOf, sizeOf) {
+  const count = new Map();
+  for (const i of members) {
+    const t = tagOf.get(i);
+    if (t == null || !sizeOf.has(t)) continue;                       // alone, unplaced: in no unit
+    count.set(t, (count.get(t) || 0) + 1);
+    const dot = String(t).indexOf('.');
+    if (dot > 0) { const s = String(t).slice(0, dot); count.set(s, (count.get(s) || 0) + 1); }
+  }
+  let b = { f: 0, unit: null, inUnit: 0, size: 0, held: 0, pure: 0 };
+  for (const [tag, k] of count) {
+    const size = sizeOf.get(tag), held = k / members.length, pure = k / size, f = (2 * held * pure) / (held + pure);
+    if (f > b.f || (f === b.f && size < b.size)) b = { f, unit: tag, inUnit: k, size, held, pure };
+  }
+  return b;
+}
+
+/** `n` different rows of `population`, by the generator. */
+function randomPick(population, n, rnd) {
+  const N = population.length;
+  if (n >= N) return population;
+  if (n * 3 < N) { const seen = new Set(); while (seen.size < n) seen.add(Math.floor(rnd() * N)); return [...seen].map((k) => population[k]); }
+  const pool = [...population];
+  for (let j = 0; j < n; j++) { const k = j + Math.floor(rnd() * (N - j)); const x = pool[j]; pool[j] = pool[k]; pool[k] = x; }
+  return pool.slice(0, n);
+}
+
+/**
+ * Where a set of rows sits in a listing (issue-364-concepts-where): the unit that holds them
+ * best, whether that is better than chance, and where the rest are. `members` are row indexes
+ * that are in the listing; `population` every row index of it; `units` and `tagOf` from
+ * sectionUnits; `rnd` a seeded generator (makeRng), so the same listing gives the same answer.
+ *   { n, unit, inUnit, size, held, pure, home, elsewhere: [[tag, count]...] }
+ * `home` is true when no more than PLACE_LEVEL of PLACE_DRAWS random picks of as many rows
+ * have a best unit as good (see PLACE_DRAWS). With one member there is nothing to test: its
+ * unit is where it is, and `home` is true. `section`, when the unit is a sub-section, counts
+ * the members in its whole section. `elsewhere` counts the members outside the unit by
+ * their own tags, most first. Null when `members` is empty.
+ */
+export function placeInSections(members, { units, tagOf, population, rnd, draws = PLACE_DRAWS, level = PLACE_LEVEL }) {
+  if (!members.length) return null;
+  const sets = new Map([...units].map(([tag, g]) => [tag, g instanceof Set ? g : new Set(g)]));
+  const sizeOf = new Map([...sets].map(([tag, s]) => [tag, s.size]));
+  const inside = (tag, unit) => unit != null && (tag === unit || String(tag).startsWith(`${unit}.`));
+  const rest = (unit) => {
+    const c = new Map();
+    for (const i of members) { const t = tagOf.get(i); if (t == null || inside(t, unit)) continue; c.set(t, (c.get(t) || 0) + 1); }
+    return [...c].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), undefined, { numeric: true }));
+  };
+  if (members.length === 1) {
+    const t = tagOf.get(members[0]);
+    const numbered = t != null && sets.has(t);
+    return { n: 1, unit: numbered ? t : null, inUnit: numbered ? 1 : 0, size: numbered ? sets.get(t).size : 0, held: numbered ? 1 : 0, pure: numbered ? 1 / sets.get(t).size : 0, home: numbered, elsewhere: numbered ? [] : rest(null) };
+  }
+  const b = bestUnit(members, tagOf, sizeOf);
+  let asGood = 0;   // random picks whose best unit is at least as good
+  if (b.unit != null) for (let d = 0; d < draws; d++) if (bestUnit(randomPick(population, members.length, rnd), tagOf, sizeOf).f >= b.f) asGood++;
+  // when the best unit is a sub-section, how many of the members its whole section holds: a
+  // concept can be split over neighbouring sub-sections and still be all in one section
+  let section = null;
+  if (b.unit != null && String(b.unit).includes('.')) {
+    const tag = String(b.unit).split('.')[0], set = sets.get(tag);
+    if (set) { let k = 0; for (const i of members) if (set.has(i)) k++; section = { tag, inUnit: k, size: set.size }; }
+  }
+  return { n: members.length, unit: b.unit, inUnit: b.inUnit, size: b.size, held: b.held, pure: b.pure, home: b.unit != null && asGood <= level * draws, section, elsewhere: rest(b.unit) };
 }
 
 export const CARVE_TREE_FORMAT = 'ce-carve-tree';

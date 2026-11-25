@@ -424,3 +424,91 @@ describe('--carve: the command line', () => {
     assert.match(r.stdout, /m1 {5}\[file\] a\.js \[alone\]/);
   });
 });
+
+// issue-364-concepts-where (2026-11-24): where a set of mechanisms sits in a carved listing.
+import { numberSections, sectionUnits, placeInSections, PLACE_DRAWS, PLACE_LEVEL } from '../src/core/carve.js';
+
+describe('--carve: where rows sit (for --concepts)', () => {
+  // three sections: 0-7 (two sub-sections of four), 8-11, 12-13; 14 and 15 alone
+  const sections = [[0, 1, 2, 3, 4, 5, 6, 7], [8, 9, 10, 11], [12, 13], [14], [15]];
+  const subsOf = (g) => (g.length === 8 ? [[0, 1, 2, 3], [4, 5, 6], [7]] : null);
+  const rows = Array.from({ length: 16 }, (_, i) => ({ id: `m${i + 1}`, label: `[file] f${i}.js` }));
+  const population = rows.map((_, i) => i);
+
+  it('gives every row the tag the listing prints after it', () => {
+    const { tagOf } = sectionUnits(sections, subsOf);
+    const printed = new Map();
+    for (const l of carveListing(rows, sections, subsOf).lines) { const m = /^\s+(m\d+)\s+.* \[([^\]]+)\]$/.exec(l); if (m) printed.set(Number(m[1].slice(1)) - 1, m[2]); }
+    assert.equal(printed.size, 16);
+    assert.deepEqual([...tagOf].sort((a, b) => a[0] - b[0]), [...printed].sort((a, b) => a[0] - b[0]));
+    assert.equal(tagOf.get(0), '1.1');
+    assert.equal(tagOf.get(7), '1.3', 'a row left single in its section is in the last sub-section');
+    assert.equal(tagOf.get(8), '2');
+    assert.equal(tagOf.get(14), 'alone');
+    assert.equal(sectionUnits(sections, subsOf, [15]).tagOf.get(15), 'unplaced');
+  });
+
+  it('the units are the numbered sections, whole, and their sub-sections', () => {
+    const { units } = sectionUnits(sections, subsOf);
+    assert.deepEqual([...units.keys()].sort(), ['1', '1.1', '1.2', '1.3', '2', '3']);
+    assert.deepEqual([...units.get('1')].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(numberSections(sections, subsOf).lone, [14, 15]);
+  });
+
+  const place = (members) => placeInSections(members, { ...sectionUnits(sections, subsOf), population, rnd: makeRng(CALLS_SEED) });
+
+  it('rows confined to one sub-section have it as their home, held and pure at 100%', () => {
+    const p = place([0, 1, 2, 3]);
+    assert.deepEqual([p.unit, p.inUnit, p.size, p.held, p.pure, p.home], ['1.1', 4, 4, 1, 1, true]);
+    assert.deepEqual(p.elsewhere, []);
+  });
+
+  it('rows mostly in one section have it as home, and the rest are counted where they are', () => {
+    const p = place([8, 9, 10, 11, 0, 14]);
+    assert.equal(p.unit, '2');
+    assert.equal(p.inUnit, 4);
+    assert.equal(p.held, 4 / 6);
+    assert.equal(p.pure, 1);
+    assert.equal(p.home, true);
+    assert.deepEqual(p.elsewhere, [['1.1', 1], ['alone', 1]]);
+    // three of five in a section of four is no better than a lucky draw from sixteen rows:
+    // on a small listing chance does well, and the test says so
+    assert.equal(place([8, 9, 10, 0, 14]).home, false);
+  });
+
+  it('a home that is a whole section does not count its own sub-sections as elsewhere', () => {
+    const p = place([0, 1, 2, 4, 5, 6, 7]);
+    assert.equal(p.unit, '1');
+    assert.deepEqual(p.elsewhere, []);
+  });
+
+  it('rows spread one to a section have no home: chance does as well', () => {
+    const p = place([0, 8, 12, 14]);
+    assert.equal(p.home, false);
+    assert.ok(p.unit, 'the best unit is still named, for the sentence that says it is no better than chance');
+  });
+
+  it('one row is where it is; a row standing alone has no unit; no rows, nothing', () => {
+    assert.deepEqual([place([9]).unit, place([9]).home, place([9]).n], ['2', true, 1]);
+    const alone = place([14]);
+    assert.deepEqual([alone.unit, alone.home, alone.elsewhere], [null, false, [['alone', 1]]]);
+    assert.equal(place([]), null);
+  });
+
+  it('the same listing gives the same answer; a home is a unit that at most one random pick in twenty matches, of two hundred', () => {
+    assert.deepEqual(place([8, 9, 0, 12, 14]), place([8, 9, 0, 12, 14]));
+    assert.equal(PLACE_DRAWS, 200);
+    assert.equal(PLACE_LEVEL, 0.05);
+    // the level is the bar: with every pick allowed to match, anything with a unit is a home
+    const lax = placeInSections([0, 8, 12, 14], { ...sectionUnits(sections, subsOf), population, rnd: makeRng(CALLS_SEED), level: 1 });
+    assert.equal(lax.home, true);
+  });
+
+  it('a home that is a sub-section says how many its whole section holds', () => {
+    const p = place([0, 1, 2, 3, 4]);
+    assert.equal(p.unit, '1.1');
+    assert.deepEqual(p.section, { tag: '1', inUnit: 5, size: 8 });
+    assert.deepEqual(p.elsewhere, [['1.2', 1]]);
+    assert.equal(place([8, 9, 10, 11]).section, null, 'a home that is a whole section has no parent');
+  });
+});

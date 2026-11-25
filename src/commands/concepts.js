@@ -27,6 +27,7 @@ import { makeFilterMatcher } from '../core/filter-match.js';
 import { isTestEntry, testsTip, printTip } from '../core/test-paths.js';
 import { effectiveMaxResults, capNotice } from '../argparse.js';
 import { quotePathIfNeeded } from '../utils.js';
+import { CARVE_HOWS, CALLS_SEED, makeRng, placeInSections } from '../core/carve.js';
 
 const nf = (x) => Number(x || 0).toLocaleString('en-US');
 const plural = (n, one, many) => `${nf(n)} ${n === 1 ? one : many}`;
@@ -81,9 +82,36 @@ function matchConcepts(all, filter) {
 }
 
 /** One row of a concepts listing: `  3. zorble (postZorbleRecord): files: a, b  (4)`. `named` is the count of mechanisms named for the concept, or null when the index has no mechanisms file. */
-export function conceptRowText(n, width, label, files, named, showPath = shortFile) {
+export function conceptRowText(n, width, label, files, named, showPath = shortFile, whereTag = '') {
   const f = files && files.length ? `: files: ${files.slice(0, ROW_FILES).map((x) => showPath(x.file)).join(', ')}` : '';
-  return `  ${String(n).padStart(width)}. ${label}${f}${named == null ? '' : `  (${nf(named)})`}`;
+  return `  ${String(n).padStart(width)}. ${label}${f}${whereTag ? `  [${whereTag}]` : ''}${named == null ? '' : `  (${nf(named)})`}`;
+}
+
+const pct = (x) => `${Math.round(x * 100)}%`;
+const unitName = (tag) => (String(tag).includes('.') ? `sub-section ${tag}` : `section ${tag}`);
+/**
+ * The bracket a list row carries for where its mechanisms sit (issue-364-concepts-where):
+ * `3.3: 43%` (sub-section 3.3 of the carved listing holds 43% of them), `5.4` for a concept
+ * with one mechanism, `spread` when no section holds them better than chance, `alone` when
+ * its one mechanism is in no section. Empty when there is nothing to place.
+ */
+export function whereTag(p) {
+  if (!p) return '';
+  if (p.n === 1) return p.unit || (p.elsewhere[0] ? p.elsewhere[0][0] : '');
+  return p.home ? `${p.unit}: ${pct(p.held)}` : 'spread';
+}
+/** The lines that say where a concept's mechanisms sit, for the concept shown in full. */
+export function whereLines(p, pad = '    ') {
+  if (!p) return [];
+  const rest = (list) => (list.length ? `${list.slice(0, 8).map(([t, c]) => `${t} (${c})`).join(', ')}${list.length > 8 ? `, and ${nf(list.length - 8)} more places` : ''}` : '');
+  if (p.n === 1) return [p.unit ? `${pad}Its one mechanism is in ${unitName(p.unit)}, which has ${plural(p.size, 'mechanism', 'mechanisms')}.` : `${pad}Its one mechanism is in no section (${p.elsewhere[0] ? p.elsewhere[0][0] : 'not listed'}).`];
+  if (!p.home) {
+    return [`${pad}Spread: no section holds them better than a random pick of ${nf(p.n)} mechanisms would.${p.unit ? ` The most in one place: ${nf(p.inUnit)} of the ${nf(p.n)}, in ${unitName(p.unit)} (which has ${nf(p.size)}).` : ''}`,
+      ...(p.elsewhere.length ? [`${pad}The others: ${rest(p.elsewhere)}.`] : [])];
+  }
+  return [`${pad}Home: ${unitName(p.unit)} holds ${nf(p.inUnit)} of the ${nf(p.n)} (${pct(p.held)}), and they are ${nf(p.inUnit)} of its ${plural(p.size, 'mechanism', 'mechanisms')} (${pct(p.pure)}).`,
+    ...(p.section && p.section.inUnit > p.inUnit ? [`${pad}Its section, ${p.section.tag}, holds ${p.section.inUnit === p.n ? `all ${nf(p.n)}` : `${nf(p.section.inUnit)} of the ${nf(p.n)}`} (the section has ${plural(p.section.size, 'mechanism', 'mechanisms')}).`] : []),
+    ...(p.elsewhere.length ? [`${pad}Also in: ${rest(p.elsewhere)}.`] : [`${pad}None is anywhere else.`])];
 }
 
 /**
@@ -111,8 +139,8 @@ export function conceptRows(index, { filter = null, includeTests = false, max = 
   return { total: all.length, matched, shown, mechanisms: mech.all ? 'ok' : mech.error ? 'error' : 'missing', mechanismsError: mech.error || null, testsLeft: leftOut.size };
 }
 
-/** `--concepts [filter]`. */
-export function doConcepts(index, args, { exe = process.env.CODEEXAM_INVOKED_AS || 'ce' } = {}) {
+/** `--concepts [filter]`. Async since issue-364-concepts-where: the carve reads the function corpus. */
+export async function doConcepts(index, args, { exe = process.env.CODEEXAM_INVOKED_AS || 'ce' } = {}) {
   const ndxArg = args.index_path || '<index>';
   const ndx = quotePathIfNeeded(String(ndxArg));
   const ndxName = String(ndxArg).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || String(ndxArg);
@@ -137,6 +165,29 @@ export function doConcepts(index, args, { exe = process.env.CODEEXAM_INVOKED_AS 
   const hasMech = !!mech.all;
   const termFiles = computeTermFiles(vocab);
   const showPath = (f) => (args.full_path ? quotePathIfNeeded(f) : shortFile(f));
+  // issue-364-concepts-where: where each concept's mechanisms sit in the carved listing. The
+  // sections are --carve's own, with its default settings, so a number here is the number that
+  // listing prints. Only when --carve is given with --concepts (Andrew, 2026-11-24): placing
+  // needs the carve, which reads every function, and took the plain command from 4.5 s to
+  // 14 s on ExoPlayer 3. `--carve calls` needs only the mechanisms file; bare --carve means calls.
+  const whereAsked = !!(args._explicit && args._explicit.has('carve'));
+  const whereHow = typeof args.carve === 'string' && args.carve.trim() ? args.carve.trim().toLowerCase() : 'calls';
+  let where = null;
+  if (hasMech && whereAsked) {
+    if (!CARVE_HOWS.includes(whereHow)) where = { problem: `--carve takes clusters or calls, not "${args.carve}".` };
+    else {
+      // loaded here and not at the top: the carve command brings the embedding code with it, and
+      // the MCP server and the GUI server import this module for conceptRows alone
+      try { const { carveSectionsFor } = await import('./carve.js'); where = await carveSectionsFor(args.index_path, whereHow, { includeTests, embedModel: args.embed_model || null, exe, index }); }
+      catch (e) { where = { problem: `it could not be worked out (${e.message}).` }; }
+    }
+    if (!where.problem) where.population = where.entries.map((_, i) => i);
+  }
+  const hasWhere = !!(where && !where.problem);
+  // One generator per concept, from the one seed: a concept's answer is the same in the list
+  // and when shown alone.
+  const placeOf = (entries) => (hasWhere ? placeInSections(entries.map((e) => where.indexOf.get(e.id)).filter((i) => i != null), { ...where, rnd: makeRng(CALLS_SEED) }) : null);
+  const tagOfEntry = (e) => (hasWhere && where.indexOf.has(e.id) ? where.tagOf.get(where.indexOf.get(e.id)) : null);
   const leftOut = new Set();   // distinct test entries that a shown concept's word matched
   let unnamed = 0;             // shown concepts that no mechanism is named for
   // Concepts are found by counting words in the code's whole text. The ranking does not yet
@@ -148,6 +199,10 @@ export function doConcepts(index, args, { exe = process.env.CODEEXAM_INVOKED_AS 
     : `${filter ? `${nf(matched.length)} of ${nf(all.length)} concepts matching '${filter}'` : max < matched.length ? `The first ${nf(max)} of ${nf(all.length)} concepts` : `${nf(all.length)} concepts`} of ${ndxName}: the same concepts the Overview prints (it shows the first 12, in this order), found by counting the names in the code with no model; a suggestion of what to look for, not a finding.`;
   const lines = [head];
   if (hasMech) lines.push(`${full ? 'Mechanisms named for a concept' : 'The number in brackets at the end of a row is how many mechanisms are named for the concept'}: those whose label or a member function name carries the word${includeTests ? '' : ' (test mechanisms left out)'}. ${exe} --index-path ${ndx} --toc <word> and --mechanisms <word> list those and also any mechanism whose file path, purpose or description carries the word, so they may list more.`);
+  const carveCmd = `${exe} --index-path ${ndx} --carve ${whereHow}`;
+  // (a refusal is said once, here, for the list and for one concept alike)
+  if (hasWhere && !full) lines.push(`In square brackets before that number: where those mechanisms sit in the sections of ${carveCmd}, and the share of them there. [3.3: 43%] is sub-section 3.3 of that listing holding 43% of the concept's mechanisms; [spread] means no section holds them better than a random pick would. ${exe} --index-path ${ndx} --concepts <word> says how many are there and where the others are.`);
+  else if (hasMech && where && where.problem) lines.push(`Where the mechanisms sit is left out. ${where.problem.replace(/\s*\n\s*/g, ' ')}${whereHow === 'clusters' ? ' Without --carve clusters, --concepts places them by who calls whom.' : ''}`);
   const noteAt = lines.length;   // the line about files goes here once the rows are known
   lines.push('');
 
@@ -170,7 +225,13 @@ export function doConcepts(index, args, { exe = process.env.CODEEXAM_INVOKED_AS 
       const idWidth = Math.max(0, ...m.entries.slice(0, shown).map((e) => String(e.id || '').length));
       for (const e of m.entries.slice(0, shown)) {
         const fns = (e.members || []).length, files = (e.files || []).length;
-        lines.push(`    ${String(e.id || '').padEnd(idWidth)}  ${e.label}  (${plural(fns, 'fn', 'fns')}, ${plural(files, 'file', 'files')})`);
+        const tag = tagOfEntry(e);   // the bracket --carve ends this mechanism's row with
+        lines.push(`    ${String(e.id || '').padEnd(idWidth)}  ${e.label}  (${plural(fns, 'fn', 'fns')}, ${plural(files, 'file', 'files')})${tag ? `  [${tag}]` : ''}`);
+      }
+      if (hasWhere && m.entries.length) {
+        lines.push(`  Where they sit, in the sections of ${carveCmd} (${where.settings}; the bracket at the end of each row above is its section there):`);
+        lines.push(...whereLines(placeOf(m.entries)));
+        lines.push(`    A suggestion, not a finding: the sections move when the index changes, and ${whereHow === 'calls' ? `${exe} --index-path ${ndx} --concepts ${quotePathIfNeeded(c.concept)} --carve clusters places the same mechanisms by likeness of their text` : 'without --carve clusters they are placed by who calls whom'}, which can give another answer.`);
       }
       const more = capNotice(m.entries.length, shown, 'mechanisms');
       if (more) lines.push(more);
@@ -184,16 +245,17 @@ export function doConcepts(index, args, { exe = process.env.CODEEXAM_INVOKED_AS 
     const width = String(shown.length).length;
     let withFiles = 0;
     shown.forEach((c, i) => {
-      let named = null;
+      let named = null, tag = '';
       if (hasMech) {
         const m = mechanismsFor(mech, c.concept, includeTests);
         m.testEntries.forEach((e) => leftOut.add(e));
         if (!m.entries.length) unnamed++;
         named = m.entries.length;   // said once in the header what the number is (Andrew, 2026-11-23: the phrase on every row was too repetitive)
+        tag = whereTag(placeOf(m.entries));
       }
       const files = termFiles.get(c.concept);
       if (files && files.length) withFiles++;
-      lines.push(conceptRowText(i + 1, width, conceptLabel(c), files, named, showPath));
+      lines.push(conceptRowText(i + 1, width, conceptLabel(c), files, named, showPath, tag));
     });
     // One line, not one per row: files are listed only for a concept that is itself a top vocabulary term.
     // The example of "a part of longer names" is taken from this listing, not from CodeExam's own code.
@@ -208,6 +270,8 @@ export function doConcepts(index, args, { exe = process.env.CODEEXAM_INVOKED_AS 
   const pre = `${exe} --index-path ${ndx}`;
   lines.push(full ? 'To follow this concept:' : 'To follow a concept (put one of these words where <word> is):');
   if (!full) lines.push(`  ${pre} --concepts <word>   one concept in full: its files and its mechanisms`);
+  // the way to the brackets, said where the other next steps are (they are off unless asked for)
+  if (hasMech && !whereAsked && !(full && unnamed > 0)) lines.push(`  ${pre} --concepts ${full ? `${word} ` : ''}--carve calls   ${full ? 'this concept' : 'these rows'} with where the mechanisms sit: the section of --carve calls that holds them best (slower: it carves the codebase first; --carve clusters places by likeness of text)`);
   // One concept that no mechanism is named for: the commands that list mechanisms by name
   // would show nothing for it, so they are not offered (`--carve` printed nothing with
   // "schulman" in it, and the suggestion to search its output for the word was false).
@@ -215,7 +279,9 @@ export function doConcepts(index, args, { exe = process.env.CODEEXAM_INVOKED_AS 
   if (hasMech && !namesNothing) {
     lines.push(`  ${pre} --mechanisms ${word}   the mechanisms that carry the word, with members and purposes`);
     lines.push(`  ${pre} --toc ${word}   one line each; also lists mechanisms whose file path, purpose or description carries the word`);
-    lines.push(`  ${pre} --carve calls   or --carve clusters: the mechanisms under sections; search its output for the word to see which section holds them`);
+    lines.push(hasWhere
+      ? `  ${pre} --carve ${whereHow}   the listing the section numbers are from: the mechanisms under sections and sub-sections (${pre} --concepts --carve ${whereHow === 'calls' ? 'clusters places the concepts by likeness of text' : 'calls places the concepts by who calls whom'} instead)`
+      : `  ${pre} --carve calls   or --carve clusters: the mechanisms under sections; search its output for the word to see which section holds them`);
   }
   if (!namesNothing) lines.push(`  ${pre} --pseudo-claims --candidates <file> --filter ${word}   candidate groups of functions for the word, written to <file>`);
   lines.push(`  ${pre} --search ${word}   every place the word is in the code`);

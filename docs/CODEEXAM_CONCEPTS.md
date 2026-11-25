@@ -23,6 +23,7 @@ useful first look. It is not a list of everything that matters.
 7. [Too much and too little: the balance](#7-too-much-and-too-little-the-balance)
 8. [Where "Potentially important files" comes from](#8-where-potentially-important-files-comes-from)
 9. [Known defects](#9-known-defects)
+10. [Where a concept's mechanisms sit](#10-where-a-concepts-mechanisms-sit)
 
 ## 1. Where you see concepts
 
@@ -52,6 +53,12 @@ A row of `--concepts` on CodeExam's own index:
   mechanism's label, or the name of one of its functions, carries the word. Test code is
   left out unless `--include-tests` is given. `(0)` means the word is in the code's text
   and in no function's name, as `deliberately` is: a word from comments.
+
+- With `--carve calls` added, a square bracket before that number says **where those
+  mechanisms sit** in the carved listing: `[3.3: 43%]` is sub-section 3.3 of `--carve calls`
+  holding 43% of them; `[spread]` means no section holds them better than a random pick
+  would ([section 10](#10-where-a-concepts-mechanisms-sit)). It is slower, so it is not
+  done unless asked for.
 
 `--concepts` ends with the commands that follow a concept into the code (`--mechanisms
 <word>`, `--toc <word>`, `--carve`, `--search <word>`). The options are in
@@ -354,8 +361,96 @@ names (`splitClaimElements`) and never a name on its own, so its row has none.
 | [#235](https://github.com/aschulman42-cell/code-exam/issues/235) | concepts with no example on small or prose-heavy indexes |
 | [#275](https://github.com/aschulman42-cell/code-exam/issues/275) | in the GUI, a click on a concept can land on an import line |
 | [#307](https://github.com/aschulman42-cell/code-exam/issues/307) | the ranking had no measure of accuracy; section 6 is the first |
-| [#364](https://github.com/aschulman42-cell/code-exam/issues/364) | where a concept sits in the carved listing: not built yet |
+| [#364](https://github.com/aschulman42-cell/code-exam/issues/364) | the MCP tool and the GUI list do not show where a concept's mechanisms sit (section 10); the command does, with `--carve` |
 
 Also: single words only; a subject the code does not name has no concept; a word spread
 over many low-ranked names is missed (section 6); and on a codebase where every file
 carries the same word, that word is in more than 60% of the files and is dropped.
+
+## 10. Where a concept's mechanisms sit
+
+Since 2026-11-24, `--concepts --carve calls` also says where each concept's mechanisms sit
+in the carved listing: the sections and sub-sections that `--carve` divides the mechanisms
+into ([`CODEEXAM_CLUSTERING.md`](CODEEXAM_CLUSTERING.md)). Plain `--concepts` does not: it
+has to be asked for, because it is slower (below), and the closing lines of `--concepts`
+name the option.
+
+In the list of `--concepts --carve calls` it is a bracket before the count:
+
+```
+   4. mechanisms (loadMechanismsIndex)  [13: 90%]  (10)
+   6. exo (AndroidX_Media_ExoPlayer3)  [spread]  (3)
+   9. gapped (airGappedStartupCheck)  [7.2]  (1)
+```
+
+- `[13: 90%]`: section 13 of `--carve calls` holds these mechanisms best, and 90% of them
+  are in it. The number is that listing's own, so a search of `--carve calls` for one of
+  the mechanisms shows the same number.
+- `[spread]`: no section holds them better than a random pick of as many mechanisms would.
+- `[7.2]`: the concept has one mechanism, and that is where it is.
+- No bracket: no mechanism is named for the concept.
+
+`--concepts <word>` gives the counts, and ends each mechanism's row with its own bracket:
+
+```
+  Where they sit, in the sections of ce --index-path .CE --carve calls (resolution 2, seed 5; ...):
+    Home: section 13 holds 9 of the 10 (90%), and they are 9 of its 12 mechanisms (75%).
+    Also in: 9.2 (1).
+```
+
+When the home is a sub-section and its section holds more of them, a line says so: on the
+safety-research repositories, placed by clusters, `faithfulness` has its home in
+sub-section 5.5 with 6 of its 14 mechanisms, and "Its section, 5, holds all 14".
+
+**Two techniques.** `--concepts --carve calls` places by who calls whom, which needs only
+the mechanisms file. `--concepts --carve clusters` places by likeness of the code's text,
+which needs `--build-embeddings`. The two can put one
+concept in different places, and neither is the right answer.
+
+**What "better than a random pick" means.** For a concept with N mechanisms, the section or
+sub-section is found that best combines two shares: how many of the N are in it, and how
+much of it they make up. Then 200 random sets of N mechanisms are drawn from the same
+listing and treated the same way. The section is called a home when at most 5% of the
+random sets have a best section as good. The picks are seeded, so the same index gives the
+same answer every time.
+
+**How often concepts have a home**, measured 2026-11-24 with the command itself, over the
+concepts that have two or more mechanisms:
+
+| codebase | mechanisms | concepts with 2 or more | home, by calls | home, by clusters | median share of a concept in its home (calls) |
+|---|--:|--:|--:|--:|--:|
+| ExoPlayer 3 | 7,495 | 132 | 118 (89%) | 126 (95%) | 20% |
+| safety-research repositories | 890 | 164 | 107 (65%) | 123 (75%) | 40% |
+| ffmpeg | 5,590 | 186 | 116 (62%) | no embeddings | 17% |
+| x264 | 360 | 156 | 93 (60%) | no embeddings | 36% |
+| CodeExam itself | 363 | 148 | 86 (58%) | 86 (58%) | 50% |
+| the bundled demo | 29 | 37 | 15 (41%) | 20 (54%) | 100% |
+| Bram | 99 | 71 | 28 (39%) | 26 (37%) | 75% |
+
+**How to read it, and what it does not show.**
+
+- **A home is not the whole concept.** On the two large codebases a home typically holds a
+  fifth of the concept's mechanisms: ExoPlayer's `playback` has 593 mechanisms, and its
+  home, section 7, holds 15% of them. That is far more than chance and still most of the
+  concept is elsewhere. The share is always printed for this reason; read `[7: 15%]` as
+  "the densest place", not "the place".
+- **On a small codebase few concepts have a home**, because with 29 or 99 mechanisms a
+  random pick often lands together too.
+- **Calls and clusters mostly agree on which concepts have a home, and put them in
+  different sections**, since they are different divisions of the code. Under the earlier
+  20-pick test, CodeExam had 67 concepts with a home under both, 15 under calls only and 17
+  under clusters only; this was not counted again under the present test.
+- **The answer moves a little with the seed.** With five seeds, 16 of CodeExam's 148
+  concepts changed between home and spread under calls and 8 under clusters; 2 to 5 on the
+  three other codebases tried. Those are the borderline ones. (An earlier form of the test,
+  20 picks and "beat every one", changed 47 and 50; that is why it is 200 picks.)
+- **The sections themselves are a suggestion.** They move when the index changes, and
+  `--carve calls` gives other sections under another seed. The experiment that proposed
+  this (2026-11-19) found clusters rebuilt from 80% of the mechanisms agreed with the full
+  ones only 0.50 to 0.67.
+- **It is slower, which is why it is asked for.** Placing needs the carve, which reads
+  every function: `--concepts --carve calls` took about 2 s against 0.7 s for `--concepts`
+  alone on CodeExam's index, and 14 s against 4.5 s on ExoPlayer 3.
+- **Nobody has been timed finding code with it.** The figures say the placing is not
+  random. They do not say it helps.
+- The MCP tool `concepts` and the GUI's Concepts list do not show any of this.

@@ -79,8 +79,10 @@ function runCLI(indexDir, args) {
 const nfm = (s) => Number(String(s).replace(/,/g, ''));
 /** The concept rows of a listing: [{ n, label, rest, count }] from lines like `  3. zorble (postZorbleRecord): files: ...  (4)`. `count`, the number in brackets at the end, is the mechanisms named for the concept; null when the row has none (no mechanisms file). */
 function rowsOf(stdout) {
-  return stdout.split(/\r?\n/).map((l) => /^\s{1,3}(\d+)\. (.+?)(?:: (.*?))?(?: {2}\(([\d,]+)\))?$/.exec(l)).filter(Boolean).map((m) => ({ n: Number(m[1]), label: m[2], rest: m[3] || '', count: m[4] == null ? null : nfm(m[4]) }));
+  return stdout.split(/\r?\n/).map((l) => /^\s{1,3}(\d+)\. (.+?)(?:: (.*?))?(?: {2}\[([^\]]+)\])?(?: {2}\(([\d,]+)\))?$/.exec(l)).filter(Boolean).map((m) => ({ n: Number(m[1]), label: m[2], rest: m[3] || '', where: m[4] || '', count: m[5] == null ? null : nfm(m[5]) }));
 }
+/** The same rows without the bracket that says where the mechanisms sit (issue-364-concepts-where), which only the command prints. */
+const withoutWhere = (rows) => rows.map(({ where, ...r }) => r);
 const wordOf = (label) => label.split(' ')[0];
 
 let idx = null, overview = null, all = null, vocab = null;
@@ -274,10 +276,101 @@ describe('--concepts', () => {
       assert.equal(left, countFor(word, true) - countFor(word, false), 'the Tip counts the test mechanisms that carry the word');
     });
 
-    it('the list names the commands that take a concept as a filter, among them --mechanisms, --toc, --carve (with the advice to search its output), the pseudo-claims candidates --filter and --search', () => {
+    it('the list names the commands that take a concept as a filter, among them --mechanisms, --toc, --carve (the listing its section numbers are from), the pseudo-claims candidates --filter and --search', () => {
       const r = runCLI(IDX, ['--concepts']);
       for (const s of ['--mechanisms <word>', '--toc <word>', '--carve calls', '--carve clusters', '--pseudo-claims --candidates', '--filter <word>', '--search <word>']) assert.ok(r.stdout.includes(s), `${s} in:\n${r.stdout}`);
       assert.match(r.stdout, /search (its|the) output for the word/);
+      // issue-364-concepts-where: and the way to have the rows say which section themselves
+      assert.match(r.stdout, /--concepts --carve calls {3}these rows with where the mechanisms sit/);
+      const placed = runCLI(IDX, ['--concepts', '--carve', 'calls']);
+      assert.match(placed.stdout, /--carve calls {3}the listing the section numbers are from/);
+      assert.doesNotMatch(placed.stdout, /search (its|the) output for the word/, 'the rows say which section, so the advice is not repeated');
+    });
+
+    // issue-364-concepts-where (2026-11-24): with --carve, each concept's mechanisms are placed in
+    // the sections of that carve, and the numbers are that listing's. Without it the command is
+    // as it was: placing needs the carve, which reads every function.
+    describe('where a concept\'s mechanisms sit', () => {
+      it('is asked for with --carve: plain --concepts has no bracket, says nothing of sections in its header, and names the option', () => {
+        const r = runCLI(IDX, ['--concepts', '--all-results']);
+        assert.ok(rowsOf(r.stdout).every((x) => !x.where), r.stdout);
+        assert.doesNotMatch(r.stdout, /In square brackets before that number|Where the mechanisms sit|Where they sit/);
+        assert.match(r.stdout, /--concepts --carve calls /);
+        const one = runCLI(IDX, ['--concepts', 'zorble']);
+        assert.doesNotMatch(one.stdout, /Where they sit|Home: |Spread: /);
+        assert.doesNotMatch(one.stdout, /^\s{4}m\d+ .*\)\s{2}\[[^\]]+\]$/m, 'no bracket on a mechanism row either');
+        assert.match(one.stdout, /--concepts zorble --carve calls {3}this concept with where the mechanisms sit/);
+        // bare --carve with --concepts means calls, and prints no carve listing
+        const bare = runCLI(IDX, ['--concepts', '--carve']);
+        assert.equal(bare.code, 0, bare.out);
+        assert.match(bare.stdout, /where those mechanisms sit in the sections of .*--carve calls/);
+        assert.doesNotMatch(bare.stdout, /mechanisms carved by/);
+      });
+
+      const carveTags = () => {
+        const out = runCLI(IDX, ['--carve', 'calls']).stdout;
+        return new Map(out.split(/\r?\n/).map((l) => /^\s+(m\d+)\s+.* \[([^\]]+)\]$/.exec(l)).filter(Boolean).map((m) => [m[1], m[2]]));
+      };
+
+      it('a row with mechanisms carries a bracket before its count: a section and a share, a section alone for one mechanism, or spread', () => {
+        const r = runCLI(IDX, ['--concepts', '--all-results', '--carve', 'calls']);
+        const rows = rowsOf(r.stdout);
+        const named = rows.filter((x) => x.count > 0);
+        assert.ok(named.length >= 3, r.stdout);
+        for (const x of named) assert.match(x.where, /^(\d+(\.\d+)?: \d+%|\d+(\.\d+)?|spread|alone)$/, `${x.label}: [${x.where}]`);
+        for (const x of rows.filter((y) => !y.count)) assert.equal(x.where, '', `${x.label} names nothing and has no bracket`);
+        assert.match(r.stdout, /In square brackets before that number: where those mechanisms sit in the sections of .*--carve calls/);
+        assert.match(r.stdout, /\[spread\] means no section holds them better than a random pick would/);
+      });
+
+      it('one concept in full: every mechanism row ends with the bracket --carve calls prints for it, and the home is counted from those', () => {
+        const tags = carveTags();
+        assert.ok(tags.size >= 5, 'the fixture carves');
+        const r = runCLI(IDX, ['--concepts', 'zorble', '--carve', 'calls']);
+        const mech = r.stdout.split(/\r?\n/).map((l) => /^\s{4}(m\d+)\s+.*\)\s{2}\[([^\]]+)\]$/.exec(l)).filter(Boolean);
+        assert.ok(mech.length >= 2, r.stdout);
+        for (const m of mech) assert.equal(m[2], tags.get(m[1]), `${m[1]}: the command's bracket is --carve's`);
+        assert.match(r.stdout, /Where they sit, in the sections of .*--carve calls \(resolution 2, seed 5;/);
+        const home = /Home: (sub-section|section) (\S+) holds (\d+) of the (\d+) \((\d+)%\), and they are (\d+) of its (\d+) mechanisms? \((\d+)%\)\./.exec(r.stdout);
+        if (home) {
+          const inside = mech.filter((m) => m[2] === home[2] || m[2].startsWith(`${home[2]}.`)).length;
+          assert.equal(Number(home[3]), inside, 'the count in the home is the count of rows tagged with it');
+          assert.equal(Number(home[4]), mech.length);
+          assert.equal(Number(home[7]), [...tags.values()].filter((t) => t === home[2] || t.startsWith(`${home[2]}.`)).length, 'the size is the section\'s size in --carve');
+        } else assert.match(r.stdout, /Spread: no section holds them better than a random pick of \d+ mechanisms would\./);
+        assert.match(r.stdout, /A suggestion, not a finding/);
+      });
+
+      it('the list and the concept shown alone agree, run after run', () => {
+        const list = rowsOf(runCLI(IDX, ['--concepts', '--all-results', '--carve', 'calls']).stdout).find((x) => wordOf(x.label) === 'zorble');
+        const a = runCLI(IDX, ['--concepts', 'zorble', '--carve', 'calls']).stdout, b = runCLI(IDX, ['--concepts', 'zorble', '--carve', 'calls']).stdout;
+        assert.equal(a, b);
+        if (/^spread$/.test(list.where)) assert.match(a, /Spread: /);
+        else if (list.where.includes(':')) assert.ok(a.includes(`${list.where.includes('.') ? 'sub-section' : 'section'} ${list.where.split(':')[0]} holds`), `${list.where}\n${a}`);
+      });
+
+      it('--concepts --carve clusters on an index with no embeddings lists the concepts, says where is left out and why, and exits 0', () => {
+        const r = runCLI(IDX, ['--concepts', '--carve', 'clusters']);
+        assert.equal(r.code, 0, r.out);
+        assert.ok(rowsOf(r.stdout).length >= 5);
+        assert.ok(rowsOf(r.stdout).every((x) => !x.where));
+        assert.match(r.stdout, /Where the mechanisms sit is left out\. --carve clusters: .* has no embeddings yet\./);
+        assert.match(r.stdout, /Without --carve clusters, --concepts places them by who calls whom\./);
+        assert.doesNotMatch(r.stdout, /mechanisms carved by/, 'the carve listing itself is not printed');
+      });
+
+      it('--concepts --carve with a word that is no technique says so and still lists the concepts', () => {
+        const r = runCLI(IDX, ['--concepts', '--carve', 'sideways']);
+        assert.equal(r.code, 0, r.out);
+        assert.match(r.stdout, /Where the mechanisms sit is left out\. --carve takes clusters or calls, not "sideways"\./);
+        assert.ok(rowsOf(r.stdout).length >= 5);
+      });
+
+      it('with no mechanisms file there is no bracket and no line about where, asked for or not', () => {
+        const r = runCLI(IDX_NOMECH, ['--concepts', '--carve', 'calls']);
+        assert.ok(rowsOf(r.stdout).every((x) => !x.where));
+        assert.doesNotMatch(r.stdout, /square brackets before that number|Where the mechanisms sit/);
+      });
     });
 
     it('with no mechanisms file the rows leave the count out and one line says how to build it', () => {
@@ -348,7 +441,9 @@ describe('--concepts', () => {
       const cli = rowsOf(runCLI(IDX, ['--concepts', '--all-results']).stdout);
       const mcp = rowsOf(tool({ max: 10000 }));
       assert.ok(cli.length >= 5, 'the fixture has concepts');
-      assert.deepEqual(mcp, cli);
+      // the tool does not say where the mechanisms sit; the command does only when given --carve
+      assert.deepEqual(withoutWhere(mcp), withoutWhere(cli));
+      assert.ok(mcp.every((r) => !r.where));
     });
 
     it('says what the list is and what the number is, and offers tools, not command-line options', () => {

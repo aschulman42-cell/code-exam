@@ -123,7 +123,8 @@ references and its files. A click on a reference opens that function's source in
 and the pane's back arrow returns to the mechanism. Mechanisms that are wholly test code
 are left out of the counts, with a line saying how many and a link to count them. When the index
 has no mechanisms file the rows have no numbers and a line says so; the Mechanisms list has the
-Build button. The Filter box filters the list by word. The Overview's concepts and the caption at
+Build button. The Filter box filters the list by word. The list does not say which section of
+`--carve` holds a concept's mechanisms; the command line's `--concepts --carve calls` does. The Overview's concepts and the caption at
 the top of Vocabulary each have a link that opens this list. What a concept is and how often the
 list is right: [`CODEEXAM_CONCEPTS.md`](CODEEXAM_CONCEPTS.md).
 
