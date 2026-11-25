@@ -31,6 +31,18 @@ Transformers, scikit-learn, Keras, TensorFlow, LangChain, and DSPy. **The LLM is
 planner; the shipped artifact is mechanical rules.** AI's knowledge is baked into fixed
 code, not called by it — CodeExam's general pattern.
 
+## Contents
+
+<!-- contents:start -->
+- [Quick orientation to a codebase that may use AI/ML](#quick-orientation-to-a-codebase-that-may-use-aiml)
+- [The three lead views](#the-three-lead-views)
+- [The component detectors](#the-component-detectors)
+- [Infrastructure and DevOps](#infrastructure-and-devops)
+- [Handing off: `--emit-harness`](#handing-off---emit-harness)
+- [Reading the detector output](#reading-the-detector-output)
+- [Related](#related)
+<!-- contents:end -->
+
 ## Quick orientation to a codebase that may use AI/ML
 
 What models a codebase loads, the LLM calls it makes, whether it trains or only runs

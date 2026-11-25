@@ -32,6 +32,23 @@ feature.
 
 ---
 
+## Contents
+
+<!-- contents:start -->
+- [CodeExam's Overview feature](#codeexams-overview-feature)
+- [CodeExam's Overview-by-AI feature](#codeexams-overview-by-ai-feature)
+- [CodeExam's vocabulary feature](#codeexams-vocabulary-feature)
+- [CodeExam's concepts feature](#codeexams-concepts-feature)
+- [CodeExam's multisect search](#codeexams-multisect-search)
+- [CodeExam's claim parser](#codeexams-claim-parser)
+- [CodeExam's claim charts](#codeexams-claim-charts)
+- [CodeExam's pseudo-claim candidates (the grouper)](#codeexams-pseudo-claim-candidates-the-grouper)
+- [CodeExam's pseudo-claim drafting](#codeexams-pseudo-claim-drafting)
+- [Against the rubric pages](#against-the-rubric-pages)
+- [A first reading (2026-11-01, the agent's, for Andrew to replace)](#a-first-reading-2026-11-01-the-agents-for-andrew-to-replace)
+- [How this set was made](#how-this-set-was-made)
+<!-- contents:end -->
+
 ## CodeExam's Overview feature
 
 *Run of 11/01, group `[file] overview.js`, ranked P1, method claim; 9 dependents drafted, 4 shown; 9

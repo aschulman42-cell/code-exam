@@ -9,6 +9,18 @@ something, it means exactly that: not found in the pages listed below. It is not
 about what Understand's API or plugins could be scripted to do, which was not tested. The
 comparison is between documented, out-of-the-box workflows, as of the dates given.*
 
+## Contents
+
+<!-- contents:start -->
+- [1. Who this is for](#1-who-this-is-for)
+- [2. Where the two overlap](#2-where-the-two-overlap)
+- [3. Two features that share a name](#3-two-features-that-share-a-name)
+- [4. Some CodeExam differences](#4-some-codeexam-differences)
+- [5. What Understand does that CodeExam does not](#5-what-understand-does-that-codeexam-does-not)
+- [6. Using both in one review](#6-using-both-in-one-review)
+- [7. Sources](#7-sources)
+<!-- contents:end -->
+
 ## 1. Who this is for
 
 Understand is probably the code-comprehension tool most source-code examiners already have,

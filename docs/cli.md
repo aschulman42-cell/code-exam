@@ -15,6 +15,27 @@ This file is the canonical reference for every CodeExam command-line flag.
 
 ---
 
+## Contents
+
+<!-- contents:start -->
+- [Conventions](#conventions)
+- [INDEX MANAGEMENT](#index-management)
+- [SEARCH](#search)
+- [BROWSE](#browse)
+- [CALLERS / CALLEES](#callers--callees)
+- [GRAPH](#graph)
+- [METRICS / DISCOVERY](#metrics--discovery)
+- [DISPLAY / FILTERING](#display--filtering)
+- [MODE](#mode)
+- [CLAIM SEARCH (LLM-based)](#claim-search-llm-based)
+- [LLM ANALYSIS](#llm-analysis)
+- [EXTENDED EXTRACTION](#extended-extraction)
+- [DEDUP / DUPLICATES](#dedup--duplicates)
+- [CONTENT ANALYSIS](#content-analysis)
+- [COUPLINGS — observed irregularities](#couplings--observed-irregularities)
+- [Out of scope for this first-pass catalog](#out-of-scope-for-this-first-pass-catalog)
+<!-- contents:end -->
+
 ## Conventions
 
 - `<value>` — required argument

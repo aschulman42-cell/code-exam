@@ -10,6 +10,21 @@ something. The feature's history is issue #27
 (https://github.com/aschulman42-cell/code-exam/issues/27); a code examiner's version of the
 worked example is on [`SOURCE_CODE_PROTECTIVE_ORDERS.md`](SOURCE_CODE_PROTECTIVE_ORDERS.md).
 
+## Contents
+
+<!-- contents:start -->
+- [Three words](#three-words)
+- [Why dependencies matter to a code examination](#why-dependencies-matter-to-a-code-examination)
+- [Every dependency-related feature, in one table](#every-dependency-related-feature-in-one-table)
+- [Dependencies that are not packages: the services the code talks to](#dependencies-that-are-not-packages-the-services-the-code-talks-to)
+- [Internal dependencies: what the code depends upon inside itself](#internal-dependencies-what-the-code-depends-upon-inside-itself)
+- [How a dependency is classified](#how-a-dependency-is-classified)
+- [A worked example: CodeExam's own tree](#a-worked-example-codeexams-own-tree)
+- [Issue #27, then and now](#issue-27-then-and-now)
+- [What a Gemini Notebook review got right, and what moved](#what-a-gemini-notebook-review-got-right-and-what-moved)
+- [What is not done, and how a complete-looking list can miss something](#what-is-not-done-and-how-a-complete-looking-list-can-miss-something)
+<!-- contents:end -->
+
 ## Three words
 
 **Imports** are what the code *names*. An import is a site — a file and a line — where the

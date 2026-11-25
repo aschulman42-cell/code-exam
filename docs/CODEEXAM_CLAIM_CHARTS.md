@@ -54,6 +54,23 @@ the dated examples and the self-test. Four working pages,
 length; the intent is to retire those four once the tests page carries what they hold, which
 it does not yet.
 
+## Contents
+
+<!-- contents:start -->
+- [Terms](#terms)
+- [1. What a CodeExam claim chart is, and is not](#1-what-a-codeexam-claim-chart-is-and-is-not)
+- [2. What you can do today](#2-what-you-can-do-today)
+- [3. How well it works](#3-how-well-it-works)
+- [4. Tested against real filings, in brief](#4-tested-against-real-filings-in-brief)
+- [5. The self-test, in three sentences](#5-the-self-test-in-three-sentences)
+- [6. The realistic goal](#6-the-realistic-goal)
+- [7. CodeExam's distance from that goal (as of 2026-11-09)](#7-codeexams-distance-from-that-goal-as-of-2026-11-09)
+- [8. Getting to the goal](#8-getting-to-the-goal)
+- [9. Some clarifications](#9-some-clarifications)
+- [10. Other AI tools that draft claim charts](#10-other-ai-tools-that-draft-claim-charts)
+- [11. Related](#11-related)
+<!-- contents:end -->
+
 ## Terms
 
 **The words on this page are defined once, on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).**

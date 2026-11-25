@@ -12,6 +12,18 @@ in [`GETTING_STARTED.md`](GETTING_STARTED.md); this page describes what the inte
 source panes; a diagram pane and the tabbed Analysis / Console / Chat pane on the right; and the
 Claim / Multisect Workspace across the bottom. (September 2026.)*
 
+## Contents
+
+<!-- contents:start -->
+- [The layout](#the-layout)
+- [The left pane: browse, catalogs, and duplicates](#the-left-pane-browse-catalogs-and-duplicates)
+- [Following the code](#following-the-code)
+- [Chat](#chat)
+- [Everything the CLI can do](#everything-the-cli-can-do)
+- [Symbols & notation](#symbols--notation)
+- [Related](#related)
+<!-- contents:end -->
+
 ## The layout
 
 The GUI is organized into a menu bar and several panes:

@@ -12,6 +12,21 @@ that a list would triple in length. The words these pages grew, anchor, ladder, 
 the fourteen and the rest, are defined on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md); the
 first section names the ones this page leans on.*
 
+## Contents
+
+<!-- contents:start -->
+- [Terms](#terms)
+- [The two populations, and the measured shape of a litigated claim 1 (2026-10-19)](#the-two-populations-and-the-measured-shape-of-a-litigated-claim-1-2026-10-19)
+- [Three tiers of test, and the negative control](#three-tiers-of-test-and-the-negative-control)
+- [Real-world claim charts that cite code (the RECAP search of 2026-10-20)](#real-world-claim-charts-that-cite-code-the-recap-search-of-2026-10-20)
+- [The agreement test on the fourteen filings (2026-10-21 and 2026-10-22)](#the-agreement-test-on-the-fourteen-filings-2026-10-21-and-2026-10-22)
+- [Dated examples (2026-08 to 2026-10)](#dated-examples-2026-08-to-2026-10)
+- [One sample: what a rerun moves (2026-10-23)](#one-sample-what-a-rerun-moves-2026-10-23)
+- [The self-test (HOF), and the bottom line for claim-to-code association](#the-self-test-hof-and-the-bottom-line-for-claim-to-code-association)
+- [Documentation coverage (2026-10-21 and 2026-10-23)](#documentation-coverage-2026-10-21-and-2026-10-23)
+- [Related](#related)
+<!-- contents:end -->
+
 ## Terms
 
 **The words on this page are defined once, on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).**

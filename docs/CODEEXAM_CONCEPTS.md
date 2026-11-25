@@ -14,16 +14,18 @@ useful first look. It is not a list of everything that matters.
 
 ## Contents
 
-1. [Where you see concepts](#1-where-you-see-concepts)
-2. [What a concept is, and three uses of the word](#2-what-a-concept-is-and-three-uses-of-the-word)
-3. [How CodeExam finds them](#3-how-codeexam-finds-them)
-4. [Concepts and vocabulary](#4-concepts-and-vocabulary)
-5. [What concepts are for](#5-what-concepts-are-for)
-6. [How accurate they are](#6-how-accurate-they-are)
-7. [Too much and too little: the balance](#7-too-much-and-too-little-the-balance)
-8. [Where "Potentially important files" comes from](#8-where-potentially-important-files-comes-from)
-9. [Known defects](#9-known-defects)
-10. [Where a concept's mechanisms sit](#10-where-a-concepts-mechanisms-sit)
+<!-- contents:start -->
+- [1. Where you see concepts](#1-where-you-see-concepts)
+- [2. What a concept is, and three uses of the word](#2-what-a-concept-is-and-three-uses-of-the-word)
+- [3. How CodeExam finds them](#3-how-codeexam-finds-them)
+- [4. Concepts and vocabulary](#4-concepts-and-vocabulary)
+- [5. What concepts are for](#5-what-concepts-are-for)
+- [6. How accurate they are](#6-how-accurate-they-are)
+- [7. Too much and too little: the balance](#7-too-much-and-too-little-the-balance)
+- [8. Where "Potentially important files" comes from](#8-where-potentially-important-files-comes-from)
+- [9. Known defects](#9-known-defects)
+- [10. Where a concept's mechanisms sit](#10-where-a-concepts-mechanisms-sit)
+<!-- contents:end -->
 
 ## 1. Where you see concepts
 

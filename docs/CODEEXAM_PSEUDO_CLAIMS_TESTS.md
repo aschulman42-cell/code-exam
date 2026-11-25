@@ -10,6 +10,22 @@ grew, sidecar, ladder, yardstick, rubric and the rest, are defined on
 [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md); the first section names the ones this page
 leans on.*
 
+## Contents
+
+<!-- contents:start -->
+- [Terms](#terms)
+- [Scoring runs against hand rubrics (2026-10-30 and 2026-10-31)](#scoring-runs-against-hand-rubrics-2026-10-30-and-2026-10-31)
+- [The drafting rules, measured (2026-11-01)](#the-drafting-rules-measured-2026-11-01)
+- [The closing clause can overstate the code (2026-11-02)](#the-closing-clause-can-overstate-the-code-2026-11-02)
+- [The pack census (2026-10-31)](#the-pack-census-2026-10-31)
+- [What the grouper's purpose lines measured (2026-11-03 and 2026-11-04)](#what-the-groupers-purpose-lines-measured-2026-11-03-and-2026-11-04)
+- [Candidate coverage by index (2026-11-03)](#candidate-coverage-by-index-2026-11-03)
+- [What the real-world test says about candidate identification (2026-10-24, rerun 2026-11-02)](#what-the-real-world-test-says-about-candidate-identification-2026-10-24-rerun-2026-11-02)
+- [The real-world yardstick (2026-10-23 and 2026-10-24)](#the-real-world-yardstick-2026-10-23-and-2026-10-24)
+- [Self-test: "huffing our own fumes" (HOF)](#self-test-huffing-our-own-fumes-hof)
+- [Related](#related)
+<!-- contents:end -->
+
 ## Terms
 
 **The words on this page are defined once, on [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).**

@@ -50,6 +50,7 @@ Two limits apply to everything below:
 
 ## Contents
 
+<!-- contents:start -->
 - [Words used on this page](#words-used-on-this-page)
 - [Why try to put mechanisms into clusters?](#why-try-to-put-mechanisms-into-clusters)
 - [What a clustered listing looks like](#what-a-clustered-listing-looks-like)
@@ -64,6 +65,7 @@ Two limits apply to everything below:
 - [Related published work](#related-published-work)
 - [Where the figures come from](#where-the-figures-come-from)
 - [Related](#related)
+<!-- contents:end -->
 
 ## Words used on this page
 

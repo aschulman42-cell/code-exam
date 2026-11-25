@@ -12,6 +12,16 @@ provisions, in detail; and where CodeExam fits, stated in the orders' own terms.
 describes orders and the tool. It is not legal advice, and it does not propose order
 language; that is counsel's work.
 
+## Contents
+
+<!-- contents:start -->
+- [1. What a source-code protective order does](#1-what-a-source-code-protective-order-does)
+- [2. Source-code PO basics, from some useful articles](#2-source-code-po-basics-from-some-useful-articles)
+- [3. AI provisions in protective orders, 2025–2026](#3-ai-provisions-in-protective-orders-20252026)
+- [4. Where CodeExam fits](#4-where-codeexam-fits)
+- [5. Sources](#5-sources)
+<!-- contents:end -->
+
 ## 1. What a source-code protective order does
 
 Two model orders set the pattern. The **Northern District of California's model protective

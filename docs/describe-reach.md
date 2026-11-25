@@ -8,6 +8,22 @@ history and [#359](https://github.com/aschulman42-cell/code-exam/issues/359) the
 index as a retrieval unit; the question in Andrew's words (2026-11-05): the semantic route
 keeps looking like "the real obvious solution", so where is the untested version of it?*
 
+## Contents
+
+<!-- contents:start -->
+- [The question](#the-question)
+- [Method](#method)
+- [Results, descriptions as the text (2026-11-05)](#results-descriptions-as-the-text-2026-11-05)
+- [Reading](#reading)
+- [A second describer (2026-11-05)](#a-second-describer-2026-11-05)
+- [Chunked labels, eight indexes (2026-11-05)](#chunked-labels-eight-indexes-2026-11-05)
+- [Retrieve, then choose (2026-11-06)](#retrieve-then-choose-2026-11-06)
+- [Phase 2, the litigants' charts (2026-11-06)](#phase-2-the-litigants-charts-2026-11-06)
+- [Register, not breadth (2026-11-06)](#register-not-breadth-2026-11-06)
+- [Runtime and artifacts](#runtime-and-artifacts)
+- [Not run](#not-run)
+<!-- contents:end -->
+
 ## The question
 
 Every embedding test before this one ([`embedding-reach.md`](embedding-reach.md); the ladder

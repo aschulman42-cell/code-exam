@@ -52,6 +52,7 @@ as with pseudo-claims, a GUI control is planned and not built.
 
 ## Contents
 
+<!-- contents:start -->
 - [This is a different kind of search: nearest, not matching](#this-is-a-different-kind-of-search-nearest-not-matching)
 - [What "embedding" means here](#what-embedding-means-here)
 - [Using it](#using-it)
@@ -68,6 +69,7 @@ as with pseudo-claims, a GUI control is planned and not built.
 - [What has been tested, and what has not](#what-has-been-tested-and-what-has-not)
 - [The self-test (HOF) and semantic search](#the-self-test-hof-and-semantic-search)
 - [Related](#related)
+<!-- contents:end -->
 
 ## What "embedding" means here
 
@@ -472,8 +474,6 @@ ce --ndx .CE --show-function-text --text-has "air gapped"  functions whose text 
 
 `--text-has` looks in the text, not the source: identifiers are there as words, so
 `airGapped` in the code is `air gapped` in the text. It takes a `/regex/` too.
-
-```
 
 ```
 src/core/air-gapped.js@assertLocalOnly  (L37-45; in m2 m7 m12 m185)

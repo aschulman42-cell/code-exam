@@ -15,6 +15,20 @@
 rubric scores, are on [`CODEEXAM_PSEUDO_CLAIMS_TESTS.md`](CODEEXAM_PSEUDO_CLAIMS_TESTS.md);
 "How well it works" below is the one-line version of each.*
 
+## Contents
+
+<!-- contents:start -->
+- [What it is](#what-it-is)
+- [Terms](#terms)
+- [A quick example (illustrative)](#a-quick-example-illustrative)
+- [Running it (CLI)](#running-it-cli)
+- [How candidates are identified (and what it does not promise)](#how-candidates-are-identified-and-what-it-does-not-promise)
+- [How well it works](#how-well-it-works)
+- [Notes, roadmap, and related issues](#notes-roadmap-and-related-issues)
+- [The self-test, in three sentences](#the-self-test-in-three-sentences)
+- [See also](#see-also)
+<!-- contents:end -->
+
 ## What it is
 
 `--pseudo-claims` drafts one illustrative patent-style claim per **mechanism** — a

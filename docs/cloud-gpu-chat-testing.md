@@ -14,6 +14,24 @@ necessarily today's.
 
 ---
 
+## Contents
+
+<!-- contents:start -->
+- [Constraints that shape the recipe](#constraints-that-shape-the-recipe)
+- [RunPod vs Vast.ai](#runpod-vs-vastai)
+- [GPU / model sizing](#gpu--model-sizing)
+- [Step 1 — create the pod (you, in the RunPod console)](#step-1--create-the-pod-you-in-the-runpod-console)
+- [Step 2 — on-box setup (agent-drivable over SSH)](#step-2--on-box-setup-agent-drivable-over-ssh)
+- [Step 3 — chat](#step-3--chat)
+- [What to look for](#what-to-look-for)
+- [First-run findings (2026-07-01, RunPod RTX 4090 24 GB)](#first-run-findings-2026-07-01-runpod-rtx-4090-24-gb)
+- [Cross-model matrix (2026-07-01/02: RTX 4090 24 GB, RTX A6000 48 GB, RTX A4000 16 GB)](#cross-model-matrix-2026-07-0102-rtx-4090-24-gb-rtx-a6000-48-gb-rtx-a4000-16-gb)
+- [Cross-family matrix (2026-07-02, RTX 4090 24 GB)](#cross-family-matrix-2026-07-02-rtx-4090-24-gb)
+- [Qwen3.5 generational update + Gemma re-test (2026-07-02)](#qwen35-generational-update--gemma-re-test-2026-07-02)
+- [Models too big for the laptop — RunPod feasibility](#models-too-big-for-the-laptop--runpod-feasibility)
+- [Cost and teardown](#cost-and-teardown)
+<!-- contents:end -->
+
 ## Constraints that shape the recipe
 
 - CodeExam loads the GGUF **in-process** via node-llama-cpp (pinned at `3.22.1`), so

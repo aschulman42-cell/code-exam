@@ -26,6 +26,22 @@
 > single entry with a **CLI** and a **GUI** note inline. Purely-GUI rough edges
 > are grouped at the end.
 
+## Contents
+
+<!-- contents:start -->
+- [How do I list all the functions in one file?](#how-do-i-list-all-the-functions-in-one-file)
+- [I just want an AI to explain this code to me](#i-just-want-an-ai-to-explain-this-code-to-me)
+- [I'm in the GUI, want Chat or Analyze, but didn't set an API key](#im-in-the-gui-want-chat-or-analyze-but-didnt-set-an-api-key)
+- [The output isn't alphabetical — how do I sort it?](#the-output-isnt-alphabetical--how-do-i-sort-it)
+- [I see "… +N more" — how do I get *all* the results? (and why grep doesn't see results I know must be there)](#i-see--n-more--how-do-i-get-all-the-results-and-why-grep-doesnt-see-results-i-know-must-be-there)
+- [How do I get a file's real path on disk? `--full-path` only gives the in-index path](#how-do-i-get-a-files-real-path-on-disk---full-path-only-gives-the-in-index-path)
+- [A path or `file@func` I copied won't resolve when I pass it back in](#a-path-or-filefunc-i-copied-wont-resolve-when-i-pass-it-back-in)
+- [Short names get renamed even in clean code; `--no-rename` only hides it](#short-names-get-renamed-even-in-clean-code---no-rename-only-hides-it)
+- [`--build-index` died with "JavaScript heap out of memory"](#--build-index-died-with-javascript-heap-out-of-memory)
+- [A protective order says AI tools must be "fully containerized". Does CodeExam qualify?](#a-protective-order-says-ai-tools-must-be-fully-containerized-does-codeexam-qualify)
+- [GUI-only rough edges](#gui-only-rough-edges)
+<!-- contents:end -->
+
 ## How do I list all the functions in one file?
 
 **Q.** I want every function in `FooBar.c`. `--functions FooBar` seemed to work

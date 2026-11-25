@@ -9,6 +9,19 @@ feature page: what mechanisms are, how they are found, how to read them, what th
 for. The measurements live on their own pages and are linked, not reproduced. Terminal output
 quoted here is wrapped to fit the page; the terminal prints each row on one line.*
 
+## Contents
+
+<!-- contents:start -->
+- [What a mechanism is](#what-a-mechanism-is)
+- [How mechanisms are discovered](#how-mechanisms-are-discovered)
+- [How to read a label](#how-to-read-a-label)
+- [Descriptions, optional](#descriptions-optional)
+- [What mechanisms are used for](#what-mechanisms-are-used-for)
+- [What it adds to an index](#what-it-adds-to-an-index)
+- [Limits](#limits)
+- [How well it works](#how-well-it-works)
+<!-- contents:end -->
+
 ## What a mechanism is
 
 A mechanism is a group of functions that belong together by one of a few deterministic

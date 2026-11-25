@@ -12,6 +12,50 @@ and its front-page links:
 that succeeds it. B: the specification for chart *content* — mostly CodeClaim
 territory, some of it already CE's.
 
+## Contents
+
+<!-- contents:start compact -->
+[How to read the markers](#how-to-read-the-markers) ·
+[Sources and their state](#sources-and-their-state) ·
+[A1. The core act](#a1-the-core-act) ·
+[A2. Primary dividers](#a2-primary-dividers) ·
+[A3. The preamble — CE's largest measured defect](#a3-the-preamble--ces-largest-measured-defect) ·
+[A4. Method claims and steps](#a4-method-claims-and-steps) ·
+[A5. Sub-limitations](#a5-sub-limitations) ·
+[A6. Clauses that DO begin a limitation](#a6-clauses-that-do-begin-a-limitation) ·
+[A7. Clauses and words that do NOT divide](#a7-clauses-and-words-that-do-not-divide) ·
+[A8. Choices and alternatives](#a8-choices-and-alternatives) ·
+[A9. Open vs closed claiming](#a9-open-vs-closed-claiming) ·
+[A10. Negative limitations](#a10-negative-limitations) ·
+[A11. Means-plus-function (35 USC 112(f))](#a11-means-plus-function-35-usc-112f) ·
+[A12. Claim construction changes the parse](#a12-claim-construction-changes-the-parse) ·
+[A13. Cross-claim parsing](#a13-cross-claim-parsing) ·
+[A14. Granularity — the standing tension](#a14-granularity--the-standing-tension) ·
+[A16. Interrelation — the machinery exists and the chart never calls it](#a16-interrelation--the-machinery-exists-and-the-chart-never-calls-it) ·
+[A17. Dependent claims — CE has no handling at all](#a17-dependent-claims--ce-has-no-handling-at-all) ·
+[A18. Formulas, equations, mathematics](#a18-formulas-equations-mathematics) ·
+[A19. External elements — limitations whose content is not in the claim](#a19-external-elements--limitations-whose-content-is-not-in-the-claim) ·
+[A15. Designation and numbering](#a15-designation-and-numbering) ·
+[B1. Structure and format](#b1-structure-and-format) ·
+[B2. The RHC — three mandatory components](#b2-the-rhc--three-mandatory-components) ·
+[B3. Pinpointing and specificity](#b3-pinpointing-and-specificity) ·
+[B4. Naming and nomenclature](#b4-naming-and-nomenclature) ·
+[B5. Evidence types and hierarchy](#b5-evidence-types-and-hierarchy) ·
+[B6. Source code — CE's home ground](#b6-source-code--ces-home-ground) ·
+[B7. Claim construction in the chart](#b7-claim-construction-in-the-chart) ·
+[B8. Structuring the comparison](#b8-structuring-the-comparison) ·
+[B9. Subheadings and organisation](#b9-subheadings-and-organisation) ·
+[B10. Multiple patents, products, references](#b10-multiple-patents-products-references) ·
+[B11. Named claim-chart defects](#b11-named-claim-chart-defects) ·
+[B12. Chart types](#b12-chart-types) ·
+[B13. Purpose and standard](#b13-purpose-and-standard) ·
+[B14. Procedure, timing, amendment](#b14-procedure-timing-amendment) ·
+[B15. Pre-filing investigation](#b15-pre-filing-investigation) ·
+[B16. Dates](#b16-dates) ·
+[B17. Confidentiality](#b17-confidentiality) ·
+[B18. Tone](#b18-tone)
+<!-- contents:end -->
+
 ## How to read the markers
 
 | marker | meaning |

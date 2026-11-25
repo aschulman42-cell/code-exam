@@ -16,6 +16,17 @@ given; **the judge** is this page's own comparison of a drafted claim with an as
 call made by `scripts/recap-chart-drafter-ceiling.mjs` (its `compare` step), not a CodeExam
 command; **the locator** is `--claim-locate`.
 
+## Contents
+
+<!-- contents:start -->
+- [The question](#the-question)
+- [The method](#the-method)
+- [Results](#results)
+- [Reading the rows](#reading-the-rows)
+- [The other half: CodeExam's own groups as the seed](#the-other-half-codeexams-own-groups-as-the-seed)
+- [Caveats](#caveats)
+<!-- contents:end -->
+
 ## The question
 
 Given the very functions one party says practice the claim, does CodeExam's pseudo-claim

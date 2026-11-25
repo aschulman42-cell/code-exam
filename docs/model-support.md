@@ -31,6 +31,17 @@ Reference hardware for the verdicts below: RTX 5080 (16 GB) unless a
 cell says otherwise. Cloud engines (Claude/GPT/Gemini) are the reference
 column, not the subject of this table.
 
+## Contents
+
+<!-- contents:start -->
+- [The determinism boundary — every place a model touches CE output](#the-determinism-boundary--every-place-a-model-touches-ce-output)
+- [The matrix (status 2026-09-08 — K_M and Devstral columns complete, every cell evidenced)](#the-matrix-status-2026-09-08--k_m-and-devstral-columns-complete-every-cell-evidenced)
+- [Receipts](#receipts)
+- [Matrix notes — patterns the cells share](#matrix-notes--patterns-the-cells-share)
+- [Embedding models (`--semantic-search`, `--embed-distance`)](#embedding-models---semantic-search---embed-distance)
+- [How a cell gets filled](#how-a-cell-gets-filled)
+<!-- contents:end -->
+
 ## The determinism boundary — every place a model touches CE output
 
 The claim this section makes, and the reason it exists: **the entry

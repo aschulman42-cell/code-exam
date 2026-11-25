@@ -11,6 +11,18 @@ read off the code or an index on 2026-11-13; the files and lines are in the Sour
 mechanics of building an index are on [`CODEEXAM_INDEXES.md`](CODEEXAM_INDEXES.md); the
 dependency features' own page is [`CODEEXAM_MAPPING_DEPENDENCIES.md`](CODEEXAM_MAPPING_DEPENDENCIES.md).
 
+## Contents
+
+<!-- contents:start -->
+- [The short version](#the-short-version)
+- [One table, language by feature](#one-table-language-by-feature)
+- [Per language, where there is something to say](#per-language-where-there-is-something-to-say)
+- [Testing actually done](#testing-actually-done)
+- [What is not done](#what-is-not-done)
+- [Sources](#sources)
+- [Related](#related)
+<!-- contents:end -->
+
 ## The short version
 
 - **The grammar tier (16 grammars, 15 languages, 2026-11-13).** C, C++, Java, JavaScript,

@@ -10,6 +10,25 @@ here is one entry of the mechanisms index (`mechanisms.json`): a labeled group o
 an entry or a group. Seed, floor and cover are defined on
 [`CODEEXAM_JARGON.md`](CODEEXAM_JARGON.md).*
 
+## Contents
+
+<!-- contents:start -->
+- [The bottom line, here at the top (2026-11-14)](#the-bottom-line-here-at-the-top-2026-11-14)
+- [Do the functions a litigant cites for a claim sit together? (2026-11-14)](#do-the-functions-a-litigant-cites-for-a-claim-sit-together-2026-11-14)
+- [The same script on CodeExam's own rubric pages (2026-11-14)](#the-same-script-on-codeexams-own-rubric-pages-2026-11-14)
+- [Does text built from the code, with no model, reach a claim limitation? (2026-11-14)](#does-text-built-from-the-code-with-no-model-reach-a-claim-limitation-2026-11-14)
+- [The label and the function text as one score (2026-11-15)](#the-label-and-the-function-text-as-one-score-2026-11-15)
+- [Found on the way: command mechanisms depend on file order (2026-11-14)](#found-on-the-way-command-mechanisms-depend-on-file-order-2026-11-14)
+- [The command catalog's joins repaired: before and after (2026-11-15)](#the-command-catalogs-joins-repaired-before-and-after-2026-11-15)
+- [The catalog's GUI actions: before and after (2026-11-15)](#the-catalogs-gui-actions-before-and-after-2026-11-15)
+- [Would GUI actions, or routes, seed better mechanisms? (2026-11-15)](#would-gui-actions-or-routes-seed-better-mechanisms-2026-11-15)
+- [A second embedding model: EmbeddingGemma beside nomic (2026-11-15)](#a-second-embedding-model-embeddinggemma-beside-nomic-2026-11-15)
+- [Does rewording a limitation toward the code reach it? (2026-11-16)](#does-rewording-a-limitation-toward-the-code-reach-it-2026-11-16)
+- [Rolling a search's groups up into directories, files and sections (2026-11-19)](#rolling-a-searchs-groups-up-into-directories-files-and-sections-2026-11-19)
+- [The order of `--toc` and `--mechanisms`, and their test rows (2026-11-20)](#the-order-of---toc-and---mechanisms-and-their-test-rows-2026-11-20)
+- [Sections to come](#sections-to-come)
+<!-- contents:end -->
+
 ## The bottom line, here at the top (2026-11-14)
 
 Mechanisms are soundly based as a way to divide code into pieces small enough to label,

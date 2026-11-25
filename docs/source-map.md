@@ -174,6 +174,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `scripts/claim-locate-stability.mjs` — measures run-to-run repeatability of --claim-locate targets
 - `scripts/claim-selftest.mjs` — deterministic offline retrieval regression score against curated anchors
 - `scripts/concepts-recall.mjs` — the accuracy measurement of CODEEXAM_CONCEPTS.md: how many words from a codebase's own README and docs headings are among its concepts (first 12, 24, 50, all), how many are in the vocabulary at all, and which kind each miss is; no model calls
+- `scripts/doc-contents.mjs` — keeps the "## Contents" list at the front of a long docs page equal to the page's own "##" headings; --check reports a stale or missing list and changes nothing
 - `scripts/engine-qualify.mjs` — pass/fails an engine on pinned negative+positive chart sidecars; no model calls
 - `scripts/field-note.mjs` — turns an annotated CE transcript's [[comments]] into a post-ready markdown checklist
 - `scripts/hof.mjs` — the HOF test as ce subprocesses, the form of 2026-11-03, superseded by `ce --hof` and kept until a parity run retires it; the shared parts come from src/core/hof.js
@@ -231,6 +232,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `test/test_dep_claim_rules.js` — dependent-claim malformation rules over real USPTO specimens: parents, taxonomy
 - `test/test_dep_claims.js` — dep-claims chains: parent/root/depth on a real 26-claim family, contribution kinds
 - `test/test_disambiguation.js` — callee name resolution: self/this, explicit qualification, same-class, inheritance
+- `test/test_doc_contents.js` — every "## Contents" list under docs/ matches its page's "##" headings, and every page of 300 lines and five sections has one or is a named exception; the anchor and list arithmetic of scripts/doc-contents.mjs
 - `test/test_embed_reach_score.js` — embed-reach scorer: .npy reading, cosine ranks with ties, best rank across elements, hits within k, the shuffled control pairing, rollup, render and splice
 - `test/test_engine_qualify.js` — engine-qualify scorer: negative/positive pass rules, strongest-per-element rows
 - `test/test_explainability.js` — explainability cell: import gating, kinds, variants, data/prose file skip

@@ -7,6 +7,16 @@ and records what the test measures. The score is **agreement with a party**: a c
 advocacy, so a match is not correctness, and a CodeExam pick outside the litigant's set is
 different, not wrong, until a person reads it.
 
+## Contents
+
+<!-- contents:start -->
+- [The test](#the-test)
+- [The fourteen](#the-fourteen)
+- [Results](#results)
+- [Caveats](#caveats)
+- [Related](#related)
+<!-- contents:end -->
+
 ## The test
 
 For each filing: clone the cited repository at the commit the filing's links pin, or at the

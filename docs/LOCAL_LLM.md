@@ -19,6 +19,21 @@ Newer Chinese open-source models that were too large for our standard GPU test
 laptop (an RTX 5080 with 16 GB) are covered in
 [cloud-gpu-chat-testing.md](cloud-gpu-chat-testing.md).
 
+## Contents
+
+<!-- contents:start -->
+- [Running a local model](#running-a-local-model)
+- [What are these GGUF files, and how does CodeExam use them?](#what-are-these-gguf-files-and-how-does-codeexam-use-them)
+- [Getting a model](#getting-a-model)
+- [Which models are supported](#which-models-are-supported)
+- [Hardware realities](#hardware-realities)
+- [The inference engine (node-llama-cpp), and why its version is pinned](#the-inference-engine-node-llama-cpp-and-why-its-version-is-pinned)
+- [Pinning a run for a repeatable answer](#pinning-a-run-for-a-repeatable-answer)
+- [What to rely on it for — and what to use the cloud for](#what-to-rely-on-it-for--and-what-to-use-the-cloud-for)
+- [Air-gapped operation](#air-gapped-operation)
+- [Related](#related)
+<!-- contents:end -->
+
 ## Running a local model
 
 Two flags choose the engine:
