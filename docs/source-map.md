@@ -96,7 +96,7 @@ grammars are inventoried, with their licences, in `THIRD-PARTY-NOTICES.md`.
 - `src/core/claim-genericity.js` — scores a claim element generic-bookend vs mechanism via I/O-verb shape and corpus word frequency
 - `src/core/claim-terms.js` — shared claim tokenizer: stop list, acronym rule, stemmer, and TF-IDF pick of distinctive claim words
 - `src/core/client-server.js` — detects declared HTTP routes and client calls, then reconciles them to flag missing server code
-- `src/core/local-chat-tools.js` — resolves the local GUI Chat's tool menu: the curated eight-tool core, or the CE_LOCAL_CHAT_TOOLS override (all / +names / names), with a startup note when the menu is unmeasured
+- `src/core/local-chat-tools.js` — resolves the local GUI Chat's tool menu: the curated core, or the CE_LOCAL_CHAT_TOOLS override (all / +names / names), with a startup note when the menu is unmeasured
 - `src/core/copyrights.js` — copyright/license notice harvest: holders normalized and counted, a first-vs-third presumption from counts, license documents apart
 - `src/core/credential-mask.js` — masks credential values in tool output while keeping file, line and identifier visible
 - `src/core/data-structs.js` — finds struct/enum/union/typedef/interface/record definitions per language and ranks them by references

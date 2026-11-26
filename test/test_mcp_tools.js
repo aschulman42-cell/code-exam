@@ -86,8 +86,10 @@ describe('chat-essential MCP tools', () => {
     assert.match(t.description, /after overview/i);
     assert.match(handleTool('capabilities', {}), /\bconcepts\b/);
     assert.match(handleTool('overview', {}), /`concepts`/);
-    // not in the two measured menus: the local Chat's core and the Overview by AI's
-    assert.ok(!CURATED_LOCAL_CHAT_TOOLS.includes('concepts'));
+    // concepts-in-local-chat-menu (2026-11-25): in the local model's menu since then (the
+    // overview's next steps name it, and a local model could not call it); still not in the
+    // Overview by AI's menu, whose run already receives the concepts inside `overview`.
+    assert.ok(CURATED_LOCAL_CHAT_TOOLS.includes('concepts'));
     assert.ok(!AI_OVERVIEW_TOOL_NAMES.includes('concepts'));
   });
 

@@ -105,10 +105,11 @@ Related flags (local GGUF only unless noted):
   the equivalent is the `CE_DISABLE_LOCAL_REASONING=1` environment variable, handy
   for scripted or wrapper launches (set it before starting CodeExam).
 - **`CE_LOCAL_CHAT_TOOLS`** — the GUI Chat's tool menu for a local model. Unset,
-  the local Chat sees a curated core of nine tools (`search`, `extract`,
+  the local Chat sees a curated core of ten tools (`search`, `extract`,
   `show_file`, `callers`, `callees`, `digest`, `overview`, `list_functions`,
-  and since 2026-11-03 `list_mechanisms`, a file read that joined the eight-tool
-  menu measured to work for 8B–14B models unmeasured; see
+  since 2026-11-03 `list_mechanisms`, and since 2026-11-25 `concepts`, which
+  `overview` tells the model to call next; the last two joined the eight-tool
+  menu measured to work for 8B–14B models and are themselves unmeasured; see
   [cloud-gpu-chat-testing.md](cloud-gpu-chat-testing.md)); the cloud engines get
   every tool. These are the MCP server's own tools, the one `TOOLS` table in
   `src/mcp-server.js`, called in-process by the local model rather than over the

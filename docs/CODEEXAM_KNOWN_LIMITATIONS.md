@@ -36,7 +36,7 @@ plainly:
   same loops and is unmeasured as a surface), and the weak-navigator limit above is why the
   answers vary by model. The claim tools (`claim_elements`, `claim_candidates`,
   `capabilities`) reach Claude Desktop and the cloud Chat only: the local Chat, GUI and CLI
-  alike, keeps its curated eight-tool menu, the one measured to work, so a local model does
+  alike, keeps its curated ten-tool menu (eight measured to work, plus `list_mechanisms` and `concepts`, unmeasured), so a local model does
   not reach them unless started with
   `CE_LOCAL_CHAT_TOOLS=+claim_elements,claim_candidates,capabilities`, an unmeasured menu (see
   [`LOCAL_LLM.md`](LOCAL_LLM.md)).

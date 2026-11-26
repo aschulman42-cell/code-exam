@@ -9,10 +9,13 @@
 // 8B/14B collapse to zero calls or garbage args at the full menu; even 32B
 // args degrade). This core is the menu measured to work; it is the product.
 // list_mechanisms joined on 2026-11-03 (mechanisms-index-prebuild-cli-gui):
-// a file read, cheap for a local model, but the nine-tool menu is unmeasured
-// against the eight-tool core the matrix was run on.
+// a file read, cheap for a local model. concepts joined on 2026-11-25
+// (concepts-in-local-chat-menu): the overview tool's "Next" lines tell the
+// model to call it, and a local model could not. Neither was measured: the
+// ten-tool menu is unmeasured against the eight-tool core the matrix was run
+// on. If a run on a local model shows a loss, concepts is the one to take back.
 export const CURATED_LOCAL_CHAT_TOOLS = ['search', 'extract', 'show_file', 'callers',
-  'callees', 'digest', 'overview', 'list_functions', 'list_mechanisms'];
+  'callees', 'digest', 'overview', 'concepts', 'list_functions', 'list_mechanisms'];
 
 /**
  * Resolve the tool names the local Chat exposes.

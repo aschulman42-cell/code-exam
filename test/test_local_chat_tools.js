@@ -29,6 +29,15 @@ describe('resolveLocalChatTools', () => {
     for (const n of CURATED_LOCAL_CHAT_TOOLS) assert.ok(REG.includes(n), `${n} not in TOOLS`);
   });
 
+  // concepts-in-local-chat-menu (2026-11-25): the overview tool's "Next" lines tell the model
+  // to call `concepts`, so a local model has to be able to.
+  it('the core holds concepts, the tool the overview points to, and the menu is ten', () => {
+    assert.ok(CURATED_LOCAL_CHAT_TOOLS.includes('concepts'));
+    assert.ok(CURATED_LOCAL_CHAT_TOOLS.includes('overview'));
+    assert.equal(CURATED_LOCAL_CHAT_TOOLS.length, 10);
+    assert.equal(new Set(CURATED_LOCAL_CHAT_TOOLS).size, 10);
+  });
+
   it('"all" exposes every registered tool and says the menu is unmeasured', () => {
     const r = resolveLocalChatTools('all', REG);
     assert.equal(r.names.length, REG.length);
